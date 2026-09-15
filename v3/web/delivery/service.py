@@ -25,7 +25,7 @@ from web.delivery.workbook_parity import (
     run_parity_files,
 )
 from web.jobs.trace import raise_if_cancelled, step as job_step
-from web.reporting.export import build_workbook
+from web.reporting.export import build_workbook_bundle
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
@@ -99,8 +99,13 @@ class DeliveryService:
             )
         raise_if_cancelled()
         job_step("workbook", "building xlsx")
-        xlsx = build_workbook(payload, layout)
-        job_step("workbook", f"{len(xlsx)} bytes")
+        bundle = build_workbook_bundle(payload, layout)
+        xlsx = bundle.main
+        job_step(
+            "workbook",
+            f"{len(xlsx)} bytes main"
+            + (f"; {len(bundle.extras)} companion file(s)" if bundle.extras else ""),
+        )
         self._maybe_parity(
             report_key=report_key, payload=outcome.payload, layout=layout,
             compare_layout=compare_layout, delivered_xlsx=xlsx,
@@ -124,6 +129,28 @@ class DeliveryService:
             to = empty_recipients_override
             cc = ""
             bcc = ""
+        companions: list[tuple[str, bytes]] = []
+        if bundle.extras:
+            base, dot, ext = filename.rpartition(".")
+            if not dot:
+                base, ext = filename, "xlsx"
+            for part in bundle.extras:
+                companions.append((f"{base}__{part.stem}.{ext}", part.data))
+                job_step(
+                    "workbook",
+                    f"companion ready {base}__{part.stem}.{ext} "
+                    f"({part.row_count} rows, {len(part.data)} bytes)",
+                )
+            note = "\n".join(
+                f"- {name} ({part.row_count} rows)"
+                for (name, _), part in zip(companions, bundle.extras)
+            )
+            body_text = (
+                (body_text or "").rstrip()
+                + "\n\nLarge sheets were written as separate files in the same folder:\n"
+                + note
+                + "\n"
+            ).lstrip()
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=to, body_text=body_text,
             report_name=report_name, filename=filename, xlsx_bytes=xlsx,
@@ -132,6 +159,7 @@ class DeliveryService:
             cc_raw=cc or "", bcc_raw=bcc or "",
             subject_template=subject_template, body_html_template=body_html_template,
             schedule_name=schedule_name, params=params or {},
+            companion_files=companions or None,
         )
         return DeliveryOutcome(result=result, row_count=rows)
 

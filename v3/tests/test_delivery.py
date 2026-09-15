@@ -954,3 +954,57 @@ def test_graph_app_token_skips_fetch_until_expiry():
     tok._valid_until = 0
     assert tok.get(http) == "t2"
     assert http.posts == 2
+
+
+def test_deliver_uploads_companion_files_next_to_main(tmp_path):
+    """Oversized-tab companions land in the same SharePoint folder as the main file."""
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    uploaded = []
+
+    def up(folder, name, content):
+        uploaded.append((folder, name, len(content)))
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    companions = [("Ordered_YTD__Full_Data.xlsx", b"PKCOMPANION")]
+    res = svc.deliver(
+        subject="YTD Ordered", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="Ordered_YTD.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=companions,
+    )
+    assert res.ok
+    assert uploaded == [
+        ("Ordered/YTD", "Ordered_YTD.xlsx", 6),
+        ("Ordered/YTD", "Ordered_YTD__Full_Data.xlsx", 11),
+    ]
+    # Companions are never Graph attachments — folder only.
+    assert graph.calls[0]["xlsx_bytes"] == b"PKMAIN"
+    assert graph.calls[0]["filename"] == "Ordered_YTD.xlsx"
+
+
+def test_deliver_companion_failure_marks_folder_incomplete(tmp_path):
+    """If a companion fails, SharePoint-only delivery fails (main alone is incomplete)."""
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+
+    def up(folder, name, content):
+        if "Full_Data" in name:
+            raise RuntimeError("companion boom")
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="YTD", recipients_raw="", body_text="",
+        report_name="Ordered", filename="Ordered.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=[("Ordered__Full_Data.xlsx", b"PKBIG")],
+    )
+    assert res.ok is False
+    blob = f"{res.error} {res.sharepoint_error}".lower()
+    assert "boom" in blob or "full_data" in blob

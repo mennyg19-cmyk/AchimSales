@@ -1225,3 +1225,74 @@ def test_export_commission_blocks_use_blue_grey_yellow():
     assert _fill_hex(ws["A12"]).endswith("FFFF00")
     assert _fill_hex(ws["E12"]).endswith("FFFF00")
     assert ws["E12"].value == pytest.approx(7.0)
+
+
+def test_workbook_bundle_splits_oversized_tab_into_companion():
+    """Sheets over the row cap become a companion xlsx; main keeps a stub."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook_bundle
+
+    rows = [{"Item": f"I{i}", "Amt": float(i)} for i in range(120)]
+    payload = {"tabs": [
+        {
+            "key": "summary", "name": "Summary",
+            "columns": [
+                {"field": "Item", "header": "Item", "type": "text"},
+                {"field": "Amt", "header": "Amt", "type": "money"},
+            ],
+            "rows": [{"Item": "a", "Amt": 1.0}],
+        },
+        {
+            "key": "full_data", "name": "Full Data",
+            "columns": [
+                {"field": "Item", "header": "Item", "type": "text"},
+                {"field": "Amt", "header": "Amt", "type": "money"},
+            ],
+            "rows": rows,
+        },
+    ]}
+    bundle = build_workbook_bundle(payload, None, max_sheet_rows=100)
+    assert len(bundle.extras) == 1
+    assert bundle.extras[0].stem == "Full_Data"
+    assert bundle.extras[0].row_count == 120
+
+    main = openpyxl.load_workbook(io.BytesIO(bundle.main))
+    assert set(main.sheetnames) == {"Summary", "Full Data"}
+    stub = main["Full Data"]
+    assert stub["A1"].value == "Note"
+    assert "companion" in str(stub["A2"].value).lower()
+    assert "Full_Data" in str(stub["A2"].value)
+    assert stub.max_row <= 3  # note (+ optional empty Total)
+
+    companion = openpyxl.load_workbook(io.BytesIO(bundle.extras[0].data))
+    assert companion.sheetnames == ["Full Data"]
+    # header + 120 data rows (+ optional Total)
+    assert companion["Full Data"].max_row >= 121
+
+
+def test_workbook_bundle_noop_under_cap():
+    from web.reporting.export import build_workbook_bundle
+
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [{"field": "a", "header": "A", "type": "text"}],
+        "rows": [{"a": "x"}],
+    }]}
+    bundle = build_workbook_bundle(payload, None, max_sheet_rows=100)
+    assert bundle.extras == ()
+    assert len(bundle.main) > 0
+
+
+def test_workbook_bundle_clears_huge_rows_before_main():
+    """After companions are written, oversized tab rows lists are emptied."""
+    pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook_bundle
+
+    tab = {
+        "key": "full_data", "name": "Full Data",
+        "columns": [{"field": "a", "header": "A", "type": "text"}],
+        "rows": [{"a": str(i)} for i in range(50)],
+    }
+    payload = {"tabs": [tab]}
+    bundle = build_workbook_bundle(payload, None, max_sheet_rows=20)
+    assert bundle.extras and tab["rows"] == []

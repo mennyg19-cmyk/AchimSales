@@ -15,6 +15,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import zipfile
+from io import BytesIO
 
 from web.auth.authorization import Authorization
 from web.data.repositories.exports import ExportRepository
@@ -22,7 +24,7 @@ from web.data.repositories.jobs import JobRepository
 from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
-from web.reporting.export import build_workbook
+from web.reporting.export import build_workbook_bundle
 from web.reporting.report_service import drop_commissions_tab
 
 EXPORT_JOB_TYPE = "report.export"
@@ -130,11 +132,25 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
             payload = apply_layout(expand_clones(payload, layout), layout)
         ctx.set_progress(55)
 
-        data = build_workbook(payload, layout)
+        bundle = build_workbook_bundle(payload, layout)
+        filename = _safe_filename(p.get("report_name"), run_params)
+        if bundle.extras:
+            # UI download is one blob — zip main + companions (no merge on worker).
+            base, dot, ext = filename.rpartition(".")
+            if not dot:
+                base, ext = filename, "xlsx"
+            buf = BytesIO()
+            with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(filename, bundle.main)
+                for part in bundle.extras:
+                    zf.writestr(f"{base}__{part.stem}.{ext}", part.data)
+            data = buf.getvalue()
+            filename = f"{base}.zip"
+        else:
+            data = bundle.main
         export_type = p.get("export_type", "one_time")
         owner = principal.email if principal else ""
-        exports.put(ctx.job.id, p["report_key"],
-                    _safe_filename(p.get("report_name"), run_params), data,
+        exports.put(ctx.job.id, p["report_key"], filename, data,
                     export_type=export_type, owner_email=owner)
         ctx.set_progress(100)
         return ctx.job.id  # result_ref == export id == download key

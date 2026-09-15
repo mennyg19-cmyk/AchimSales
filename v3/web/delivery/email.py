@@ -178,11 +178,13 @@ class EmailService:
                 onedrive_user: str | None = None,
                 cc_raw: str = "", bcc_raw: str = "",
                 subject_template: str = "", body_html_template: str = "",
-                schedule_name: str = "", params: dict | None = None) -> DeliveryResult:
+                schedule_name: str = "", params: dict | None = None,
+                companion_files: list[tuple[str, bytes]] | None = None) -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
         cc = split_recipients(cc_raw)
         bcc = split_recipients(bcc_raw)
         folder_path = (sharepoint_path or "").strip() or None
+        companions = [(n, b) for n, b in (companion_files or []) if n and b]
         if not recipients and not folder_path:
             return DeliveryResult(ok=False, error="No valid recipients.")
 
@@ -194,6 +196,11 @@ class EmailService:
         if not upload_path and attach is None and xlsx_bytes and filename and (
                 recipients or cc or bcc):
             upload_path = TEST_SHAREPOINT_FOLDER
+        # Companions are never email attachments (they exist because a sheet was
+        # too big). Always land them next to the main workbook when we have a
+        # folder — including the Test fallback for link-only Graph sends.
+        if companions and not upload_path and (folder_path or recipients or cc or bcc):
+            upload_path = folder_path or TEST_SHAREPOINT_FOLDER
 
         # Upload first so a link-only email (YTD / other large workbooks) can
         # include the SharePoint or OneDrive URL instead of a rejected Graph send.
@@ -203,6 +210,13 @@ class EmailService:
             job_step("delivery", f"{dest} {upload_path}/{filename}")
         sp_saved, sp_url, sp_err = self._maybe_folder(
             upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+        companion_ok, companion_err = self._upload_companions(
+            upload_path, companions, onedrive_user=onedrive_user)
+        if companion_err:
+            sp_err = f"{sp_err}; {companion_err}" if sp_err else companion_err
+        if companions and not companion_ok:
+            # Main file alone is incomplete when oversized tabs were split out.
+            sp_saved = False
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
             sp_err = None if not sp_saved else sp_err
@@ -242,7 +256,7 @@ class EmailService:
                     )
                     if sent_url:
                         sp_url = sent_url
-                        sp_saved = True
+                        sp_saved = True if companion_ok else sp_saved
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
@@ -250,7 +264,8 @@ class EmailService:
                     return self._record(subject, recipients, filename, eml_name, sent=False,
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
-                                        error=f"Graph failed: {exc}")
+                                        error=f"Graph failed: {exc}",
+                                        companions=[n for n, _ in companions])
             elif self.cfg.smtp_host:
                 try:
                     self._smtp_send(msg, recipients + cc + bcc)
@@ -261,13 +276,15 @@ class EmailService:
                     return self._record(subject, recipients, filename, eml_name, sent=False,
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
-                                        error=f"SMTP failed: {exc}")
+                                        error=f"SMTP failed: {exc}",
+                                        companions=[n for n, _ in companions])
             else:
                 channel = "outbox"
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
                               channel=channel, sp_path=record_path, sp_saved=sp_saved,
-                              sp_url=sp_url, sp_error=sp_err)
+                              sp_url=sp_url, sp_error=sp_err,
+                              companions=[n for n, _ in companions])
         return result
 
     # -- internals ----------------------------------------------------------
@@ -371,8 +388,37 @@ class EmailService:
             log.exception("%s upload failed", "OneDrive" if onedrive_user else "SharePoint")
             return False, None, str(exc)
 
+    def _upload_companions(
+        self, path: str | None, companions: list[tuple[str, bytes]],
+        *, onedrive_user: str | None,
+    ) -> tuple[bool, str | None]:
+        """Upload split-sheet companion workbooks next to the main file.
+
+        Returns (all_ok, error_message). No companions → (True, None).
+        Companions stay separate files — never merge them back into the main
+        xlsx on this worker (that reloads the sheet and OOMs).
+        """
+        if not companions:
+            return True, None
+        if not path:
+            return False, "No folder for companion workbook upload"
+        from web.jobs.trace import step as job_step
+        errors: list[str] = []
+        for name, data in companions:
+            job_step("delivery", f"companion upload {path}/{name} ({len(data)} bytes)")
+            ok, _url, err = self._maybe_folder(
+                path, name, data, onedrive_user=onedrive_user)
+            if ok:
+                job_step("delivery", f"companion uploaded {name}")
+            else:
+                errors.append(f"{name}: {err or 'upload failed'}")
+        if errors:
+            return False, "; ".join(errors)
+        return True, None
+
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
-                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
+                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
+                companions: list[str] | None = None) -> DeliveryResult:
         # Email that already reached an inbox is success even if a folder
         # upload failed. Failing that used to make the scheduler retry and
         # Graph would send a second copy (test-mode Test folder is the usual case).
@@ -396,7 +442,10 @@ class EmailService:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(
             subject=subject, recipients=", ".join(recipients),
-            attachment_meta={"filename": filename, "eml": eml_name},
+            attachment_meta={
+                "filename": filename, "eml": eml_name,
+                "companions": list(companions or []),
+            },
             sharepoint_meta={"path": sp_path or "", "saved": sp_saved, "url": sp_url, "error": sp_error},
             status=status,
         )
