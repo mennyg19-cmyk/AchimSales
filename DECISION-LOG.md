@@ -1,3 +1,11 @@
+## 2026-09-15 Companion OOM: spill + chunk + ungroup
+**What you asked for:** Companion build still dying; why rebuild for Excel after screen shape; brother's site works.
+**What I had to decide:** One-shot API→Excel rewrite vs keep shared tab builder and harden companion writes.
+**What I chose:** Keep shared builder (schedules reuse the same tabs as the viewer). Harden companions: spill huge tabs to temp pickle (largest first), write smallest spill first in ≤100k chunks, force `group=[]` on companions. Failures retrying the whole job is why logs look "twice."
+**Why:** B1 dies holding Full Data + By Order + group-key set. Brother's export likely had more free RAM or a smaller period/view. True stream-to-Excel is a separate delivery builder — not this hotfix.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Oversized tabs → companion xlsx (no merge)
 **What you asked for:** Separate file when Full Data is too big, then merge as a new sheet?
 **What I had to decide:** Merge companions back into one workbook on the B1 worker vs leave them as sibling files in the same folder.

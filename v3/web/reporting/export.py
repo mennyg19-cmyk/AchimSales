@@ -883,12 +883,29 @@ def _layout_for_tab(layout: dict | None, tab_key: str | None) -> dict | None:
     return {"views": {tab_key: v}}
 
 
-def _stub_tab(tab: dict, companion_stem: str, row_count: int) -> dict:
+def _layout_flat_for_huge_tab(layout: dict | None, tab_key: str | None) -> dict:
+    """Force group=[] on oversized companions.
+
+    Excel grouping on 100k+ keys allocates a giant key set and then flattens
+    anyway — pure waste on the B1 worker. Keep sorters/hidden from the view.
+    """
+    base = _layout_for_tab(layout, tab_key) or {"views": {}}
+    if not tab_key:
+        return base
+    views = dict(base.get("views") or {})
+    prior = views.get(tab_key) if isinstance(views.get(tab_key), dict) else {}
+    views[tab_key] = {**prior, "group": []}
+    return {"views": views}
+
+
+def _stub_tab(tab: dict, companion_stems: list[str], row_count: int) -> dict:
     name = tab.get("name") or tab.get("key") or "Sheet"
+    files = ", ".join(
+        companion_filename("report.xlsx", stem) for stem in companion_stems
+    )
     note = (
         f"{row_count} rows were too large for this workbook. "
-        f"See companion file {companion_filename('report.xlsx', companion_stem)} "
-        f"in the same folder (same …__{companion_stem}.* pattern as the delivered name)."
+        f"See companion file(s) {files} in the same folder."
     )
     return {
         "key": tab.get("key"),
@@ -896,6 +913,40 @@ def _stub_tab(tab: dict, companion_stem: str, row_count: int) -> dict:
         "columns": [{"field": "Note", "header": "Note", "type": "text"}],
         "rows": [{"Note": note}],
     }
+
+
+def _row_chunks(rows: list, max_rows: int) -> list[list]:
+    if max_rows <= 0 or len(rows) <= max_rows:
+        return [rows]
+    return [rows[i:i + max_rows] for i in range(0, len(rows), max_rows)]
+
+
+def _spill_tab_rows(tab: dict) -> str:
+    """Pickle rows to a temp file and clear the tab so peak RAM drops."""
+    import pickle
+    import tempfile
+
+    rows = tab.get("rows") or []
+    fd, path = tempfile.mkstemp(prefix="xlsx_tab_", suffix=".pkl")
+    try:
+        with open(fd, "wb") as fh:
+            pickle.dump(rows, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        import os
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    tab["rows"] = []
+    return path
+
+
+def _load_spilled_rows(path: str) -> list:
+    import pickle
+
+    with open(path, "rb") as fh:
+        return pickle.load(fh)
 
 
 def build_workbook_bundle(
@@ -906,11 +957,13 @@ def build_workbook_bundle(
 ) -> WorkbookBundle:
     """Build the main workbook; oversized tabs become companion .xlsx files.
 
-    Largest oversized tabs are written first, then their row lists are cleared
-    so the B1 worker is not holding Full Data + By Order + an open multi-sheet
-    book at the same time. The main file keeps a one-row stub sheet pointing at
-    each companion. Do not merge companions back into the main xlsx on this box.
+    Oversized tabs are spilled to temp pickle files (largest first) so Full Data
+    and By Order are not both resident while writing. Each spill file is loaded
+    alone, split into <=max_sheet_rows companions, and deleted. Excel grouping is
+    forced off on companions. Do not merge companions back on this box.
     """
+    import os
+
     from web.jobs.trace import raise_if_cancelled, step as job_step
 
     tabs = list(payload.get("tabs") or [])
@@ -925,37 +978,79 @@ def build_workbook_bundle(
     if not huge_idxs:
         return WorkbookBundle(main=build_workbook(payload, layout), extras=())
 
+    # Spill largest first so the biggest list leaves RAM before the next dump.
     huge_idxs.sort(key=lambda i: -len(tabs[i].get("rows") or []))
-    extras: list[WorkbookPart] = []
-    stubs: dict[int, dict] = {}
-    used_stems: set[str] = set()
-    for i in huge_idxs:
-        raise_if_cancelled()
-        tab = tabs[i]
-        label = tab.get("name") or tab.get("key") or "Sheet"
-        n_rows = len(tab.get("rows") or [])
-        stem = _unique_file_stem(str(label), tab.get("key"), used_stems)
-        job_step(
-            "xlsx",
-            f"companion {stem}: {n_rows} rows (>{max_sheet_rows}; not merged into main)",
-        )
-        one_payload = {
-            "report_key": payload.get("report_key"),
-            "tabs": [tab],
-        }
-        companion_xlsx = build_workbook(
-            one_payload, _layout_for_tab(layout, tab.get("key")),
-        )
-        extras.append(WorkbookPart(
-            stem=stem, row_count=n_rows, data=companion_xlsx,
-        ))
-        stubs[i] = _stub_tab(tab, stem, n_rows)
-        tab["rows"] = []  # free before the next huge tab / main build
-        job_step("xlsx", f"companion {stem} done ({len(companion_xlsx)} bytes)")
+    spills: dict[int, tuple[str, int, str]] = {}  # idx -> (path, n_rows, label)
+    try:
+        for i in huge_idxs:
+            raise_if_cancelled()
+            tab = tabs[i]
+            label = str(tab.get("name") or tab.get("key") or "Sheet")
+            n_rows = len(tab.get("rows") or [])
+            job_step("xlsx", f"spill {label}: {n_rows} rows to temp (free RAM)")
+            path = _spill_tab_rows(tab)
+            spills[i] = (path, n_rows, label)
+            job_step("xlsx", f"spill {label} done")
+
+        extras: list[WorkbookPart] = []
+        stubs: dict[int, dict] = {}
+        used_stems: set[str] = set()
+        # Write smallest spilled tab first (less RAM while larger files wait on disk).
+        for i in sorted(huge_idxs, key=lambda j: spills[j][1]):
+            raise_if_cancelled()
+            path, n_rows, label = spills[i]
+            tab = tabs[i]
+            flat_layout = _layout_flat_for_huge_tab(layout, tab.get("key"))
+            job_step("xlsx", f"load spill {label}: {n_rows} rows")
+            all_rows = _load_spilled_rows(path)
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            spills[i] = ("", n_rows, label)
+            chunks = _row_chunks(all_rows, max_sheet_rows)
+            part_stems: list[str] = []
+            try:
+                for part_i, chunk in enumerate(chunks, start=1):
+                    raise_if_cancelled()
+                    stem_label = (
+                        label if len(chunks) == 1
+                        else f"{label}_{part_i}_of_{len(chunks)}"
+                    )
+                    stem = _unique_file_stem(stem_label, tab.get("key"), used_stems)
+                    part_stems.append(stem)
+                    job_step(
+                        "xlsx",
+                        f"companion {stem}: {len(chunk)} rows "
+                        f"(tab {n_rows} total, part {part_i}/{len(chunks)}; ungrouped)",
+                    )
+                    tab["rows"] = chunk
+                    companion_xlsx = build_workbook(
+                        {"report_key": payload.get("report_key"), "tabs": [tab]},
+                        flat_layout,
+                    )
+                    extras.append(WorkbookPart(
+                        stem=stem, row_count=len(chunk), data=companion_xlsx,
+                    ))
+                    tab["rows"] = []
+                    job_step(
+                        "xlsx",
+                        f"companion {stem} done ({len(companion_xlsx)} bytes)",
+                    )
+                all_rows.clear()
+            finally:
+                tab["rows"] = []
+            stubs[i] = _stub_tab(tab, part_stems, n_rows)
+    finally:
+        for path, _n, _label in spills.values():
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     main_tabs = [stubs[i] if i in stubs else t for i, t in enumerate(tabs)]
     main_payload = {**payload, "tabs": main_tabs}
-    # Stubs must not pick up builder default_group.
     main_layout = dict(layout or {})
     views = dict(main_layout.get("views") or {}) if isinstance(main_layout.get("views"), dict) else {}
     for stub in stubs.values():
