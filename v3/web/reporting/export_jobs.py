@@ -24,7 +24,7 @@ from web.data.repositories.jobs import JobRepository
 from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
-from web.reporting.export import build_workbook_bundle
+from web.reporting.export import build_workbook_bundle, companion_filename
 from web.reporting.report_service import drop_commissions_tab
 
 EXPORT_JOB_TYPE = "report.export"
@@ -136,21 +136,21 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         filename = _safe_filename(p.get("report_name"), run_params)
         if bundle.extras:
             # UI download is one blob — zip main + companions (no merge on worker).
-            base, dot, ext = filename.rpartition(".")
-            if not dot:
-                base, ext = filename, "xlsx"
+            base, _dot, _ext = filename.rpartition(".")
+            if not _dot:
+                base = filename
             buf = BytesIO()
             with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr(filename, bundle.main)
                 for part in bundle.extras:
-                    zf.writestr(f"{base}__{part.stem}.{ext}", part.data)
-            data = buf.getvalue()
+                    zf.writestr(companion_filename(filename, part.stem), part.data)
+            export_bytes = buf.getvalue()
             filename = f"{base}.zip"
         else:
-            data = bundle.main
+            export_bytes = bundle.main
         export_type = p.get("export_type", "one_time")
         owner = principal.email if principal else ""
-        exports.put(ctx.job.id, p["report_key"], filename, data,
+        exports.put(ctx.job.id, p["report_key"], filename, export_bytes,
                     export_type=export_type, owner_email=owner)
         ctx.set_progress(100)
         return ctx.job.id  # result_ref == export id == download key
