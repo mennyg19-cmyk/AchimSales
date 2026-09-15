@@ -11,14 +11,33 @@ Login look, header, bottom nav, four themes, mock Invoiced tabs in Tabulator. No
 ```
 cd app
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt
 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
 Open `/login` → **Achim User Login** (preview) → **Invoiced**.
 
-Clickable preview while this agent is running: https://ons-cars-about-fcc.trycloudflare.com/login  
-That link dies when the machine sleeps. Screenshots stay in `app/rebuild-reference/`. Live production is unchanged.
+## Azure Web Apps — will it run?
+
+**On the live site (`achim-sales-reports`): no.** That app still starts the old Flask `wsgi:application`. This rebuild must not be pointed there until cutover.
+
+**On a new Azure Web App: yes.** This folder is packed the way Linux App Service expects:
+
+- `requirements.txt` at the zip root (Oryx pip install)
+- `runtime.txt` → Python 3.12
+- `startup.sh` → gunicorn + UvicornWorker on `0.0.0.0:$PORT` (Azure sets `PORT`)
+- `/healthz` for Always On (the `AlwaysOn` ping on `/` already returns 200)
+
+Create a **second** Web App (same resource group is fine), then zip-deploy **this folder only**:
+
+```
+bash create-azure-webapp.sh achim-sales-home-preview
+.\deploy.ps1 -Name achim-sales-home-preview
+```
+
+App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Do not bind `reports.achimonline.com` yet.
+
+`deploy.ps1` refuses the live app name.
 
 ## Do not
 

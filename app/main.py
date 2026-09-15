@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 ROOT = Path(__file__).resolve().parent
 SAMPLE_JSON = ROOT / "fixtures" / "sample-invoiced-response.json"
@@ -73,6 +74,9 @@ app.add_middleware(
     https_only=PRODUCTION,
     same_site="lax",
 )
+# Azure terminates HTTPS in front of the app. Trust X-Forwarded-* so
+# redirects and Secure cookies see https, not the inner http:PORT.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
