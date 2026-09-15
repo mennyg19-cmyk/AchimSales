@@ -1,3 +1,11 @@
+## 2026-09-15 Stuck schedule runs left Running forever
+**What you asked for:** Cancel stuck Running jobs in history, see what broke, and fix it.
+**What I had to decide:** Treat stuck rows as failed report logic vs orphaned UI state after restart.
+**What I chose:** Root cause is deploy/restart — workers recover `jobs` but left `schedule_runs` as running. Abandon orphans on boot, reap after ~2h, finish runs when a job is cancelled, and add Cancel + Clear stuck in Job history.
+**Why:** History lied about work still happening; cancel without finishing the run left the same stuck row.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Loop C craft deferrals (go-live)
 **What you asked for:** Merge normalize-views to live after review.
 **What I had to decide:** Fix all Loop C findings now vs defer non-blockers with the god-file split.
