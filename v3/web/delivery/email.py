@@ -215,8 +215,17 @@ class EmailService:
         if companion_err:
             sp_err = f"{sp_err}; {companion_err}" if sp_err else companion_err
         if companions and not companion_ok:
-            # Main file alone is incomplete when oversized tabs were split out.
+            # Main alone is incomplete. Do not email (body already lists companion
+            # files in the folder) — fail so the scheduler retries instead of
+            # reporting success with a missing Full Data / By Order file.
             sp_saved = False
+            err = companion_err or "Companion workbook upload failed"
+            return self._record(
+                subject or report_name, recipients, filename, eml_name="",
+                sent=False, channel="", sp_path=folder_path or upload_path,
+                sp_saved=False, sp_url=sp_url, sp_error=sp_err, error=err,
+                companions=[n for n, _ in companions],
+            )
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
             sp_err = None if not sp_saved else sp_err
@@ -256,7 +265,7 @@ class EmailService:
                     )
                     if sent_url:
                         sp_url = sent_url
-                        sp_saved = True if companion_ok else sp_saved
+                        sp_saved = True
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:

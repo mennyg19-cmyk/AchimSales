@@ -821,10 +821,31 @@ class WorkbookBundle:
     extras: tuple[WorkbookPart, ...] = ()
 
 
+# Sheet titles allow more than Windows/SharePoint filenames; strip both.
+_INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+
+
 def _file_stem(label: str) -> str:
     s = _INVALID_SHEET.sub("_", (label or "Sheet").strip())
+    s = _INVALID_FILENAME.sub("_", s)
     s = re.sub(r"\s+", "_", s).strip("._") or "Sheet"
     return s[:60]
+
+
+def _unique_file_stem(label: str, key: str | None, used: set[str]) -> str:
+    """Filename-safe stem unique among companions in this bundle."""
+    base = _file_stem(str(label))
+    if base not in used:
+        used.add(base)
+        return base
+    key_bit = _file_stem(str(key or "tab"))[:24]
+    candidate = f"{base}_{key_bit}"[:60]
+    n = 2
+    while candidate in used:
+        candidate = f"{base}_{n}"[:60]
+        n += 1
+    used.add(candidate)
+    return candidate
 
 
 def _layout_for_tab(layout: dict | None, tab_key: str | None) -> dict | None:
@@ -881,12 +902,13 @@ def build_workbook_bundle(
     huge_idxs.sort(key=lambda i: -len(tabs[i].get("rows") or []))
     extras: list[WorkbookPart] = []
     stubs: dict[int, dict] = {}
+    used_stems: set[str] = set()
     for i in huge_idxs:
         raise_if_cancelled()
         tab = tabs[i]
         label = tab.get("name") or tab.get("key") or "Sheet"
         n_rows = len(tab.get("rows") or [])
-        stem = _file_stem(str(label))
+        stem = _unique_file_stem(str(label), tab.get("key"), used_stems)
         job_step(
             "xlsx",
             f"companion {stem}: {n_rows} rows (>{max_sheet_rows}; not merged into main)",

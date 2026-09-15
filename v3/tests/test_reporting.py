@@ -1296,3 +1296,23 @@ def test_workbook_bundle_clears_huge_rows_before_main():
     payload = {"tabs": [tab]}
     bundle = build_workbook_bundle(payload, None, max_sheet_rows=20)
     assert bundle.extras and tab["rows"] == []
+
+
+def test_workbook_bundle_unique_safe_companion_stems():
+    """Colliding / pipe labels must not share one companion filename."""
+    pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook_bundle
+
+    cols = [{"field": "a", "header": "A", "type": "text"}]
+    payload = {"tabs": [
+        {"key": "t1", "name": "A/B", "columns": cols,
+         "rows": [{"a": str(i)} for i in range(30)]},
+        {"key": "t2", "name": "A:B", "columns": cols,
+         "rows": [{"a": str(i)} for i in range(25)]},
+        {"key": "t3", "name": "Pipe|Name", "columns": cols,
+         "rows": [{"a": str(i)} for i in range(22)]},
+    ]}
+    bundle = build_workbook_bundle(payload, None, max_sheet_rows=20)
+    stems = [p.stem for p in bundle.extras]
+    assert len(stems) == len(set(stems))
+    assert all("|" not in s and "/" not in s and ":" not in s for s in stems)

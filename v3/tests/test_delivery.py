@@ -1008,3 +1008,26 @@ def test_deliver_companion_failure_marks_folder_incomplete(tmp_path):
     assert res.ok is False
     blob = f"{res.error} {res.sharepoint_error}".lower()
     assert "boom" in blob or "full_data" in blob
+
+
+def test_deliver_companion_failure_does_not_email(tmp_path):
+    """Incomplete companion upload must fail the job — do not Graph-send a lie."""
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def up(folder, name, content):
+        if "Full_Data" in name:
+            raise RuntimeError("companion boom")
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="YTD Ordered", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="Ordered_YTD.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=[("Ordered_YTD__Full_Data.xlsx", b"PKBIG")],
+    )
+    assert res.ok is False
+    assert graph.calls == []
+    assert "boom" in (res.error or "").lower()
