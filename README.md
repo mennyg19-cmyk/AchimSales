@@ -72,6 +72,10 @@ https://reports.achimonline.com. Side branches (including Cloud Agent
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
 dynamic urllib, SHA1 cache fingerprints).
 
+**Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
+it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New
+Azure Web App first, DNS last. Leftover Flask PR #35 stays parked.
+
 **Git in one minute:** `main` is the official copy. A **branch** is a photocopy
 you can mess with. A **pull request** is “please copy this photocopy into
 `main`.” If `main` moved while you were working, you update your photocopy from
@@ -291,6 +295,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| Home site rebuild (`app/`) | **Stay off `main` until Menny says cut over.** New Azure Web App, then DNS. Do not merge leftover Flask PR #35. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Do not open a new Cloud Agent branch and PR for the next small ask. Stack it on this agent's last open PR so it can merge together. **Two agents at once → two PRs** (do not share a branch). Details in `git-discipline.mdc`. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
 

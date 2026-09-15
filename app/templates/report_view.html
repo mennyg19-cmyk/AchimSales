@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ report_title }}{% endblock %}
+
+{% block head %}
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="report-top">
+<div class="page-head">
+    <a class="back-link" href="/">
+        <i data-feather="arrow-left"></i> Reports
+    </a>
+    <h1 class="page-title">{{ report_title }}</h1>
+</div>
+
+<div class="report-controls" id="reportControls">
+    <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
+        <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
+        <span class="controls-summary" id="controlsSummary">Last 7 Days</span>
+        <i data-feather="chevron-up" class="controls-chevron"></i>
+    </button>
+    <div class="controls-body" id="controlsBody">
+<form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
+    <div class="filter-fields">
+    <label class="filter-field">
+        <span>Period</span>
+        <select name="period" id="periodSelect">
+            {% for value, label in period_options %}
+            <option value="{{ value }}" {% if value == 'last_7_days' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    </div>
+    <div class="filter-run-group">
+    <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
+    <button type="button" class="btn btn-outline filter-run-btn" disabled title="Email me lands in a later slice">Email me</button>
+    </div>
+</form>
+    </div>
+</div>
+</div>
+
+<div class="report-layout-toolbar" id="layoutToolbar">
+    <button type="button" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
+    <button type="button" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
+    <button type="button" class="btn btn-outline" disabled title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+</div>
+
+<div id="reportSurface" class="report-surface" hidden>
+    <div class="report-tabbar">
+        <div id="reportTabs" class="report-tabs"></div>
+        <div class="report-tabbar-right">
+            <div id="reportMeta" class="report-meta"></div>
+        </div>
+    </div>
+    <div class="report-table-scroll">
+        <div id="reportTable"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/invoiced.js?v={{ asset_v }}"></script>
+{% endblock %}

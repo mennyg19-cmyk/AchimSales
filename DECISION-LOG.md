@@ -1,3 +1,11 @@
+## 2026-09-15 Brother-stack rebuild started (this prompt wins)
+**What I had to decide:** New FastAPI home vs continue leftover Flask PR #35; grill/architecture debate vs locked handoff.
+**Options I considered:** Stack on `cursor/pr1-on-main-551b`; new `app/` folder on a new branch; new GitHub repo.
+**What I chose:** New branch `cursor/brother-stack-rebuild-0a24`, new `app/` FastAPI app. PR #35 stays parked. Grill skipped. Architecture already locked (FastAPI + JSON + v3 look + Tabulator). Q1–Q11 copied from `app/BROTHER-STACK-REBUILD.md` (fraction commission; per-invoice rate zero stays zero; display master percent; Ordered Summary by CustomerAccount; Hebcal hold; legacy distributions retired; `/beta` 302; no self-register; view-only managers Send now on shared only; 90-day prune; 45 min kill, Graph unknown not auto-retry).
+**Why:** Job prompt + handoff. Visual = live v3. Do not deploy over reports.achimonline.com until sign-off.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Oversized tabs → companion xlsx (no merge)
 **What you asked for:** Separate file when Full Data is too big, then merge as a new sheet?
 **What I had to decide:** Merge companions back into one workbook on the B1 worker vs leave them as sibling files in the same folder.

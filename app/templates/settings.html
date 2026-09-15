@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">Your account, access, delivery, and history.</p>
+</div>
+
+<div class="settings-hub">
+<details class="settings-cat" open>
+    <summary>You</summary>
+    <section class="settings-card">
+        <h2 class="section-title">Profile</h2>
+        <dl class="profile-list">
+            <dt>Name</dt><dd>{{ user.name }}</dd>
+            <dt>Email</dt><dd>{{ user.email }}</dd>
+            <dt>Role</dt><dd>{{ user.role|title }}</dd>
+        </dl>
+    </section>
+    <section class="settings-card">
+        <h2 class="section-title">Appearance</h2>
+        <p class="flag-desc">Same four themes as the header button (light, dark, monochrome, monochrome dark).</p>
+        <label class="filter-field">
+            <span>Theme</span>
+            <select id="settingsTheme">
+                <option value="light" {% if theme == 'light' %}selected{% endif %}>Light</option>
+                <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
+                <option value="monochrome" {% if theme == 'monochrome' %}selected{% endif %}>Monochrome</option>
+                <option value="monochrome_dark" {% if theme == 'monochrome_dark' %}selected{% endif %}>Monochrome Dark</option>
+            </select>
+        </label>
+        <button type="button" id="settingsThemeSave" class="btn btn-primary btn-sm" style="margin-top:12px;">Save</button>
+    </section>
+</details>
+</div>
+{% endblock %}

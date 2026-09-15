@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/"><i data-feather="arrow-left"></i> Reports</a>
+    <h1 class="page-title">{{ page_title }}</h1>
+    <p class="page-subtitle">{{ page_subtitle }}</p>
+</div>
+<div class="empty-state">
+    <i data-feather="clock"></i>
+    <p>{{ later_note }}</p>
+</div>
+{% endblock %}

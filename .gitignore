@@ -38,3 +38,4 @@ test/data/fixtures/*.csv
 # Rebuild app local databases (never committed)
 .rebuild-data/
 rebuild/.rebuild-data/
+app/.venv/
