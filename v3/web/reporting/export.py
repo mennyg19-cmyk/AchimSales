@@ -195,7 +195,11 @@ def _col_summable(field: str, ctype: str | None, col: dict | None = None) -> boo
 
 
 def _fulfillment_fill(score: Any) -> PatternFill | None:
-    """Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered writer."""
+    """Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered writer.
+
+    Fills are shared via ``_fill_hex`` — a new PatternFill per cell blows
+    openpyxl's style table on YTD By Order / Full Data (100k+ rows).
+    """
     try:
         s = float(score)
         if s < 0 or s != s:
@@ -218,7 +222,7 @@ def _fulfillment_fill(score: Any) -> PatternFill | None:
         r = int(yellow[0] + (green[0] - yellow[0]) * t)
         g = int(yellow[1] + (green[1] - yellow[1]) * t)
         b = int(yellow[2] + (green[2] - yellow[2]) * t)
-    return PatternFill("solid", fgColor=f"{r:02X}{g:02X}{b:02X}")
+    return _fill_hex(f"{r:02X}{g:02X}{b:02X}")
 
 
 def _safe_text(value: Any) -> str:
@@ -492,6 +496,8 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
                   group_level: int = 0, group_depth: int = 1
                   ) -> dict[str, float]:
     """Nested group banners + per-level totals. Innermost level writes data rows."""
+    from web.jobs.trace import raise_if_cancelled
+
     gf = group_fields[0]
     rest = group_fields[1:]
     glabel = next((h for h, f, _t, _s in metas if f == gf), gf)
@@ -499,7 +505,11 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
     banner_fill, banner_font = _nest_header_style(group_level, group_depth)
     total_fill, total_font = _nest_footer_style(group_level, group_depth, grand=False)
     level: dict[str, float] = {}
-    for _key, grp_iter in groupby(rows, key=lambda x: _group_sort_key(x.get(gf))):
+    for gi, (_key, grp_iter) in enumerate(
+        groupby(rows, key=lambda x: _group_sort_key(x.get(gf)))
+    ):
+        if gi and gi % 500 == 0:
+            raise_if_cancelled()
         grp = list(grp_iter)
         gval = grp[0].get(gf)
         label = gval if gval not in (None, "") else "(blank)"
@@ -527,13 +537,35 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
     return level
 
 
+# Excel group banners/totals per key. Grouping by SalesOrderNumber on a YTD
+# By Order / Full Data sheet (100k+ keys) multiplies write time ~5x and can
+# wedge a B1 worker for an hour+. Flatten when the outer key cardinality is wild.
+_MAX_EXCEL_GROUP_KEYS = 5000
+_CANCEL_CHECK_EVERY = 10_000
+
+
+def _outer_group_key_count(rows: list, field: str) -> int:
+    return len({_group_sort_key(r.get(field)) for r in rows})
+
+
 def _stream_grid(ws, metas, rows: list, group_fields: list[str],
                  *, salesman_bands: bool = False,
                  salesman_band_by_field: dict[str, int] | None = None,
                  sorters: list | None = None) -> None:
+    from web.jobs.trace import raise_if_cancelled, step as job_step
+
     if not metas:
         return
     ncol = len(metas)
+    if group_fields and rows:
+        nkeys = _outer_group_key_count(rows, group_fields[0])
+        if nkeys > _MAX_EXCEL_GROUP_KEYS:
+            job_step(
+                "xlsx",
+                f"flatten groups on {group_fields[0]} "
+                f"({nkeys} keys > {_MAX_EXCEL_GROUP_KEYS})",
+            )
+            group_fields = []
     # Worksheet-level properties are written at save time, so they can be set
     # before appending rows (write-only mode only forbids per-cell random access).
     ws.freeze_panes = "A2"
@@ -544,6 +576,7 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
 
     grand_fill, grand_font = _nest_footer_style(0, max(len(group_fields), 1), grand=True)
     if group_fields:
+        raise_if_cancelled()
         ordered = _sort_rows_for_groups(rows, group_fields, sorters)
         grand = _emit_grouped(
             ws, metas, ordered, group_fields,
@@ -556,7 +589,9 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
                                    fill=grand_fill, font=grand_font))
     else:
         grand: dict[str, float] = {}
-        for row in rows:
+        for i, row in enumerate(rows):
+            if i and i % _CANCEL_CHECK_EVERY == 0:
+                raise_if_cancelled()
             ws.append(_data_cells(
                 ws, metas, row, grand, salesman_bands=salesman_bands,
                 salesman_band_by_field=salesman_band_by_field,
@@ -696,7 +731,7 @@ def _sorters_from_default_layout(dl: dict) -> list:
 
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
-    from web.jobs.trace import step as job_step
+    from web.jobs.trace import raise_if_cancelled, step as job_step
 
     wb = Workbook(write_only=True)  # streaming: flat memory, fast on huge reports
     used: set[str] = set()
@@ -706,11 +741,14 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     if not tabs:
         wb.create_sheet(_safe_sheet_title("Report", used))
     for tab in tabs:
-        job_step("xlsx", f"sheet {tab.get('name') or tab.get('key') or 'Report'}: "
-                 f"{len(tab.get('rows') or [])} rows")
+        raise_if_cancelled()
+        n_rows = len(tab.get("rows") or [])
+        label = tab.get("name") or tab.get("key") or "Report"
+        job_step("xlsx", f"sheet {label}: {n_rows} rows")
         ws = wb.create_sheet(_safe_sheet_title(tab.get("name", "Report"), used))
         if tab.get("layout") == "commission_cards" and tab.get("salesmen") is not None:
             _stream_commission(ws, tab)
+            job_step("xlsx", f"sheet {label} done")
             continue
         rows = list(tab.get("rows") or [])
         metas = _columns_meta(list(tab.get("columns") or []), rows)
@@ -726,6 +764,9 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
                          if salesman_bands else None)
         _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands,
                      salesman_band_by_field=band_by_field, sorters=sorters)
+        job_step("xlsx", f"sheet {label} done")
+    raise_if_cancelled()
+    job_step("xlsx", "saving workbook")
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

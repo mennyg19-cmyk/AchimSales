@@ -32,6 +32,11 @@ from web.reporting.runner import ReportRunner
 
 log = logging.getLogger(__name__)
 
+# Silent dual-build + full cell compare of a second YTD Ordered workbook (500k+
+# grid rows) can OOM / wedge the B1 worker after the real file is already built.
+# Deliveries still go out; digests just miss that one dual score.
+_MAX_PARITY_GRID_ROWS = 100_000
+
 
 @dataclass
 class DeliveryOutcome:
@@ -147,6 +152,12 @@ class DeliveryService:
         if not self.parity_enabled or compare_layout is None or self.db is None:
             return
         if row_count == 0:
+            return
+        if row_count > _MAX_PARITY_GRID_ROWS:
+            job_step(
+                "parity",
+                f"skipped ({row_count} grid rows > {_MAX_PARITY_GRID_ROWS})",
+            )
             return
         try:
             root = parity_root(self.precious_db_path or ".")

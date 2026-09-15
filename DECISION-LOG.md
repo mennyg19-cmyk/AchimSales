@@ -1,3 +1,11 @@
+## 2026-09-15 YTD Ordered stuck building xlsx
+**What you asked for:** Personal #41 Ordered YTD hung after "sheet By Order: 185281 rows".
+**What I had to decide:** Treat as orphan-restart vs real export path bug; keep per-order Excel grouping on huge sheets vs flatten.
+**What I chose:** Real hang in workbook write. Cache fulfillment heatmap fills; flatten Excel grouping when outer key count exceeds 5000 (e.g. SalesOrderNumber on YTD); skip silent dual-parity when grid rows > 100k; log sheet done + cancel checks during long writes.
+**Why:** Fetch finished fine (~332k facts). High-cardinality group banners (~5x slower) plus a second full workbook compare can wedge B1 after By Order starts. Delivery still uses the real file.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Stuck schedule runs left Running forever
 **What you asked for:** Cancel stuck Running jobs in history, see what broke, and fix it.
 **What I had to decide:** Treat stuck rows as failed report logic vs orphaned UI state after restart.
