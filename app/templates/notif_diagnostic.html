@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Notification diagnostic{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Notification diagnostic</h1>
+    <p class="page-subtitle">Mock outbox. Graph is not connected on this preview.</p>
+</div>
+<section class="settings-card">
+    {% if outbox %}
+    <table class="simple-table">
+        <thead><tr><th>When</th><th>To</th><th>Subject</th><th>Body</th></tr></thead>
+        <tbody>
+        {% for m in outbox %}
+        <tr>
+            <td>{{ m.created_at }}</td>
+            <td>{{ m.recipients }}</td>
+            <td>{{ m.subject }}</td>
+            <td>{{ m.body }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Outbox is empty. Email me or Run now a schedule.</p>
+    {% endif %}
+</section>
+{% endblock %}

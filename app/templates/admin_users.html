@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Users &amp; access{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Users &amp; access</h1>
+  <p class="page-subtitle">{{ users|length }} users. There is no self-register — add people here.</p>
+</div>
+
+<details class="settings-card" open>
+  <summary class="settings-subhead" style="cursor:pointer;">Add user</summary>
+  <form method="post" action="/admin/users/add" class="auth-form" style="margin-top:12px;max-width:420px;">
+    <label class="auth-field"><span class="auth-label">Email</span>
+      <input name="email" type="email" required placeholder="name@achimonline.com"></label>
+    <label class="auth-field"><span class="auth-label">Role</span>
+      <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
+    <label class="auth-field"><span class="auth-label">Display name</span>
+      <input name="display_name" type="text"></label>
+    <label class="auth-field"><span class="auth-label">SalesGroup</span>
+      <select name="sales_group">
+        <option value="">— none —</option>
+        {% for s in salesmen %}<option value="{{ s.key }}">{{ s.name }}</option>{% endfor %}
+      </select></label>
+    <label class="flag-row"><input type="checkbox" name="is_external" value="1"> <span>External login</span></label>
+    <button type="submit" class="btn btn-primary btn-sm">Add user</button>
+  </form>
+</details>
+
+<section class="settings-card">
+  <input type="search" id="userSearch" class="user-search" placeholder="Search users by email or name…">
+  <table class="simple-table" id="userTable">
+    <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Flags</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr data-email="{{ u.email }}" data-name="{{ u.display_name }}">
+        <td class="cell-email">{{ u.email }}</td>
+        <td>{{ u.display_name }}</td>
+        <td><span class="badge {% if u.role in ('admin', 'developer') %}badge-admin{% elif u.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">{{ u.role|title }}</span></td>
+        <td class="cell-flags">
+          {% if not u.is_active %}<span class="mini-flag mini-off">Disabled</span>{% endif %}
+          {% if u.sharepoint_access %}<span class="mini-flag">SharePoint</span>{% endif %}
+          {% if u.can_see_company_views %}<span class="mini-flag">Company views</span>{% endif %}
+          {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
+          {% if u.sales_group %}<span class="mini-flag">{{ u.sales_group }}</span>{% endif %}
+        </td>
+        <td class="cell-actions">
+          <details>
+            <summary class="btn btn-outline btn-sm">Edit</summary>
+            <form method="post" action="/admin/users/{{ u.id }}/edit" style="margin-top:8px;">
+              <label class="auth-field"><span class="auth-label">Display name</span>
+                <input name="display_name" value="{{ u.display_name }}"></label>
+              <label class="auth-field"><span class="auth-label">Role</span>
+                <select name="role">{% for r in roles %}<option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r|title }}</option>{% endfor %}</select></label>
+              <label class="auth-field"><span class="auth-label">SalesGroup</span>
+                <select name="sales_group">
+                  <option value="">— none —</option>
+                  {% for s in salesmen %}<option value="{{ s.key }}" {% if s.key == u.sales_group %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+                </select></label>
+              <label class="flag-row"><input type="checkbox" name="is_active" value="1" {% if u.is_active %}checked{% endif %}> Active</label>
+              <label class="flag-row"><input type="checkbox" name="is_external" value="1" {% if u.is_external %}checked{% endif %}> External</label>
+              <label class="flag-row"><input type="checkbox" name="can_see_company_views" value="1" {% if u.can_see_company_views %}checked{% endif %}> Company views</label>
+              <label class="flag-row"><input type="checkbox" name="sharepoint_access" value="1" {% if u.sharepoint_access %}checked{% endif %}> SharePoint</label>
+              <button type="submit" class="btn btn-primary btn-sm">Save</button>
+            </form>
+          </details>
+          {% if u.email != user.email %}
+          <form method="post" action="/admin/users/{{ u.id }}/view-as" style="display:inline;">
+            <button type="submit" class="btn btn-outline btn-sm">View as</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("userSearch").addEventListener("input", function () {
+  var term = this.value.toLowerCase();
+  document.querySelectorAll("#userTable tbody tr").forEach(function (row) {
+    var hay = (row.getAttribute("data-email") + row.getAttribute("data-name")).toLowerCase();
+    row.style.display = hay.indexOf(term) === -1 ? "none" : "";
+  });
+});
+</script>
+{% endblock %}

@@ -12,10 +12,18 @@
     <a class="back-link" href="/">
         <i data-feather="arrow-left"></i> Reports
     </a>
-    <h1 class="page-title">{{ report_title }}</h1>
+    <h1 class="page-title">{{ report_title }}
+        <button type="button" class="help-btn" id="helpBtn" aria-label="Help">?</button>
+    </h1>
+    {% if loaded_view %}
+    <p class="page-subtitle">Loaded view: {{ loaded_view.name }}</p>
+    {% endif %}
 </div>
 
-<div class="report-controls" id="reportControls">
+<div class="report-controls" id="reportControls"
+     data-report-key="{{ report_key }}"
+     data-filters="{{ filters|join(',') }}"
+     data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'>
     <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
         <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
         <span class="controls-summary" id="controlsSummary">Last 7 Days</span>
@@ -24,6 +32,7 @@
     <div class="controls-body" id="controlsBody">
 <form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
     <div class="filter-fields">
+    {% if "period" in filters %}
     <label class="filter-field">
         <span>Period</span>
         <select name="period" id="periodSelect">
@@ -32,10 +41,70 @@
             {% endfor %}
         </select>
     </label>
+    <label class="filter-field" id="customDates" hidden>
+        <span>From</span>
+        <input type="date" name="from_date" id="fromDate">
+    </label>
+    <label class="filter-field" id="customDatesTo" hidden>
+        <span>To</span>
+        <input type="date" name="to_date" id="toDate">
+    </label>
+    {% endif %}
+    {% if "status" in filters %}
+    <label class="filter-field">
+        <span>Status</span>
+        <select name="status" id="statusSelect">
+            {% for value, label in status_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if "year" in filters %}
+    <label class="filter-field">
+        <span>Year</span>
+        <select name="year" id="yearSelect">
+            {% for year in year_options %}
+            <option value="{{ year }}">{{ year }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if "n4_mode" in filters %}
+    <label class="filter-field">
+        <span>Number 4 View</span>
+        <select name="n4_mode" id="n4Select">
+            {% for value, label in n4_mode_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if "salesman" in filters %}
+    <label class="filter-field">
+        <span>Salesman</span>
+        <select name="salesman" id="salesmanSelect">
+            <option value="">All</option>
+            {% for s in salesmen %}
+            <option value="{{ s.key }}">{{ s.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if "customers" in filters %}
+    <label class="filter-field">
+        <span>Customers</span>
+        <select name="customers" id="customerSelect" multiple size="3">
+            {% for c in customers %}
+            <option value="{{ c.account }}">{{ c.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
     </div>
     <div class="filter-run-group">
     <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
-    <button type="button" class="btn btn-outline filter-run-btn" disabled title="Email me lands in a later slice">Email me</button>
+    <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn">Email me</button>
     </div>
 </form>
     </div>
@@ -43,10 +112,11 @@
 </div>
 
 <div class="report-layout-toolbar" id="layoutToolbar">
-    <button type="button" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
-    <button type="button" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
-    <button type="button" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
-    <button type="button" class="btn btn-outline" disabled title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    <button type="button" class="btn btn-outline" id="saveViewBtn" title="Save these filters as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
+    <button type="button" class="btn btn-outline" id="savedViewsBtn" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    <button type="button" class="btn btn-outline" id="scheduleViewBtn" title="Schedule this named view"><i data-feather="clock"></i> <span>Schedule</span></button>
+    <button type="button" class="btn btn-outline" id="keepBtn" title="Keep this run"><i data-feather="star"></i> <span>Keep</span></button>
+    <a class="btn btn-outline" id="exportBtn" href="#"><i data-feather="download"></i> <span>Export Excel</span></a>
 </div>
 
 <div id="reportSurface" class="report-surface" hidden>
@@ -56,12 +126,23 @@
             <div id="reportMeta" class="report-meta"></div>
         </div>
     </div>
+    <div id="commissionCards" class="commission-cards" hidden></div>
     <div class="report-table-scroll">
         <div id="reportTable"></div>
     </div>
 </div>
+
+<div id="helpOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) this.style.display='none'">
+  <div class="modal" role="dialog">
+    <div class="modal-head"><h3>About this report</h3>
+      <button type="button" class="modal-close" onclick="document.getElementById('helpOverlay').style.display='none'">&times;</button></div>
+    <div class="modal-body">
+      <p>This preview shows dummy JSON in the same tab layout as live. Run report fills Tabulator from <code>data.tabs</code>. Export writes an .xlsx of those tabs. Email me writes the mock outbox — Graph is not connected yet.</p>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/invoiced.js?v={{ asset_v }}"></script>
+<script src="/static/js/report.js?v={{ asset_v }}"></script>
 {% endblock %}

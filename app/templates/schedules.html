@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Schedules</h1>
+        <p class="page-subtitle">Recurring deliveries from a named saved view. Dummy mail goes to the outbox, not Graph.</p>
+    </div>
+</div>
+
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Schedule mail goes to {{ test_emails|join(', ') }}.
+    <a href="/settings">Settings</a>
+</div>
+{% endif %}
+
+<section class="settings-card">
+    <h2 class="section-title">Add a schedule</h2>
+    {% if views %}
+    <form method="post" action="/schedules/add" class="auth-form" style="max-width:480px;">
+        <label class="auth-field"><span class="auth-label">View</span>
+            <select name="view_id" required>
+                {% for v in views %}
+                <option value="{{ v.id }}" {% if preselect_view and preselect_view|string == v.id|string %}selected{% endif %}>
+                    {{ v.name }} ({{ v.report_key }})
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label class="auth-field"><span class="auth-label">When</span>
+            <select name="freq">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+            </select>
+        </label>
+        <label class="auth-field"><span class="auth-label">Time (America/New_York)</span>
+            <input name="run_time" type="time" value="08:00"></label>
+        <label class="auth-field"><span class="auth-label">Where (email)</span>
+            <input name="recipients" type="text" value="{{ user.email }}" placeholder="one@x.com, two@x.com"></label>
+        <button type="submit" class="btn btn-primary">Save schedule</button>
+    </form>
+    {% else %}
+    <p class="flag-desc">Save a named view on a report first, then come back here.</p>
+    {% endif %}
+</section>
+
+<section class="settings-card">
+    <h2 class="section-title">Your schedules</h2>
+    {% if schedules %}
+    <table class="simple-table">
+        <thead><tr><th>View</th><th>When</th><th>Where</th><th>Last</th><th></th></tr></thead>
+        <tbody>
+        {% for s in schedules %}
+        <tr>
+            <td>{{ s.view_name }} <span class="mini-flag">{{ s.report_key }}</span></td>
+            <td>{{ s.freq }} {{ s.run_time }} {% if not s.is_active %}<span class="mini-flag mini-off">paused</span>{% endif %}</td>
+            <td>{{ s.recipients }}</td>
+            <td>{{ s.last_status or '—' }} {{ s.last_run or '' }}</td>
+            <td class="cell-actions">
+                <form method="post" action="/schedules/{{ s.id }}/run-now" style="display:inline;">
+                    <button class="btn btn-sm btn-primary" type="submit">Run now</button>
+                </form>
+                <form method="post" action="/schedules/{{ s.id }}/toggle" style="display:inline;">
+                    <button class="btn btn-sm btn-outline" type="submit">{{ 'Pause' if s.is_active else 'Resume' }}</button>
+                </form>
+                <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
+                <form method="post" action="/schedules/{{ s.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this schedule?');">
+                    <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="run-log-empty">No schedules yet.</p>
+    {% endif %}
+</section>
+
+<details class="run-log-panel" open>
+    <summary class="run-log-summary">Recent run log</summary>
+    {% if is_privileged %}
+    <form method="post" action="/api/schedules/clear-stuck" onsubmit="event.preventDefault(); fetch(this.action,{method:'POST'}).then(function(){ location.reload(); });">
+        <button type="submit" class="btn btn-sm btn-outline">Clear stuck runs</button>
+    </form>
+    {% endif %}
+    {% if recent_runs %}
+    <table class="simple-table">
+        <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th></tr></thead>
+        <tbody>
+        {% for r in recent_runs %}
+        <tr>
+            <td>{{ r.started_at }}</td>
+            <td>{{ r.view_name }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.message }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="run-log-empty">No schedule runs yet. Use Run now.</p>
+    {% endif %}
+</details>
+{% endblock %}

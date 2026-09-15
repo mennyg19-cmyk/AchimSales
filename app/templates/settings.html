@@ -5,10 +5,10 @@
 {% block content %}
 <div class="page-head">
     <h1 class="page-title">Settings</h1>
-    <p class="page-subtitle">Your account, access, delivery, and history.</p>
+    <p class="page-subtitle">Your account{% if is_admin %}, access, delivery, and history{% endif %}.</p>
 </div>
 
-<div class="settings-hub">
+<div id="settingsHub" class="settings-hub">
 <details class="settings-cat" open>
     <summary>You</summary>
     <section class="settings-card">
@@ -33,6 +33,129 @@
         </label>
         <button type="button" id="settingsThemeSave" class="btn btn-primary btn-sm" style="margin-top:12px;">Save</button>
     </section>
+    <section class="settings-card">
+        <h2 class="section-title">Customer exclusions</h2>
+        <p class="flag-desc">Hide these accounts from your own Last Order list and dashboard leftovers. Dummy list only.</p>
+        <div id="exclPills" class="customer-pills">
+            {% for c in customers %}
+            <label class="access-item">
+                <input type="checkbox" class="excl-box" value="{{ c.account }}" {% if c.account in excluded %}checked{% endif %}>
+                {{ c.name }}
+            </label>
+            {% endfor %}
+        </div>
+        <button type="button" id="exclSave" class="btn btn-outline btn-sm" style="margin-top:12px;">Save exclusions</button>
+    </section>
 </details>
+
+{% if is_admin %}
+<details class="settings-cat">
+    <summary>People</summary>
+    <section class="settings-card">
+        <p class="flag-desc">Roles, report access, salesman assignment. No self-register.</p>
+        <a class="btn btn-outline btn-sm" href="/admin/users">Users &amp; access</a>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>Reports</summary>
+    <section class="settings-card">
+        <h2 class="section-title">Global report visibility</h2>
+        <p class="flag-desc">Off hides the report from everyone on the home list.</p>
+        <ul class="flag-list">
+            {% for r in reports %}
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" class="vis-toggle" data-key="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">{{ r.title }}</span>
+                    <span class="flag-desc">{{ r.key }}</span>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        <h2 class="section-title">Feature flags</h2>
+        <ul class="flag-list">
+            {% for f in flags %}
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" class="flag-toggle" data-key="{{ f.key }}" {% if f.enabled %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">{{ f.key.replace('_', ' ') }}</span>
+                    <span class="flag-desc">{{ f.description }}</span>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>Delivery</summary>
+    <section class="settings-card">
+        {% if company_schedule_setup %}
+        <a class="btn btn-outline btn-sm" href="/settings/company-schedules">Company schedules</a>
+        {% endif %}
+        <h3 class="settings-subhead">Schedule test mode</h3>
+        <p class="flag-desc">While on, every schedule mail (Run now and the clock) goes only to the addresses below. This preview writes the mock outbox, not Graph.</p>
+        <ul class="flag-list">
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" id="scheduleTestToggle" {% if test_mode_on %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">Redirect schedule mail</span>
+                    <span class="flag-desc">Subject is tagged [MOCK]. Salesmen are not emailed.</span>
+                </span>
+            </li>
+        </ul>
+        <div id="testEmailChips" class="test-email-chips">
+            {% for e in test_emails %}
+            <button type="button" class="customer-chip js-test-email-remove" data-email="{{ e }}">{{ e }} ✕</button>
+            {% endfor %}
+        </div>
+        <form id="testEmailAdd" class="test-email-add">
+            <label class="filter-field">
+                <span>Add test email</span>
+                <input type="email" id="testEmailInput" placeholder="name@achimonline.com" autocomplete="off">
+            </label>
+            <button type="submit" class="btn btn-outline btn-sm">Add</button>
+        </form>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>History</summary>
+    <section class="settings-card">
+        <div class="admin-links">
+            <a class="btn btn-outline btn-sm" href="/admin/run-log">Report run log</a>
+            <a class="btn btn-outline btn-sm" href="/admin/schedule-runs">Scheduled run history</a>
+        </div>
+    </section>
+</details>
+{% endif %}
+
+{% if is_developer or is_privileged %}
+<details class="settings-cat">
+    <summary>Developer</summary>
+    <section class="settings-card">
+        <div class="admin-links">
+            <a class="btn btn-outline btn-sm" href="/dev/db-explorer">Database explorer</a>
+            <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>
+            <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
+        </div>
+        <p class="flag-desc">OData vs SQL source picker is retired. This app only talks to the office Reporting API (mocked here).</p>
+    </section>
+</details>
+{% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/settings.js?v={{ asset_v }}"></script>
 {% endblock %}

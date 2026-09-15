@@ -2,6 +2,10 @@
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+app/data/
 __pycache__/
 .pytest_cache/
 _report_output/

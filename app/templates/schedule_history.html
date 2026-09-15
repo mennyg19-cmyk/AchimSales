@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Schedule history{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/schedules"><i data-feather="arrow-left"></i> Schedules</a>
+    <h1 class="page-title">{{ schedule.view_name }}</h1>
+    <p class="page-subtitle">{{ schedule.freq }} at {{ schedule.run_time }} → {{ schedule.recipients }}</p>
+</div>
+<section class="settings-card">
+    {% if runs %}
+    <table class="simple-table">
+        <thead><tr><th>When</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+        {% for r in runs %}
+        <tr>
+            <td>{{ r.started_at }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.message }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No runs yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ view.customer.name }} — Last Order{% endblock %}
+
+{% block content %}
+<a href="/report/customer-last-order" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i> Pick a different customer
+</a>
+<div class="page-head">
+    <h1 class="page-title">{{ view.customer.name }}</h1>
+    <p class="page-subtitle">Account: {{ view.customer.account }} · Salesman: {{ view.customer.salesman }}</p>
+</div>
+<div class="settings-card">
+    <div class="clo-head" style="margin-top:0;">
+        <h3>Last Order</h3>
+        <a class="btn btn-sm btn-outline" href="/api/reports/invoiced/xlsx">Export Excel (invoiced dummy)</a>
+    </div>
+    <div class="cust-metrics">
+        <div>
+            <span class="cust-metric-label">Order Number</span>
+            <span class="cust-metric-value">{{ view.primary.order_number }}</span>
+        </div>
+        <div>
+            <span class="cust-metric-label">Order Date</span>
+            <span class="cust-metric-value">{{ view.primary.order_date }}</span>
+        </div>
+        <div>
+            <span class="cust-metric-label">PO #</span>
+            <span class="cust-metric-value">{{ view.primary.po }}</span>
+        </div>
+        <div>
+            <span class="cust-metric-label">Salesman</span>
+            <span class="cust-metric-value">{{ view.primary.salesman }}</span>
+        </div>
+    </div>
+    <table class="simple-table" style="margin-top:16px;">
+        <thead><tr><th>Item #</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead>
+        <tbody>
+            {% for line in view.lines %}
+            <tr>
+                <td>{{ line["Item #"] }}</td>
+                <td>{{ line.Description }}</td>
+                <td>{{ line.Qty }}</td>
+                <td>{{ line.Price }}</td>
+                <td>{{ line.Amount }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Database explorer{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Database explorer</h1>
+    <p class="page-subtitle">One statement. DROP / ALTER / ATTACH / CREATE are blocked.</p>
+</div>
+<section class="settings-card">
+    <form method="post" action="/dev/db-explorer">
+        <label class="auth-field"><span class="auth-label">SQL</span>
+            <textarea name="sql" rows="6" style="width:100%;font-family:monospace;">{{ sql or "SELECT name FROM sqlite_master" }}</textarea>
+        </label>
+        <button class="btn btn-primary" type="submit">Run</button>
+    </form>
+    {% if error %}<p class="alert alert-error">{{ error }}</p>{% endif %}
+    {% if rows is not none %}
+    <div class="table-wrap" style="margin-top:16px;overflow:auto;">
+        <table class="simple-table">
+            {% if rows %}
+            <thead><tr>{% for col in rows[0].keys() %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+            <tbody>
+            {% for row in rows %}
+            <tr>{% for col in row.keys() %}<td>{{ row[col] }}</td>{% endfor %}</tr>
+            {% endfor %}
+            </tbody>
+            {% else %}
+            <tr><td>No rows</td></tr>
+            {% endif %}
+        </table>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

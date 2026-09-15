@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Scheduled run history{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Scheduled run history</h1>
+</div>
+<section class="settings-card">
+    {% if runs %}
+    <table class="simple-table">
+        <thead><tr><th>When</th><th>View</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+        {% for r in runs %}
+        <tr>
+            <td>{{ r.started_at }}</td>
+            <td>{{ r.view_name }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.message }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No scheduled runs yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -57,8 +57,37 @@ function initSettingsTheme() {
   });
 }
 
+function initRecentReports() {
+  const btn = document.getElementById("prevRunsBtn");
+  const panel = document.getElementById("recentPanel");
+  const body = document.getElementById("recentBody");
+  const close = document.getElementById("recentClose");
+  if (!btn || !panel) return;
+  async function load() {
+    panel.hidden = false;
+    const res = await fetch("/api/jobs");
+    const data = await res.json();
+    const jobs = data.jobs || [];
+    if (!jobs.length) {
+      body.textContent = "No runs yet. Open a report and click Run.";
+      return;
+    }
+    body.innerHTML = jobs.map((job) => {
+      const kept = job.kept ? " · kept " + (job.keep_name || "") : "";
+      return '<div class="recent-row"><a href="/reports/' + job.report_key + '">' + job.title + "</a>"
+        + '<div class="muted">' + job.created_at + kept + "</div></div>";
+    }).join("");
+  }
+  btn.addEventListener("click", () => {
+    if (panel.hidden) load();
+    else panel.hidden = true;
+  });
+  if (close) close.addEventListener("click", () => { panel.hidden = true; });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof feather !== "undefined") feather.replace();
   initThemeToggle();
   initSettingsTheme();
+  initRecentReports();
 });

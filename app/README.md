@@ -4,18 +4,19 @@ New Achim sales-report website. **Looks like** current https://reports.achimonli
 
 This folder is **not** the leftover Flask preview in `/rebuild` and **must not** be pushed to AchimSales `main` until Menny says cut over. Production today stays on `achim-sales-reports`.
 
-## Slice 1 (this preview)
+## Dummy preview (what this branch serves)
 
-Login look, header, bottom nav, four themes, mock Invoiced tabs in Tabulator. No Entra, no office API, no schedules yet.
+Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and mock outbox. Data is catalog JSON — no office API, no Graph, no Entra.
 
 ```
 cd app
-python -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8080
+python -m pip install -r requirements-dev.txt
+PYTHONPATH=. python -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Open `/login` → **Achim User Login** (preview) → **Invoiced**.
+Open `/login` → **Achim User Login** (Preview Admin). External Rep Login with `external@example.com` signs in the seeded external row (preview only).
+
+`pytest` from this folder uses a temp sqlite file. It never calls the Reporting API.
 
 ## Azure Web Apps — will it run?
 

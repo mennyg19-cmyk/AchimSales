@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Role picker{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Role picker</h1>
+    <p class="page-subtitle">Preview only. Switch into a seeded People row.</p>
+</div>
+<section class="settings-card">
+    <table class="simple-table">
+        <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+        <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.email }}</td>
+            <td>{{ u.role }}</td>
+            <td>
+                <form method="post" action="/admin/users/{{ u.id }}/view-as">
+                    <button class="btn btn-sm btn-outline" type="submit">View as</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
