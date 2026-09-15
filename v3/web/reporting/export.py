@@ -921,16 +921,31 @@ def _row_chunks(rows: list, max_rows: int) -> list[list]:
     return [rows[i:i + max_rows] for i in range(0, len(rows), max_rows)]
 
 
+def _spill_json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", errors="replace")
+    if hasattr(value, "__float__") and not isinstance(value, bool):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+    return str(value)
+
+
 def _spill_tab_rows(tab: dict) -> str:
-    """Pickle rows to a temp file and clear the tab so peak RAM drops."""
-    import pickle
+    """JSON-spill rows to a temp file and clear the tab so peak RAM drops."""
+    import json
     import tempfile
 
     rows = tab.get("rows") or []
-    fd, path = tempfile.mkstemp(prefix="xlsx_tab_", suffix=".pkl")
+    fd, path = tempfile.mkstemp(prefix="xlsx_tab_", suffix=".json")
     try:
-        with open(fd, "wb") as fh:
-            pickle.dump(rows, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(fd, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, default=_spill_json_default, separators=(",", ":"))
     except Exception:
         import os
         try:
@@ -943,10 +958,13 @@ def _spill_tab_rows(tab: dict) -> str:
 
 
 def _load_spilled_rows(path: str) -> list:
-    import pickle
+    import json
 
-    with open(path, "rb") as fh:
-        return pickle.load(fh)
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, list):
+        raise TypeError(f"spilled tab expected a list, got {type(data).__name__}")
+    return data
 
 
 def build_workbook_bundle(
@@ -957,7 +975,7 @@ def build_workbook_bundle(
 ) -> WorkbookBundle:
     """Build the main workbook; oversized tabs become companion .xlsx files.
 
-    Oversized tabs are spilled to temp pickle files (largest first) so Full Data
+    Oversized tabs are spilled to temp JSON files (largest first) so Full Data
     and By Order are not both resident while writing. Each spill file is loaded
     alone, split into <=max_sheet_rows companions, and deleted. Excel grouping is
     forced off on companions. Do not merge companions back on this box.
