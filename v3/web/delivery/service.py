@@ -3,10 +3,15 @@
 Builds the report (forcing a fresh recompute), replays the saved grid layout
 onto the payload, exports to xlsx, and hands off to the email service. Decoupled
 from Flask so the job worker and the scheduler can both call it.
+
+While normalized views coexist with JSON blobs, an optional ``compare_layout``
+(the raw old JSON) triggers a silent second workbook write + score. Delivery
+always uses ``layout`` (the new / live path).
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -14,11 +19,18 @@ from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.sharepoint import strip_reports_home
+from web.delivery.workbook_parity import (
+    ViewWorkbookParityRepository,
+    parity_root,
+    run_parity_files,
+)
 from web.jobs.trace import raise_if_cancelled, step as job_step
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,10 +43,14 @@ class DeliveryOutcome:
 
 class DeliveryService:
     def __init__(self, runner: ReportRunner, builder_resolver: BuilderResolver,
-                 email: EmailService):
+                 email: EmailService, *, db=None, precious_db_path=None,
+                 parity_enabled: bool = True):
         self.runner = runner
         self.builder_resolver = builder_resolver
         self.email = email
+        self.db = db
+        self.precious_db_path = precious_db_path
+        self.parity_enabled = parity_enabled
 
     def run_and_deliver(self, *, report_key: str, identity: str,
                         visible_salesman_keys: Iterable[str] | None,
@@ -48,7 +64,12 @@ class DeliveryService:
                         empty_recipients_override: str | None = None,
                         schedule_name: str = "",
                         subject_template: str = "",
-                        body_html_template: str = "") -> DeliveryOutcome:
+                        body_html_template: str = "",
+                        compare_layout: dict | None = None,
+                        parity_view_name: str = "",
+                        parity_view_id: str | None = None,
+                        parity_schedule_kind: str = "",
+                        parity_schedule_id: int | None = None) -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         run_params = dict(params or {})
         if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
@@ -75,6 +96,13 @@ class DeliveryService:
         job_step("workbook", "building xlsx")
         xlsx = build_workbook(payload, layout)
         job_step("workbook", f"{len(xlsx)} bytes")
+        self._maybe_parity(
+            report_key=report_key, payload=outcome.payload, layout=layout,
+            compare_layout=compare_layout, delivered_xlsx=xlsx,
+            view_name=parity_view_name, view_id=parity_view_id,
+            schedule_kind=parity_schedule_kind, schedule_id=parity_schedule_id,
+            schedule_name=schedule_name, row_count=rows,
+        )
         raise_if_cancelled()
         filename = resolve_filename_template(
             filename_template, report_name=report_name, params=params or {},
@@ -110,3 +138,33 @@ class DeliveryService:
             report_name=report_name, filename="", xlsx_bytes=None,
         )
         return DeliveryOutcome(result=result, row_count=0)
+
+    def _maybe_parity(self, *, report_key: str, payload: dict, layout: dict,
+                      compare_layout: dict | None, delivered_xlsx: bytes,
+                      view_name: str, view_id: str | None,
+                      schedule_kind: str, schedule_id: int | None,
+                      schedule_name: str, row_count: int) -> None:
+        if not self.parity_enabled or compare_layout is None or self.db is None:
+            return
+        if row_count == 0:
+            return
+        try:
+            root = parity_root(self.precious_db_path or ".")
+            result = run_parity_files(
+                root=root, report_key=report_key, view_name=view_name,
+                schedule_name=schedule_name, payload=payload,
+                new_layout=layout or {}, old_layout=compare_layout or {},
+                delivered_xlsx=delivered_xlsx,
+            )
+            ViewWorkbookParityRepository(self.db).record(
+                report_key=report_key, view_name=view_name, view_id=view_id,
+                schedule_kind=schedule_kind, schedule_id=schedule_id,
+                schedule_name=schedule_name, result=result,
+            )
+            job_step(
+                "parity",
+                f"{'MATCH' if result.matched else 'DIFF'} "
+                f"old={result.old_path} new={result.new_path}",
+            )
+        except Exception:  # noqa: BLE001 - never fail a delivery on parity
+            log.exception("view workbook parity failed (delivery continues)")

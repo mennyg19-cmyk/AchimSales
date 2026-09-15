@@ -1,8 +1,20 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (Gate A + dual-write + Gate B fixture workbooks green; live reads use assembled tables; production same-payload old-vs-new compare via `python -m tools.compare_view_workbooks` — needs a precious.db copy + Reporting API).
+Status: **locked 2026-09-15** (Gate A + dual-write + Gate B fixture workbooks green; live reads use assembled tables; scheduled/emailed deliveries use the new layout and silently dual-build the old JSON workbook for parity).
 
-Production compare (when you have DB + API):
+## Silent dual-build + daily digest (live)
+
+Every scheduled/emailed report delivery:
+
+1. Builds and sends the workbook from the **new** (assembled) layout.
+2. Also builds the **old** `layout_json` workbook under `{precious parent}/view-parity/YYYY-MM-DD/` (or `VIEW_PARITY_DIR`), as `__new.xlsx` / `__old.xlsx`.
+3. Compares sheet cell grids and writes a row to `view_workbook_parity`.
+
+Parity never fails the real send. Toggle off with app_settings `view_workbook_parity=0`.
+
+Once a day (Eastern **7:05**), the scheduler emails yesterday’s match/diff scores to `view_parity_digest_emails` (fallback: schedule test emails, then `V3_ADMIN_EMAILS`). Idempotent per Eastern day (`view_parity_digest_sent_day`).
+
+Manual one-shot still available:
 
 ```bash
 cd v3
@@ -155,9 +167,10 @@ Children:
 
 1. **Add tables + backfill.** Old JSON remains the live path. One-way projector: old row → new rows. Round-trip test: new rows → assemble the old layout/params dict → canonical JSON equals the source (same keys the exporter already understands).
 2. **Report builder on the new tables.** Save this view / explorer edits write the new tables. Keep dual-writing the old JSON so today’s GUI and clock still run. For every saved view, run **both** builders (new assemble vs old JSON) and require a match.
-3. **Cut over.** Live read path uses new tables only. Stop writing old JSON. Then drop `params_json` / `layout_json` / `cadence` JSON and the three old view tables / two old schedule tables.
+3. **Live read + silent dual delivery.** Deliveries use assembled layout. Old JSON workbook is still built to disk and scored (`view_workbook_parity` + daily digest email). Watch scores for about a week of green digests.
+4. **Cut over.** Stop writing old JSON. Then drop `params_json` / `layout_json` / `cadence` JSON and the three old view tables / two old schedule tables.
 
-Do not drop old tables in step 1 or 2.
+Do not drop old tables in step 1–3.
 
 ## Snapshot schedules (locked)
 

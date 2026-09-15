@@ -13,12 +13,14 @@
 - Explorer cell/SQL on `layout_tab_groups` (etc.) rewrites `saved_reports.layout_json`. Explorer edit of `layout_json` reprojects the new tables.
 - Gate B: Daily Ordered, Heshy Open Orders, one personal Ordered (filter + hide), one Number 4, one By Order with `group: []`. Workbook from assembled layout matches the old JSON on sheet names, column order, grouping banners, hidden columns, sort, and filters (cell values, not Excel XML).
 - Live read: `SavedReportRepository` / `CompanyViewRepository` / `ReportDefaultRepository` return assembled params/layout when the projected `views` row exists, even if `layout_json` is stale.
+- Silent dual-build: each delivery with a compare layout writes `__new.xlsx` / `__old.xlsx` under `view-parity/YYYY-MM-DD/`, scores into `view_workbook_parity`, and never fails the send if parity throws.
+- Daily digest: Eastern yesterday’s undigested rows email once; a second tick the same day is a no-op.
 - Production same-payload compare: `v3/tools/compare_view_workbooks.py` builds one SP report then two xlsx (raw JSON layout vs assemble) for the Gate B views. Needs `PRECIOUS_DB_PATH` + Reporting API.
 
 **Expected behavior:**
-- New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Old tables stay until both gates pass.
+- New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Deliveries use the new layout; old JSON is only for silent compare until cutover. Old tables stay until digests stay green and you say drop.
 
-**Test files:** `v3/tests/test_normalized_views.py`
+**Test files:** `v3/tests/test_normalized_views.py`, `v3/tests/test_workbook_parity.py`
 
 ## Azure Always On GET / must not 401 a report run
 

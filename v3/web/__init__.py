@@ -130,7 +130,10 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     sharepoint = SharePointService(cfg)
     onedrive = OneDriveService(cfg)
     email = EmailService(cfg, OutboxRepository(db), sharepoint, onedrive=onedrive)
-    delivery = DeliveryService(runner, service.builder_for, email)
+    delivery = DeliveryService(
+        runner, service.builder_for, email,
+        db=db, precious_db_path=cfg.precious_db_path,
+    )
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 
     schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"], salesmen)
@@ -506,11 +509,14 @@ def _start_scheduler(app: Flask, db) -> None:
     boot is never blocked.
     """
     from web.dashboard.jobs import enqueue_refresh
+    from web.delivery.parity_digest import make_parity_digest_tick
     from web.jobs.scheduler import Scheduler
     from web.scheduling.tick import make_tick
 
     job_repo = app.config["JOB_REPO"]
     dashboard_on = app.config["APP_CONFIG"].dashboard_refresh_enabled
+    delivery = app.config.get("DELIVERY_SERVICE")
+    email = getattr(delivery, "email", None)
 
     def _tick_mirror():
         try:
@@ -529,6 +535,13 @@ def _start_scheduler(app: Flask, db) -> None:
         # entirely when the dashboard refresh is turned off.
         if dashboard_on:
             scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
+        # Yesterday's silent dual-build scores → one digest email (Eastern 7:05).
+        if email is not None:
+            scheduler.add_cron(
+                "view-parity-digest",
+                make_parity_digest_tick(db, email),
+                hour=7, minute=5,
+            )
         scheduler.start()
         app.config["SCHEDULER"] = scheduler
         app.logger.info("schedule cron started (dashboard mirror %s)",

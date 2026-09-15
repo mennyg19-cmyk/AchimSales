@@ -23,6 +23,7 @@ from web.data.repositories.company_views import CompanyViewRepository
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
     ReportDefaultRepository,
+    layout_has_snapshot,
     normalize_view_name,
     resolve_send_layout,
 )
@@ -37,6 +38,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.delivery.workbook_parity import raw_legacy_layout
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import test_sharepoint_path
 from web.scheduling.company_layouts import WINDOW_KEYS, has_date_window
@@ -230,6 +232,57 @@ class ScheduleRunner:
             self.defaults.get_layout(sched.report_key),
             live,
         )
+
+    def _legacy_json_layout(self, sched, schedule_type: str) -> dict | None:
+        """Raw layout_json for silent parity (bypass live-read hydrate)."""
+        name = getattr(sched, "view_name", None)
+        norm = normalize_view_name(name)
+        db = self.user_repo.db
+        if norm == DEFAULT_VIEW_NAME:
+            snap = getattr(sched, "layout", None)
+            if layout_has_snapshot(snap if isinstance(snap, dict) else None):
+                return dict(snap)
+            with db.precious() as conn:
+                row = conn.execute(
+                    "SELECT layout_json FROM report_defaults WHERE report_key=?",
+                    (sched.report_key,),
+                ).fetchone()
+            if row is None:
+                return {}
+            try:
+                layout = json.loads(row["layout_json"] or "{}")
+            except (TypeError, ValueError):
+                return {}
+            return layout if isinstance(layout, dict) else {}
+        stored = dict(getattr(sched, "params", None) or {})
+        use_company = schedule_type == MASTER or stored.get("view_source") == "company"
+        if schedule_type == PERSONAL and not use_company:
+            owner_id = getattr(sched, "owner_user_id", None)
+            personal = (
+                self.saved_reports.get_by_name(owner_id, sched.report_key, name)
+                if owner_id else None
+            )
+            if personal is not None:
+                return raw_legacy_layout(db, "saved_reports", personal.id)
+            use_company = True
+        if use_company:
+            cv = self.company_views.get_by_name(sched.report_key, name)
+            if cv is not None:
+                return raw_legacy_layout(db, "company_views", cv.id)
+        return dict(getattr(sched, "layout", None) or {})
+
+    def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
+        if not self.settings.view_workbook_parity_enabled():
+            return {}
+        compare = self._legacy_json_layout(sched, schedule_type)
+        if compare is None:
+            return {}
+        return {
+            "compare_layout": compare,
+            "parity_view_name": normalize_view_name(getattr(sched, "view_name", None)),
+            "parity_schedule_kind": schedule_type,
+            "parity_schedule_id": getattr(sched, "id", None),
+        }
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
@@ -482,6 +535,7 @@ class ScheduleRunner:
                         schedule_name=schedule_name,
                         subject_template=str(params.get("email_subject") or ""),
                         body_html_template=str(params.get("email_html") or ""),
+                        **self._parity_deliver_kwargs(sched, schedule_type),
                     )
                 if not outcome.result.ok:
                     if _inbox_already_got_mail(outcome.result):
@@ -609,6 +663,7 @@ class ScheduleRunner:
                 ),
                 subject_template=str(params.get("email_subject") or ""),
                 body_html_template=str(params.get("email_html") or ""),
+                **self._parity_deliver_kwargs(sched, MASTER),
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -637,6 +692,7 @@ class ScheduleRunner:
                 schedule_name=f"{sched_name} - {key}",
                 body_text=body_text,
                 email_on_empty=False,
+                **self._parity_deliver_kwargs(sched, MASTER),
             )
             if outcome.row_count == 0:
                 notice_fn = getattr(self.delivery, "send_no_data_notice", None)
