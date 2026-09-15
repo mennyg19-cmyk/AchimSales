@@ -1,5 +1,19 @@
 # Testing Strategy
 
+## Normalized views round-trip (new tables vs old JSON)
+
+**What to test:** (not built yet — spec `v3/docs/normalized-views.md`)
+- Backfill every `saved_reports` / `company_views` / `report_defaults` row into `views` + layout children. Assemble back to a layout/params dict. Canonical JSON equals the source (`group: []` kept on stored tabs; delivery keys absent on views).
+- A tab with zero `layout_tab_groups` rows round-trips as `group: []`. A missing tab row is omitted (builder default), not ungroup.
+- A schedule whose snapshot differs from the named view gets a new personal view; matching snapshots only store `view_id`.
+- Insert `layout_tabs` with a fake `view_id` → FOREIGN KEY error. Delete a view that `report_schedules` still points at → RESTRICT.
+- Gate B: workbooks from assembled-new vs old JSON match sheet names, column order, grouping, hidden columns, sort, and filters for Daily Ordered, Heshy Open Orders, one personal Ordered, one Number 4, one ungrouped By Order.
+
+**Expected behavior:**
+- New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Old tables stay until both gates pass.
+
+**Test files:** to add with the migration (`v3/tests/test_view_schema.py` or similar)
+
 ## Azure Always On GET / must not 401 a report run
 
 **What to test:**

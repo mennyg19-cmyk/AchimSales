@@ -51,3 +51,7 @@ notifications, jobs) lives on **local disk** and is replicated to Azure Blob by
 **Litestream** - never on Azure Files/SMB. `cache.db` (D365 mirror + report
 payload cache) is disposable. Postgres is a documented off-ramp behind repository
 interfaces, required only before running more than one instance.
+
+Views/layouts/schedules are moving off `*_json` blobs onto related tables
+(new schema alongside the old until parity). Locked spec:
+[`docs/normalized-views.md`](docs/normalized-views.md).
