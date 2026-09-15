@@ -28,6 +28,9 @@
 | Last Order picker without key | Dummy JSON banner; C-1001 still SO-88021 |
 | Live salesman POST invoiced `{"salesman":"DDweck"}` | doorway body `Salesman=HKaufman` |
 | Last Order lookup miss, SP Salesman matches scope | 200; other Salesman 302 |
+| Salesman mock + thin tabs | keys `yoy` and `ytd` (not `jan`) |
+| Live Last Order when invoiced SP raises | 200 + last-order lines + “Recent invoiced could not load” |
+| POST `/api/dev/reporting/<id>/run` invalid JSON or a JSON array | 400, not empty `{}` |
 | Doorway HTTP 4xx | no retry; 302 to `/` is an error |
 | Default `REPORTING_API_BASE_URL` | office doorway host, never reports.achimonline.com |
 | gunicorn timeout | 180s default |

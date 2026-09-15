@@ -8,20 +8,6 @@ import catalog
 from doorway import ReportResult
 
 
-def _cell(row: dict, *names, default=""):
-    if not isinstance(row, dict):
-        return default
-    for name in names:
-        if name in row and row[name] not in (None, ""):
-            return row[name]
-    lower = {str(key).lower(): value for key, value in row.items()}
-    for name in names:
-        value = lower.get(name.lower())
-        if value not in (None, ""):
-            return value
-    return default
-
-
 def _slug(name: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_") or "tab"
 
@@ -31,11 +17,11 @@ def _tab(name: str, rows: list) -> dict:
 
 
 def _is_credit(row: dict) -> bool:
-    flag = _cell(row, "IsCredit", "is_credit")
+    flag = catalog.cell(row, "IsCredit", "is_credit")
     if flag in (True, 1, "1", "true", "True", "Y", "yes"):
         return True
     if flag in (False, 0, "0", "false", "False", "N", "no", ""):
-        amount = _cell(row, "Total Invoice", "amount", "Sales", default=0)
+        amount = catalog.cell(row, "Total Invoice", "amount", "Sales", default=0)
         try:
             return float(amount) < 0
         except (TypeError, ValueError):
@@ -44,7 +30,7 @@ def _is_credit(row: dict) -> bool:
 
 
 def _amount(row: dict):
-    raw = _cell(row, "Total Invoice", "Open$", "Ordered$", "Sales", "amount", "YTD", default=0)
+    raw = catalog.cell(row, "Total Invoice", "Open$", "Ordered$", "Sales", "amount", "YTD", default=0)
     try:
         return float(raw)
     except (TypeError, ValueError):
@@ -54,7 +40,7 @@ def _amount(row: dict):
 def _group(rows: list[dict], *key_names: str, name_field: str = "") -> list[dict]:
     buckets: dict[str, dict] = {}
     for row in rows:
-        key = str(_cell(row, *key_names) or "")
+        key = str(catalog.cell(row, *key_names) or "")
         if not key:
             continue
         bucket = buckets.setdefault(
@@ -65,7 +51,7 @@ def _group(rows: list[dict], *key_names: str, name_field: str = "") -> list[dict
                 "Total": 0.0,
             },
         )
-        label = _cell(row, name_field) if name_field else ""
+        label = catalog.cell(row, name_field) if name_field else ""
         if label and name_field not in bucket:
             bucket[name_field] = label
         bucket["Count"] += 1
@@ -160,7 +146,7 @@ def _invoiced(rows: list[dict]) -> dict:
     commission_rows = [
         row
         for row in rows
-        if _cell(row, "CommissionDollars", "NetCommission", "Commission") not in ("", None)
+        if catalog.cell(row, "CommissionDollars", "NetCommission", "Commission") not in ("", None)
     ]
     if commission_rows:
         tabs["commissions"] = _tab("Commissions", commission_rows)
@@ -178,7 +164,7 @@ def _ordered(rows: list[dict]) -> dict:
         "by_salesman": _tab("By Salesman", _group(rows, "Salesman", "SalesGroup")),
         "full_data": _tab("Full Data", rows),
     }
-    if any(_cell(row, "Item #", "Item", "ItemId") for row in rows):
+    if any(catalog.cell(row, "Item #", "Item", "ItemId") for row in rows):
         tabs["by_item"] = _tab(
             "By Item",
             _group(rows, "Item #", "Item", "ItemId", name_field="Item Name"),
@@ -216,7 +202,7 @@ def _customer_activity(rows: list[dict]) -> dict:
     grouped: dict[str, list] = defaultdict(list)
     unassigned = []
     for row in rows:
-        salesman = str(_cell(row, "Salesman", "SalesGroup") or "")
+        salesman = str(catalog.cell(row, "Salesman", "SalesGroup") or "")
         if not salesman:
             unassigned.append(row)
             continue
@@ -256,20 +242,26 @@ def customer_from_rows(account: str, rows: list[dict]) -> dict:
         if not isinstance(row, dict):
             continue
         if not salesman:
-            salesman = str(_cell(row, "Salesman", "SalesGroup") or "")
+            salesman = str(catalog.cell(row, "Salesman", "SalesGroup") or "")
         if not name:
-            name = str(_cell(row, "Customer Name", "CustomerName", "Customer") or "")
+            name = str(catalog.cell(row, "Customer Name", "CustomerName", "Customer") or "")
         if salesman and name:
             break
     return {"account": account, "name": name or account, "salesman": salesman}
 
 
-def last_order_view(account: str, rows: list[dict], customer: dict, recent_invoices: list[dict]) -> dict:
+def last_order_view(
+    account: str,
+    rows: list[dict],
+    customer: dict,
+    recent_invoices: list[dict],
+    recent_error: str = "",
+) -> dict:
     """Newest Order Rank (or first order number) plus its lines. No ADDON rollup."""
     rows = [row for row in rows if isinstance(row, dict)]
     by_rank: dict[int, list[dict]] = defaultdict(list)
     for row in rows:
-        raw_rank = _cell(row, "Order Rank", "OrderRank", default=1)
+        raw_rank = catalog.cell(row, "Order Rank", "OrderRank", default=1)
         try:
             rank = int(float(raw_rank))
         except (TypeError, ValueError):
@@ -279,9 +271,9 @@ def last_order_view(account: str, rows: list[dict], customer: dict, recent_invoi
     first = chosen[0] if chosen else {}
     lines = []
     for row in chosen:
-        qty = _cell(row, "Qty Ordered", "QtyOrdered", "Qty", default=0)
-        price = _cell(row, "Sales Price", "SalesPrice", "Price", default=0)
-        amount = _cell(row, "Total", "Amount", default="")
+        qty = catalog.cell(row, "Qty Ordered", "QtyOrdered", "Qty", default=0)
+        price = catalog.cell(row, "Sales Price", "SalesPrice", "Price", default=0)
+        amount = catalog.cell(row, "Total", "Amount", default="")
         if amount in ("", None):
             try:
                 amount = round(float(qty or 0) * float(price or 0), 2)
@@ -289,8 +281,8 @@ def last_order_view(account: str, rows: list[dict], customer: dict, recent_invoi
                 amount = 0
         lines.append(
             {
-                "Item #": _cell(row, "Item #", "Item", "ItemId"),
-                "Description": _cell(row, "Description", "Item Name", "ItemName"),
+                "Item #": catalog.cell(row, "Item #", "Item", "ItemId"),
+                "Description": catalog.cell(row, "Description", "Item Name", "ItemName"),
                 "Qty": qty,
                 "Price": price,
                 "Amount": amount,
@@ -299,18 +291,19 @@ def last_order_view(account: str, rows: list[dict], customer: dict, recent_invoi
     return {
         "customer": customer,
         "primary": {
-            "order_number": _cell(
+            "order_number": catalog.cell(
                 first, "Sales Order Number", "SalesOrderNumber", "order_number"
             ),
             "order_date": str(
-                _cell(first, "Order Date", "OrderDate", "order_date")
+                catalog.cell(first, "Order Date", "OrderDate", "order_date")
             )[:10],
             "salesman": customer.get("salesman")
-            or _cell(first, "Salesman", "SalesGroup"),
-            "po": _cell(first, "PO #", "PO#", "CustomerRequisition"),
+            or catalog.cell(first, "Salesman", "SalesGroup"),
+            "po": catalog.cell(first, "PO #", "PO#", "CustomerRequisition"),
         },
         "lines": lines,
         "recent_invoices": recent_invoices,
+        "recent_error": recent_error,
         "source": "reporting_api",
         "account": account,
     }

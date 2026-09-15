@@ -17,6 +17,7 @@ import store
 from db import init_db
 from deps import flash, page, require_csrf, safe_next, session_from_row, session_user
 from routes_admin import router as admin_router
+from routes_dev import router as dev_router
 from routes_reports import router as reports_router
 from routes_schedules import router as schedules_router
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     application.mount("/static", StaticFiles(directory=str(config.ROOT / "static")), name="static")
     application.include_router(reports_router)
     application.include_router(admin_router)
+    application.include_router(dev_router)
     application.include_router(schedules_router)
 
     @application.middleware("http")

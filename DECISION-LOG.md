@@ -1,3 +1,11 @@
+## 2026-09-15 Loop C craft: shared cell, dev routes, salesman tabs, sidecar errors
+**What I had to decide:** Fix all five quality findings vs DECIDED-defer any; put the doorway proxy in `routes_reports.py` vs a new `routes_dev.py`.
+**Options I considered:** Move only `/api/dev/reporting/{id}/run` (admin would stay over 500); new `routes_dev.py` for explorer + diagnostics + proxy; leave `_cell` duplicated with a comment.
+**What I chose:** One `catalog.cell` (lookups pass `strip=True`). Developer tools (explorer, diagnostics, doorway proxy) live in `routes_dev.py`. Mock salesman tabs use `yoy`/`ytd` like the thin assembler. Last Order invoiced sidecar stores `recent_error` and the view shows it; the page still 200s. Invalid JSON on the proxy is 400. `test_home.py` split stays deferred.
+**Why:** Loop C F1–F5. Admin was 563 lines with mixed concerns; moving the proxy alone would not get under 500.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Live office Reporting API behind the dummy site
 **What I had to decide:** Call the office doorway for every report now vs keep catalog JSON until Menny pastes the key; fallback vs fail when the SP errors.
 **Options I considered:** Always mock; live when KEY is set else mock; silent mock fallback after a live 502.

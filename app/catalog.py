@@ -7,6 +7,29 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+
+def cell(row, *names, default="", strip=False):
+    if not isinstance(row, dict):
+        return default
+    value = None
+    found = False
+    for name in names:
+        if name in row and row[name] not in (None, ""):
+            value = row[name]
+            found = True
+            break
+    if not found:
+        lower = {str(key).lower(): item for key, item in row.items()}
+        for name in names:
+            value = lower.get(name.lower())
+            if value not in (None, ""):
+                found = True
+                break
+    if not found:
+        return default
+    return str(value).strip() if strip else value
+
+
 PERIOD_OPTIONS = (
     ("all_time", "All Time"),
     ("mtd", "Month to Date"),
@@ -251,7 +274,12 @@ def salesman_payload() -> dict:
         {"SalesmanName": "Dweck, David", "CustomerName": "HD SUPPLY", "Jan": 1200.0, "YTD": 1200.0},
         {"SalesmanName": "Kaufman, Herschel", "CustomerName": "AMAZON.COM DEDC, LLC", "Jan": 800.0, "YTD": 800.0},
     ]
-    return _payload("salesman", "Salesman", {"jan": {"name": "Jan", "rows": rows}, "ytd": {"name": "YTD", "rows": rows}}, rows)
+    return _payload(
+        "salesman",
+        "Salesman",
+        {"yoy": {"name": "Year over Year", "rows": rows}, "ytd": {"name": "YTD", "rows": rows}},
+        rows,
+    )
 
 
 def number_4_payload() -> dict:
@@ -441,4 +469,5 @@ def last_order_for(account: str) -> dict | None:
             {"Item #": "B-200", "Description": "Gadget", "Qty": 2, "Price": 15.0, "Amount": 30.0},
         ],
         "recent_invoices": invoices,
+        "recent_error": "",
     }

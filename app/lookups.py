@@ -64,35 +64,22 @@ def _fresh(cache_key: str) -> bool:
     return bool(row) and _age_s(row["updated_at"]) <= TTL_S
 
 
-def _cell(row: dict, *names) -> str:
-    for name in names:
-        value = row.get(name)
-        if value not in (None, ""):
-            return str(value).strip()
-    lower = {str(key).lower(): value for key, value in row.items()}
-    for name in names:
-        value = lower.get(name.lower())
-        if value not in (None, ""):
-            return str(value).strip()
-    return ""
-
-
 def _refresh_salesmen() -> None:
     result = doorway.run_report(params.SALESMEN_MASTER, {}, timeout=MASTER_TIMEOUT_S)
     rows = []
     for raw in result.rows:
         if not isinstance(raw, dict):
             continue
-        key = _cell(raw, "Salesman", "SalesGroup", "SalesGroupId")
+        key = catalog.cell(raw, "Salesman", "SalesGroup", "SalesGroupId", strip=True)
         if not key:
             continue
-        active = _cell(raw, "IsActive", "Active").lower()
+        active = catalog.cell(raw, "IsActive", "Active", strip=True).lower()
         if active in {"0", "false", "no", "n"}:
             continue
         rows.append(
             {
                 "key": key,
-                "name": _cell(raw, "SalesmanName", "Name") or key,
+                "name": catalog.cell(raw, "SalesmanName", "Name", strip=True) or key,
             }
         )
     if rows:
@@ -105,14 +92,15 @@ def _refresh_customers() -> None:
     for raw in result.rows:
         if not isinstance(raw, dict):
             continue
-        account = _cell(raw, "CustomerAccount", "Customer Account", "account")
+        account = catalog.cell(raw, "CustomerAccount", "Customer Account", "account", strip=True)
         if not account:
             continue
         rows.append(
             {
                 "account": account,
-                "name": _cell(raw, "CustomerName", "Customer Name", "name") or account,
-                "salesman": _cell(raw, "SalesGroup", "Salesman", "salesman"),
+                "name": catalog.cell(raw, "CustomerName", "Customer Name", "name", strip=True)
+                or account,
+                "salesman": catalog.cell(raw, "SalesGroup", "Salesman", "salesman", strip=True),
             }
         )
     if rows:

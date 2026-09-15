@@ -12,6 +12,9 @@
 {% if data_source == "mock" %}
 <div class="alert alert-warn" role="status">Dummy JSON until REPORTING_API_KEY is set.</div>
 {% endif %}
+{% if view.recent_error %}
+<div class="alert alert-warn" role="status">Recent invoiced could not load from the office API. Last order lines below are still from the last-orders procedure. {{ view.recent_error }}</div>
+{% endif %}
 <div class="settings-card">
     <div class="clo-head" style="margin-top:0;">
         <h3>Last Order</h3>

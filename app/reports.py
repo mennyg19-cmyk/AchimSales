@@ -88,15 +88,9 @@ def build_payload(key: str, user: dict, params_in: dict) -> dict:
     if salesman:
         scoped["salesman"] = salesman
     if not doorway.configured():
-        payload = catalog.mock_report(
-            key,
-            salesman=salesman,
-            customers=scoped.get("customers") or None,
-            n4_mode=scoped.get("n4_mode") or "both",
-            hide_commissions=not is_privileged(user),
-        )
+        payload = catalog.mock_report(key)
         payload["data"]["source"] = "mock"
-        return _stamp_period(payload, scoped)
+        return _apply_filters(payload, key, user, scoped)
     payload = _live_payload(key, scoped)
     payload["data"]["source"] = "reporting_api"
     return _apply_filters(payload, key, user, scoped)
@@ -125,14 +119,15 @@ def last_order_page(account: str, user: dict) -> dict | None:
         if not customer.get("name") or customer.get("name") == account:
             customer["name"] = from_rows["name"] or customer.get("name") or account
     recent: list[dict] = []
+    recent_error = ""
     try:
         invoiced = doorway.run_report(
             params.REPORT_IDS["invoiced"],
             params.translate("invoiced", {"period": "last_7_days", "customers": [account]}),
         )
         recent = invoiced.rows
-    except doorway.DoorwayError:
-        recent = []
-    view = assemble.last_order_view(account, rows, customer, recent)
+    except doorway.DoorwayError as err:
+        recent_error = str(err)
+    view = assemble.last_order_view(account, rows, customer, recent, recent_error)
     view["source"] = "reporting_api"
     return view

@@ -1,6 +1,6 @@
 # Session Handoff
 
-Last updated: 2026-09-15 (office API hookup)
+Last updated: 2026-09-15 (Loop C craft on API hookup)
 
 **Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. No production cutover.
 

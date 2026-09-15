@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import assemble
+import catalog
 import doorway
 import lookups
 import params
@@ -291,6 +292,51 @@ def test_live_last_order_acl_uses_row_salesman_when_lookup_misses(live_client, m
     assert "SO-LIVE" in ok.text
     denied = live_client.get("/report/customer-last-order/C-1001", follow_redirects=False)
     assert denied.status_code == 302
+
+
+def test_cell_alias_walk_and_strip():
+    row = {"SalesGroup": " DDweck "}
+    assert catalog.cell(row, "salesgroup") == " DDweck "
+    assert catalog.cell(row, "salesgroup", strip=True) == "DDweck"
+    assert catalog.cell({}, "missing", default=0) == 0
+
+
+def test_salesman_tabs_share_yoy_ytd_keys():
+    mock_tabs = catalog.mock_report("salesman")["data"]["tabs"]
+    thin = assemble.thin_tabs("salesman", [{"Jan": 1, "YTD": 2}])
+    assert set(mock_tabs) == {"yoy", "ytd"}
+    assert set(thin) == {"yoy", "ytd"}
+
+
+def test_live_last_order_sidecar_error_is_visible(live_client, monkeypatch):
+    def boom(report_id, params_in=None, timeout=None):
+        if report_id == "invoiced_report":
+            raise doorway.DoorwayError("Reporting API unreachable for invoiced_report: timeout")
+        return fake_run(report_id, params_in, timeout)
+
+    monkeypatch.setattr("reports.doorway.run_report", boom)
+    login(live_client)
+    html = live_client.get("/report/customer-last-order/C-1001").text
+    assert "SO-LIVE" in html
+    assert "Recent invoiced could not load" in html
+    assert "timeout" in html
+
+
+def test_dev_reporting_invalid_json_is_400(live_client):
+    login(live_client)
+    res = live_client.post(
+        "/api/dev/reporting/invoiced_report/run",
+        content=b"not-json",
+        headers={**csrf_headers(live_client), "Content-Type": "application/json"},
+    )
+    assert res.status_code == 400
+    assert "JSON" in res.json()["error"]
+    listed = live_client.post(
+        "/api/dev/reporting/invoiced_report/run",
+        json=[1, 2],
+        headers=csrf_headers(live_client),
+    )
+    assert listed.status_code == 400
 
 
 def test_dev_reporting_live(live_client):
