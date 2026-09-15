@@ -207,19 +207,43 @@ class ScheduleRunner:
         """Live send layout from assembled tables only — never layout_json."""
         from web.data.normalized_views import assemble_layout
 
-        view_id = self._live_view_id(sched, schedule_type)
+        view_id, origin = self._live_view_id(sched, schedule_type)
+        name = normalize_view_name(getattr(sched, "view_name", None))
         if not view_id:
-            log.warning(
-                "no assembled view for %s:%s view=%r — empty layout",
-                schedule_type, getattr(sched, "id", None),
-                getattr(sched, "view_name", None),
+            job_step(
+                "layout",
+                f"NO assembled view for {schedule_type}:{getattr(sched, 'id', None)} "
+                f"view_name={name!r} — empty layout (builder defaults will apply)",
             )
             return {}
         with self.user_repo.db.precious() as conn:
-            return assemble_layout(conn, view_id)
+            layout = assemble_layout(conn, view_id)
+            tabs = conn.execute(
+                "SELECT tab_key, has_view, groups_explicit FROM layout_tabs WHERE view_id=?",
+                (view_id,),
+            ).fetchall()
+        views = layout.get("views") if isinstance(layout.get("views"), dict) else {}
+        bits = []
+        for t in tabs:
+            key = t["tab_key"]
+            if not t["has_view"]:
+                bits.append(f"{key}:has_view=0")
+                continue
+            explicit = bool(t["groups_explicit"]) if "groups_explicit" in t.keys() else True
+            v = views.get(key) if isinstance(views.get(key), dict) else {}
+            if explicit:
+                bits.append(f"{key}:group={v.get('group')!r}")
+            else:
+                bits.append(f"{key}:group=<MISSING groups_explicit=0>")
+        job_step(
+            "layout",
+            f"assembled view_id={view_id} origin={origin} view_name={name!r} "
+            f"tabs=[{', '.join(bits) or 'none'}]",
+        )
+        return layout
 
-    def _live_view_id(self, sched, schedule_type: str) -> str | None:
-        """Resolve ``views.id`` for this send; seed tables from JSON only if missing."""
+    def _live_view_id(self, sched, schedule_type: str) -> tuple[str | None, str]:
+        """Resolve ``views.id`` + origin label; seed tables from JSON only if missing."""
         from web.data.normalized_views import (
             assign_handles,
             canonicalize_layout,
@@ -258,7 +282,7 @@ class ScheduleRunner:
         with db.precious() as conn:
             if name == DEFAULT_VIEW_NAME:
                 sync_report_default_conn(conn, report_key)
-                return _ensure_default_view(conn, report_key)
+                return _ensure_default_view(conn, report_key), "report_defaults/Default"
 
             if personal is not None:
                 sync_saved_report_conn(conn, personal.id)
@@ -268,7 +292,10 @@ class ScheduleRunner:
                     (personal.id,),
                 ).fetchone()
                 if row:
-                    return row["id"]
+                    return (
+                        row["id"],
+                        f"saved_reports id={personal.id} name={personal.name!r}",
+                    )
 
             if cv is not None:
                 sync_company_view_conn(conn, cv.id)
@@ -278,7 +305,10 @@ class ScheduleRunner:
                     (cv.id,),
                 ).fetchone()
                 if row:
-                    return row["id"]
+                    return (
+                        row["id"],
+                        f"company_views id={cv.id} name={cv.name!r}",
+                    )
 
             legacy_kind = "personal" if schedule_type == PERSONAL else "master"
             source = f"snapshot:{legacy_kind}"
@@ -287,7 +317,7 @@ class ScheduleRunner:
                 (source, int(sched.id)),
             ).fetchone()
             if row:
-                return row["id"]
+                return row["id"], f"{source} legacy_id={sched.id} (already projected)"
             handles = assign_handles(conn)
             owner_handle = None
             if schedule_type == PERSONAL:
@@ -302,7 +332,7 @@ class ScheduleRunner:
                 snap_id = company_view_id(report_key, snap_name)
                 snap_kind = "company"
                 owner_handle = None
-            return _upsert_view(
+            vid = _upsert_view(
                 conn, view_id=snap_id, kind=snap_kind, report_key=report_key,
                 name=snap_name, owner_handle=owner_handle,
                 params=canonicalize_params(getattr(sched, "params", None) or {}),
@@ -310,6 +340,7 @@ class ScheduleRunner:
                 updated_by_handle=owner_handle,
                 legacy_source=source, legacy_id=int(sched.id),
             )
+            return vid, f"{source} seeded_from_layout_json schedule_id={sched.id}"
 
     def _legacy_view_ref(self, sched, schedule_type: str) -> dict:
         """Resolve which legacy JSON row backs silent parity (JSON garbage only).
@@ -363,7 +394,9 @@ class ScheduleRunner:
         return raw_legacy_layout(self.user_repo.db, source, int(ref["legacy_id"]))
 
     def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
-        return self._live_view_id(sched, schedule_type)
+        view_id, _origin = self._live_view_id(sched, schedule_type)
+        return view_id
+
     def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
         if not self.settings.view_workbook_parity_enabled():
             return {}

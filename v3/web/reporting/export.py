@@ -680,33 +680,42 @@ def _stream_commission(ws, tab: dict) -> None:
 
 def _tab_groups_and_sorters(
     tab: dict, view: dict, rows: list, known: set[str],
-) -> tuple[list[str], list | None]:
+) -> tuple[list[str], list | None, str]:
     """Resolve Excel groups/sorts for one tab.
 
     Empty group [] is a saved ungroup (Default view). Only use the builder
     default_group when the view never set group at all.
 
-    A salesman-split Ordered file has empty default_group (the sheet is already
-    one rep). Daily Ordered groups By Customer by Salesman only — drop that
-    redundant Salesman level on a one-rep file.
-    Summary's builder default_layout (Customer Name then Item) fills extra
-    sorts when the view did not set sorters, including when default_group is
-    already Salesman.
+    Returns (group_fields, sorters, source) where source explains for job logs
+    whether layout, builder default_group, or default_layout won.
     """
+    tab_key = tab.get("key") or tab.get("name") or "?"
     if "group" in view:
         wanted = view["group"] if isinstance(view["group"], list) else []
         group_was_set = True
+        source = f"layout.views[{tab_key}].group={wanted!r}"
     else:
         wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
         group_was_set = False
+        source = (
+            f"builder default_group={wanted!r} "
+            f"(layout.views[{tab_key}] has no group key — "
+            f"cleared layout_tab_groups with groups_explicit=0 does this)"
+        )
+    dropped_salesman = False
     if rows:
         salesman_vals = {row.get("Salesman") for row in rows}
         if len(salesman_vals) <= 1:
+            before = list(wanted)
             wanted = [g for g in wanted if g != "Salesman"]
+            if before != wanted:
+                dropped_salesman = True
     sorters = view.get("sorters") if isinstance(view.get("sorters"), list) else []
     dl = tab.get("default_layout") if isinstance(tab.get("default_layout"), dict) else {}
     if not wanted and not group_was_set:
         wanted = [g for g in (dl.get("group_levels") or []) if isinstance(g, str)]
+        if wanted:
+            source = f"builder default_layout.group_levels={wanted!r}"
         if not sorters:
             sorters = _sorters_from_default_layout(dl)
     elif wanted and not sorters:
@@ -714,7 +723,11 @@ def _tab_groups_and_sorters(
         # builder's Customer Name / Item sort so rows are A-Z inside the group.
         sorters = _sorters_from_default_layout(dl)
     group_fields = [g for g in wanted if g in known]
-    return group_fields, sorters or None
+    if dropped_salesman:
+        source += "; dropped Salesman (single-rep file)"
+    if wanted and not group_fields:
+        source += f"; none of {wanted!r} in row columns"
+    return group_fields, sorters or None, source
 
 
 def _sorters_from_default_layout(dl: dict) -> list:
@@ -740,10 +753,16 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     tabs = payload.get("tabs") or []
     if not tabs:
         wb.create_sheet(_safe_sheet_title("Report", used))
+    layout_keys = sorted(views.keys())
+    job_step(
+        "layout",
+        f"xlsx layout tabs with views: {layout_keys or '(none — builder defaults apply)'}",
+    )
     for tab in tabs:
         raise_if_cancelled()
         n_rows = len(tab.get("rows") or [])
         label = tab.get("name") or tab.get("key") or "Report"
+        tab_key = tab.get("key") or ""
         job_step("xlsx", f"sheet {label}: {n_rows} rows")
         ws = wb.create_sheet(_safe_sheet_title(tab.get("name", "Report"), used))
         if tab.get("layout") == "commission_cards" and tab.get("salesmen") is not None:
@@ -752,12 +771,21 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
             continue
         rows = list(tab.get("rows") or [])
         metas = _columns_meta(list(tab.get("columns") or []), rows)
-        v = views.get(tab.get("key"))
-        v = v if isinstance(v, dict) else {}
+        v = views.get(tab_key)
+        in_layout = isinstance(v, dict)
+        v = v if in_layout else {}
         # A group field may be hidden (so absent from metas) yet still present in
         # the row dicts - honour it from the row data, not just visible columns.
         known = {f for _h, f, _t, _s in metas} | (set(rows[0].keys()) if rows else set())
-        group_fields, sorters = _tab_groups_and_sorters(tab, v, rows, known)
+        group_fields, sorters, group_src = _tab_groups_and_sorters(tab, v, rows, known)
+        if not in_layout:
+            group_src = (
+                f"no layout.views[{tab_key!r}] entry — {group_src}"
+            )
+        job_step(
+            "group",
+            f"{label}: excel_group={group_fields!r} via {group_src}",
+        )
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")
         band_by_field = (_explicit_salesman_bands(list(tab.get("columns") or []))
