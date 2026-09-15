@@ -11,6 +11,9 @@ _history_backup/
 *.xlsx
 .cursor/*
 !.cursor/rules/
+!.cursor/environment.json
+!.cursor/install.sh
+!.cursor/run-dev.sh
 
 *.log
 logs/*.err
@@ -38,3 +41,7 @@ test/data/fixtures/*.csv
 # Rebuild app local databases (never committed)
 .rebuild-data/
 rebuild/.rebuild-data/
+
+# Local Python virtualenv and v3 local DB / runtime state
+.venv/
+.data/
