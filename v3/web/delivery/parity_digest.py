@@ -12,27 +12,33 @@ from web.delivery.workbook_parity import (
     format_digest,
 )
 
+
+def _day_end_utc(day: str) -> str:
+    from web.delivery.workbook_parity import _eastern_day_end_utc_iso
+    return _eastern_day_end_utc_iso(day)
+
 log = logging.getLogger(__name__)
 EASTERN = ZoneInfo("America/New_York")
 
 
 def send_parity_digest(*, db, email_service, settings: AppSettingsRepository | None = None,
                        day: str | None = None) -> str:
-    """Email yesterday's (or ``day``'s) match/diff scores. Idempotent per day.
+    """Email undigested scores through yesterday (or ``day``). Idempotent when empty.
 
-    Returns a short status string for logs / job results.
+    Includes older undigested rows so a failed mail day is not lost forever.
     """
     settings = settings or AppSettingsRepository(db)
     if not settings.view_workbook_parity_enabled():
         return "parity off"
-    day = day or (datetime.now(EASTERN).date() - timedelta(days=1)).isoformat()
-    if settings.view_parity_digest_sent_day() == day:
+    today = datetime.now(EASTERN).date()
+    day = day or (today - timedelta(days=1)).isoformat()
+    repo = ViewWorkbookParityRepository(db)
+    rows = repo.undigested_before(_day_end_utc(day))
+    if settings.view_parity_digest_sent_day() == day and not rows:
         return f"already sent {day}"
     recipients = settings.view_parity_digest_emails()
     if not recipients:
         return "no digest recipients"
-    repo = ViewWorkbookParityRepository(db)
-    rows = repo.undigested_for_day(day)
     subject, body = format_digest(day, rows)
     result = email_service.deliver(
         subject=subject,

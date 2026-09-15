@@ -280,9 +280,50 @@ class ScheduleRunner:
         return {
             "compare_layout": compare,
             "parity_view_name": normalize_view_name(getattr(sched, "view_name", None)),
+            "parity_view_id": self._resolved_view_id(sched, schedule_type),
             "parity_schedule_kind": schedule_type,
             "parity_schedule_id": getattr(sched, "id", None),
         }
+
+    def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
+        name = getattr(sched, "view_name", None)
+        norm = normalize_view_name(name)
+        db = self.user_repo.db
+        if norm == DEFAULT_VIEW_NAME:
+            with db.precious() as conn:
+                row = conn.execute(
+                    "SELECT id FROM views WHERE kind='default' AND report_key=?",
+                    (sched.report_key,),
+                ).fetchone()
+            return row["id"] if row else None
+        stored = dict(getattr(sched, "params", None) or {})
+        use_company = schedule_type == MASTER or stored.get("view_source") == "company"
+        if schedule_type == PERSONAL and not use_company:
+            owner_id = getattr(sched, "owner_user_id", None)
+            personal = (
+                self.saved_reports.get_by_name(owner_id, sched.report_key, name)
+                if owner_id else None
+            )
+            if personal is not None:
+                with db.precious() as conn:
+                    row = conn.execute(
+                        "SELECT id FROM views WHERE legacy_source='saved_reports'"
+                        " AND legacy_id=?",
+                        (personal.id,),
+                    ).fetchone()
+                return row["id"] if row else None
+            use_company = True
+        if use_company:
+            cv = self.company_views.get_by_name(sched.report_key, name)
+            if cv is not None:
+                with db.precious() as conn:
+                    row = conn.execute(
+                        "SELECT id FROM views WHERE legacy_source='company_views'"
+                        " AND legacy_id=?",
+                        (cv.id,),
+                    ).fetchone()
+                return row["id"] if row else None
+        return None
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,

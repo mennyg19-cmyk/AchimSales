@@ -186,8 +186,12 @@ def canonicalize_layout(layout: dict | None) -> dict:
 
 
 def _canonicalize_tab(raw: dict) -> dict:
-    tab: dict = {"group": [str(x) for x in (raw.get("group") or []) if str(x).strip()]
-                 if isinstance(raw.get("group"), list) else []}
+    tab: dict = {}
+    if "group" in raw:
+        if isinstance(raw.get("group"), list):
+            tab["group"] = [str(x) for x in raw["group"] if str(x).strip()]
+        else:
+            tab["group"] = []
     hidden = raw.get("hidden")
     if isinstance(hidden, list) and any(str(x).strip() for x in hidden):
         tab["hidden"] = [str(x) for x in hidden if str(x).strip()]
@@ -341,11 +345,12 @@ def _insert_layout(conn: sqlite3.Connection, view_id: str, layout: dict) -> None
         clone = clone_by_key.get(key)
         conn.execute(
             "INSERT INTO layout_tabs(id, view_id, tab_key, position, clone_of_tab_key,"
-            " tab_name, has_view) VALUES (?,?,?,?,?,?,?)",
+            " tab_name, has_view, groups_explicit) VALUES (?,?,?,?,?,?,?,?)",
             (tid, view_id, key, order_pos.get(key),
              clone["baseKey"] if clone else None,
              clone.get("name") if clone else None,
-             1 if key in views_map else 0),
+             1 if key in views_map else 0,
+             1 if key in views_map and "group" in views_map[key] else 0),
         )
         if key in views_map:
             _insert_tab_settings(conn, tid, views_map[key])
@@ -483,7 +488,10 @@ def assemble_layout(conn: sqlite3.Connection, view_id: str) -> dict:
                 item["name"] = t["tab_name"]
             clones.append(item)
         if t["has_view"]:
-            views_out[t["tab_key"]] = _assemble_tab(conn, t["id"])
+            views_out[t["tab_key"]] = _assemble_tab(
+                conn, t["id"], groups_explicit=bool(t["groups_explicit"])
+                if "groups_explicit" in t.keys() else True,
+            )
     if clones:
         out["clones"] = clones
     if views_out:
@@ -491,12 +499,15 @@ def assemble_layout(conn: sqlite3.Connection, view_id: str) -> dict:
     return out
 
 
-def _assemble_tab(conn: sqlite3.Connection, tab_pk: str) -> dict:
+def _assemble_tab(conn: sqlite3.Connection, tab_pk: str,
+                  *, groups_explicit: bool = True) -> dict:
     groups = conn.execute(
         "SELECT column_name FROM layout_tab_groups WHERE tab_id=? ORDER BY position",
         (tab_pk,),
     ).fetchall()
-    tab: dict = {"group": [r["column_name"] for r in groups]}
+    tab: dict = {}
+    if groups_explicit:
+        tab["group"] = [r["column_name"] for r in groups]
     sorters = conn.execute(
         "SELECT column_name, dir FROM layout_tab_sorters WHERE tab_id=? ORDER BY position",
         (tab_pk,),

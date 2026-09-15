@@ -271,3 +271,85 @@ def test_parity_filenames_unique_same_second(tmp_path):
     assert a.new_path != b.new_path
     assert a.old_path != b.old_path
     assert Path(a.new_path).is_file() and Path(b.new_path).is_file()
+
+
+def test_parity_always_builds_old_workbook(tmp_path):
+    """Delivered new bytes must still be compared to a real old-layout build."""
+    root = tmp_path / "view-parity"
+    payload = _payload()
+    new_layout = _layout_hide_b()
+    old_layout = _layout_show_all()
+    from web.delivery.layout import apply_layout, expand_clones
+    from web.reporting.export import build_workbook
+
+    delivered = build_workbook(
+        apply_layout(expand_clones(payload, new_layout), new_layout), new_layout,
+    )
+    # Same canonical shape after dual-write would previously short-circuit to MATCH.
+    from web.data.normalized_views import canonicalize_layout
+    assert canonicalize_layout(new_layout) != canonicalize_layout(old_layout)
+    result = run_parity_files(
+        root=root, report_key="ordered", view_name="Daily",
+        schedule_name="S", payload=payload,
+        new_layout=new_layout, old_layout=old_layout,
+        delivered_xlsx=delivered,
+    )
+    assert not result.matched
+    assert Path(result.old_path).read_bytes() != Path(result.new_path).read_bytes()
+
+
+def test_digest_retries_undigested_after_failed_day(tmp_path):
+    db = _db(tmp_path)
+    settings = AppSettingsRepository(db)
+    settings.set_view_parity_digest_emails(["menny@x.com"])
+    layout = _layout_show_all()
+    result = run_parity_files(
+        root=tmp_path / "view-parity", report_key="ordered", view_name="V",
+        schedule_name="S", payload=_payload(),
+        new_layout=layout, old_layout=layout,
+    )
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    eastern = ZoneInfo("America/New_York")
+    two_days_ago = (datetime.now(eastern).date() - timedelta(days=2)).isoformat()
+    yesterday = (datetime.now(eastern).date() - timedelta(days=1)).isoformat()
+    ts = datetime.fromisoformat(f"{two_days_ago}T12:00:00").replace(
+        tzinfo=eastern,
+    ).astimezone(timezone.utc).isoformat()
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO view_workbook_parity("
+            " created_at, report_key, view_name, view_id, schedule_kind,"
+            " schedule_id, schedule_name, matched, row_count, old_path,"
+            " new_path, diff_summary)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ts, "ordered", "V", "co-x", "personal", 1, "S",
+                1, result.row_count, result.old_path, result.new_path, "",
+            ),
+        )
+    settings.set_view_parity_digest_sent_day(yesterday)
+
+    class FakeEmail:
+        def __init__(self):
+            self.calls = []
+
+        def deliver(self, **kwargs):
+            self.calls.append(kwargs)
+
+            class R:
+                ok = True
+                error = ""
+
+            return R()
+
+    email = FakeEmail()
+    status = send_parity_digest(db=db, email_service=email, day=yesterday)
+    assert status.startswith("sent")
+    assert len(email.calls) == 1
+    with db.precious() as conn:
+        left = conn.execute(
+            "SELECT COUNT(*) AS n FROM view_workbook_parity WHERE digest_date IS NULL"
+        ).fetchone()["n"]
+    assert left == 0

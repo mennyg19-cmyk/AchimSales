@@ -35,7 +35,7 @@ Old tables stay until cutover: `saved_reports`, `company_views`, `report_default
 - A **schedule** is when/where/who. It points at one `view_id`. It does not copy layout or filters.
 - Company/master **period** (YTD / MTD / yesterday) lives on the schedule. The view may also store a window for the GUI and for personal named-view sends. Same rule as today, without copying the rest of the filters.
 - Delivery fields never live on a view: recipients, cc/bcc, folder kind, email subject/html, filename, SharePoint path, split-by-salesman, skip Shabbos.
-- Empty grouping is zero rows in `layout_tab_groups` on a tab that **exists**. That is `group: []`. A missing tab row means “builder default,” not ungroup.
+- Empty grouping is zero rows in `layout_tab_groups` on a tab that **exists** with `groups_explicit=1`. That is `group: []`. A tab with `groups_explicit=0` omits the `group` key (builder default). A missing tab row also means “builder default,” not ungroup.
 - Delete a view that a schedule still points at → SQLite error (RESTRICT). Delete an unused view → tabs/columns go with it (CASCADE).
 
 ## Readable ids

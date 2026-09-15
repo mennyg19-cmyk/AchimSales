@@ -19,7 +19,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from web.data.connection import Database
-from web.data.normalized_views import canonicalize_layout
 from web.delivery.layout import apply_layout, expand_clones
 from web.reporting.export import build_workbook
 
@@ -119,17 +118,13 @@ def run_parity_files(
     new_path = day_dir / f"{base}__new.xlsx"
     old_path = day_dir / f"{base}__old.xlsx"
 
-    if delivered_xlsx is not None and canonicalize_layout(new_layout) == canonicalize_layout(
-        old_layout
-    ):
-        # Identical layouts: still keep a copy pair for the audit folder.
+    if delivered_xlsx is not None:
         new_bytes = delivered_xlsx
-        old_bytes = delivered_xlsx
     else:
-        new_bytes, old_bytes = build_parity_pair(
-            payload, new_layout=new_layout, old_layout=old_layout)
-        if delivered_xlsx is not None:
-            new_bytes = delivered_xlsx
+        new_shaped = apply_layout(expand_clones(payload, new_layout), new_layout)
+        new_bytes = build_workbook(new_shaped, new_layout)
+    old_shaped = apply_layout(expand_clones(payload, old_layout), old_layout)
+    old_bytes = build_workbook(old_shaped, old_layout)
 
     new_path.write_bytes(new_bytes)
     old_path.write_bytes(old_bytes)
@@ -185,6 +180,17 @@ class ViewWorkbookParityRepository:
                 " AND created_at >= ? AND created_at < ?"
                 " ORDER BY id",
                 (_eastern_day_start_utc_iso(day), _eastern_day_end_utc_iso(day)),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def undigested_before(self, exclusive_end_utc_iso: str) -> list[dict]:
+        """All unscored-email rows created before ``exclusive_end_utc_iso``."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM view_workbook_parity"
+                " WHERE digest_date IS NULL AND created_at < ?"
+                " ORDER BY id",
+                (exclusive_end_utc_iso,),
             ).fetchall()
             return [dict(r) for r in rows]
 

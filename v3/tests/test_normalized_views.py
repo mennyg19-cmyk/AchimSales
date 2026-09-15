@@ -589,3 +589,28 @@ def test_deleting_normalized_view_removes_legacy_json(tmp_path):
         assert conn.execute(
             "SELECT 1 FROM saved_reports WHERE id=?", (rid,),
         ).fetchone() is None
+
+
+def test_missing_group_key_stays_absent_through_assemble(tmp_path):
+    """Missing group = builder default; must not become group:[]."""
+    from web.data.normalized_views import assemble_layout, canonicalize_layout, project_from_legacy
+
+    raw = {"views": {"summary": {"hidden": ["LineNumber"]}}}
+    assert "group" not in canonicalize_layout(raw)["views"]["summary"]
+    db = _db(tmp_path)
+    meir = UserRepository(db).create("a@x.com", role="admin", display_name="A B")
+    ReportDefaultRepository(db).upsert(
+        "ordered", params={}, layout=raw, updated_by=meir.id)
+    project_from_legacy(db)
+    with db.precious() as conn:
+        vid = conn.execute(
+            "SELECT id FROM views WHERE kind='default' AND report_key='ordered'"
+        ).fetchone()["id"]
+        tab = conn.execute(
+            "SELECT groups_explicit FROM layout_tabs WHERE view_id=? AND tab_key='summary'",
+            (vid,),
+        ).fetchone()
+        assembled = assemble_layout(conn, vid)
+    assert tab["groups_explicit"] == 0
+    assert "group" not in assembled["views"]["summary"]
+    assert assembled["views"]["summary"]["hidden"] == ["LineNumber"]

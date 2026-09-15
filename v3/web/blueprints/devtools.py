@@ -383,7 +383,12 @@ def api_delete_row(table: str):
                 ).fetchone()
             else:
                 view_id = view_id_for_layout_row(conn, table, pk_value)
-        cur = conn.execute(f'DELETE FROM "{table}" WHERE "{pk_name}"=?', (pk_value,))
+        try:
+            cur = conn.execute(
+                f'DELETE FROM "{table}" WHERE "{pk_name}"=?', (pk_value,),
+            )
+        except sqlite3.IntegrityError as exc:
+            return jsonify({"error": str(exc)}), 400
         if cur.rowcount != 1:
             return jsonify({"error": "Row not found"}), 404
         if which == "precious":
