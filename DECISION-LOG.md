@@ -1,3 +1,11 @@
+## 2026-09-15 Oversized tabs → companion xlsx (no merge)
+**What you asked for:** Separate file when Full Data is too big, then merge as a new sheet?
+**What I had to decide:** Merge companions back into one workbook on the B1 worker vs leave them as sibling files in the same folder.
+**What I chose:** Companion `.xlsx` per sheet over 100k rows (largest first, clear rows after each). Main workbook keeps a one-row stub pointing at `…__Full_Data.xlsx`. Uploaded next to the main file; email body lists companions. Do **not** merge on this box — reloading 330k rows into an open multi-sheet book OOMs after By Order.
+**Why:** Log died at `sheet Full Data: 331495 rows` after By Order already finished (~4 min). Merge would re-open that memory wall.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Job logs show layout/group source
 **What you asked for:** Logs that show where building/grouping info comes from; still grouping after clearing groups table.
 **What I had to decide:** Log only vs also change missing-group → builder default_group.

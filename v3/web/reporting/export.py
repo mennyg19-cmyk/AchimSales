@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
 from itertools import groupby
@@ -798,6 +799,123 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+# Sheets larger than this go to a companion .xlsx next to the main file.
+# Merging them back into one workbook on a B1 worker reloads the sheet and OOMs.
+_MAX_SHEET_ROWS_IN_MAIN = 100_000
+
+
+@dataclass(frozen=True)
+class WorkbookPart:
+    """One companion workbook for an oversized tab."""
+    stem: str
+    sheet_name: str
+    row_count: int
+    data: bytes
+
+
+@dataclass(frozen=True)
+class WorkbookBundle:
+    main: bytes
+    extras: tuple[WorkbookPart, ...] = ()
+
+
+def _file_stem(label: str) -> str:
+    s = _INVALID_SHEET.sub("_", (label or "Sheet").strip())
+    s = re.sub(r"\s+", "_", s).strip("._") or "Sheet"
+    return s[:60]
+
+
+def _layout_for_tab(layout: dict | None, tab_key: str | None) -> dict | None:
+    if not isinstance(layout, dict) or not tab_key:
+        return layout
+    views = layout.get("views") if isinstance(layout.get("views"), dict) else {}
+    v = views.get(tab_key)
+    if not isinstance(v, dict):
+        return {"views": {}}
+    return {"views": {tab_key: v}, "active": tab_key}
+
+
+def _stub_tab(tab: dict, companion_stem: str, row_count: int) -> dict:
+    name = tab.get("name") or tab.get("key") or "Sheet"
+    note = (
+        f"{row_count} rows were too large for this workbook. "
+        f"See companion file …__{companion_stem}.xlsx in the same folder."
+    )
+    return {
+        "key": tab.get("key"),
+        "name": name,
+        "columns": [{"field": "Note", "header": "Note", "type": "text"}],
+        "rows": [{"Note": note}],
+    }
+
+
+def build_workbook_bundle(
+    payload: dict[str, Any],
+    layout: dict | None = None,
+    *,
+    max_sheet_rows: int = _MAX_SHEET_ROWS_IN_MAIN,
+) -> WorkbookBundle:
+    """Build the main workbook; oversized tabs become companion .xlsx files.
+
+    Largest oversized tabs are written first, then their row lists are cleared
+    so the B1 worker is not holding Full Data + By Order + an open multi-sheet
+    book at the same time. The main file keeps a one-row stub sheet pointing at
+    each companion. Do not merge companions back into the main xlsx on this box.
+    """
+    from web.jobs.trace import raise_if_cancelled, step as job_step
+
+    tabs = list(payload.get("tabs") or [])
+    if max_sheet_rows <= 0:
+        return WorkbookBundle(main=build_workbook(payload, layout), extras=())
+
+    huge_idxs = [
+        i for i, t in enumerate(tabs)
+        if len(t.get("rows") or []) > max_sheet_rows
+        and t.get("layout") != "commission_cards"
+    ]
+    if not huge_idxs:
+        return WorkbookBundle(main=build_workbook(payload, layout), extras=())
+
+    huge_idxs.sort(key=lambda i: -len(tabs[i].get("rows") or []))
+    extras: list[WorkbookPart] = []
+    stubs: dict[int, dict] = {}
+    for i in huge_idxs:
+        raise_if_cancelled()
+        tab = tabs[i]
+        label = tab.get("name") or tab.get("key") or "Sheet"
+        n_rows = len(tab.get("rows") or [])
+        stem = _file_stem(str(label))
+        job_step(
+            "xlsx",
+            f"companion {stem}: {n_rows} rows (>{max_sheet_rows}; not merged into main)",
+        )
+        one_payload = {
+            "report_key": payload.get("report_key"),
+            "tabs": [tab],
+        }
+        data = build_workbook(one_payload, _layout_for_tab(layout, tab.get("key")))
+        extras.append(WorkbookPart(
+            stem=stem, sheet_name=str(label), row_count=n_rows, data=data,
+        ))
+        stubs[i] = _stub_tab(tab, stem, n_rows)
+        tab["rows"] = []  # free before the next huge tab / main build
+        job_step("xlsx", f"companion {stem} done ({len(data)} bytes)")
+
+    main_tabs = [stubs[i] if i in stubs else t for i, t in enumerate(tabs)]
+    main_payload = {**payload, "tabs": main_tabs}
+    # Stubs must not pick up builder default_group.
+    main_layout = dict(layout or {})
+    views = dict(main_layout.get("views") or {}) if isinstance(main_layout.get("views"), dict) else {}
+    for stub in stubs.values():
+        key = stub.get("key")
+        if key:
+            views[key] = {**(views.get(key) if isinstance(views.get(key), dict) else {}),
+                          "group": []}
+    main_layout["views"] = views
+    main = build_workbook(main_payload, main_layout)
+    return WorkbookBundle(main=main, extras=tuple(extras))
 
 
 def payload_to_xlsx(payload: dict[str, Any]) -> bytes:
