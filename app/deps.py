@@ -173,3 +173,11 @@ def can_read_job(user: dict, job: dict) -> bool:
     if is_privileged(user):
         return True
     return (job.get("owner_email") or "") == user.get("email")
+
+
+def can_use_view_for_schedule(user: dict, view: dict) -> bool:
+    if is_privileged(user):
+        return True
+    if view.get("kind") == "company":
+        return True
+    return view.get("owner_email") == user.get("email")

@@ -406,3 +406,42 @@ def test_salesman_cannot_copy_others_schedule(client):
             "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
         ).fetchone()["n"]
     assert after == before
+
+
+def test_salesman_cannot_schedule_others_personal_view(client):
+    login(client)
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Admin only view",
+            "report_key": "invoiced",
+            "kind": "personal",
+            "params": {"period": "mtd"},
+            "include_period": True,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    view_id = created["id"]
+    from db import db
+    become(client, "salesman@achimonline.com")
+    with db() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    add = client.post(
+        "/schedules/add",
+        data={
+            "view_id": view_id,
+            "freq": "daily",
+            "run_time": "09:00",
+            "recipients": "salesman@achimonline.com",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
+    assert add.status_code == 303
+    with db() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    assert after == before

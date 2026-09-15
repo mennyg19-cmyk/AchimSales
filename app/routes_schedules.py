@@ -9,6 +9,7 @@ import catalog
 import store
 from deps import (
     can_read_schedule,
+    can_use_view_for_schedule,
     flash,
     is_privileged,
     need_login,
@@ -46,6 +47,7 @@ def schedules_page(request: Request):
     user = session_user(request)
     views = store.list_views(user["email"], is_privileged(user) or user.get("can_see_company_views"))
     named = [view for view in views if view["name"] and view["name"] != "Default"]
+    named = [view for view in named if can_use_view_for_schedule(user, view)]
     rows = store.list_schedules()
     if not is_privileged(user):
         own = [row for row in rows if row["owner_email"] == user["email"]]
@@ -88,6 +90,9 @@ def schedules_add(
     view = store.get_view(view_id)
     if view is None:
         flash(request, "Save a named view on a report first.", "warn")
+        return RedirectResponse("/schedules", status_code=303)
+    if not can_use_view_for_schedule(user, view):
+        flash(request, "You can only schedule your own views or a company view.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     if freq not in {"daily", "weekly", "monthly"}:
         flash(request, "Frequency must be daily, weekly, or monthly.", "error")
