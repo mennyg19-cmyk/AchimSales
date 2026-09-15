@@ -1,6 +1,17 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (Gate A + dual-write + Gate B green; live reads use assembled `views` tables with JSON fallback; do not drop old tables until write-side stops dual-writing).
+Status: **locked 2026-09-15** (Gate A + dual-write + Gate B fixture workbooks green; live reads use assembled tables; production same-payload old-vs-new compare via `python -m tools.compare_view_workbooks` — needs a precious.db copy + Reporting API).
+
+Production compare (when you have DB + API):
+
+```bash
+cd v3
+PRECIOUS_DB_PATH=/path/to/precious.db \
+REPORTING_API_BASE_URL=… REPORTING_API_KEY=… \
+python -m tools.compare_view_workbooks
+```
+
+Writes `.scratch/view-workbook-compare/<stamp>/` with both xlsx files + INDEX.md.
 
 This replaces three view tables and the layout/params copies on schedules with one `views` tree. The report page and the clock job both read that tree. JSON blobs stay on jobs, notifications, and job logs.
 

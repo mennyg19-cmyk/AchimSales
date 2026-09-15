@@ -13,6 +13,7 @@
 - Explorer cell/SQL on `layout_tab_groups` (etc.) rewrites `saved_reports.layout_json`. Explorer edit of `layout_json` reprojects the new tables.
 - Gate B: Daily Ordered, Heshy Open Orders, one personal Ordered (filter + hide), one Number 4, one By Order with `group: []`. Workbook from assembled layout matches the old JSON on sheet names, column order, grouping banners, hidden columns, sort, and filters (cell values, not Excel XML).
 - Live read: `SavedReportRepository` / `CompanyViewRepository` / `ReportDefaultRepository` return assembled params/layout when the projected `views` row exists, even if `layout_json` is stale.
+- Production same-payload compare: `v3/tools/compare_view_workbooks.py` builds one SP report then two xlsx (raw JSON layout vs assemble) for the Gate B views. Needs `PRECIOUS_DB_PATH` + Reporting API.
 
 **Expected behavior:**
 - New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Old tables stay until both gates pass.
