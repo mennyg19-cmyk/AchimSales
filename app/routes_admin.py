@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 
 from fastapi import APIRouter, Form, Request
@@ -390,7 +391,9 @@ def db_explorer_run(
             error="DROP/ALTER/ATTACH/CREATE are blocked.",
             sql=sql,
         )
-    is_read = upper.startswith("SELECT") or upper.startswith("PRAGMA") or upper.startswith("WITH")
+    is_read = upper.startswith("SELECT") or upper.startswith("PRAGMA")
+    if upper.startswith("WITH") and not re.search(r"\b(INSERT|UPDATE|DELETE|REPLACE)\b", upper):
+        is_read = True
     if not is_read and confirm_write != "1":
         return page(
             request,

@@ -143,6 +143,11 @@ def update_view_params(view_id: int, params: dict) -> str | None:
     return None
 
 
+def delete_view(view_id: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM views WHERE id = ?", (view_id,))
+
+
 def save_job(
     report_key: str,
     title: str,

@@ -764,14 +764,20 @@ def test_salesman_cannot_schedule_company_view(client):
 
 def test_invoiced_hides_totals_for_one_salesman(client):
     login(client)
-    payload = client.post(
+    kaufman = client.post(
         "/api/reports/invoiced/run",
         json={"salesman": "HKaufman"},
         headers=csrf_headers(client),
-    ).json()
-    tabs = payload["data"]["tabs"]
-    assert "totals_by_salesman" not in tabs
-    assert "audit_reversals" not in tabs
+    ).json()["data"]["tabs"]
+    assert "totals_by_salesman" not in kaufman
+    assert "audit_reversals" not in kaufman
+    dweck = client.post(
+        "/api/reports/invoiced/run",
+        json={"salesman": "DDweck"},
+        headers=csrf_headers(client),
+    ).json()["data"]["tabs"]
+    assert "totals_by_salesman" not in dweck
+    assert "audit_reversals" in dweck
 
 
 def test_save_view_for_other_user_and_group_array(client):
@@ -864,3 +870,27 @@ def test_explorer_write_confirm_and_group_json(client):
     assert ok_json.status_code == 303
     view = home_store.get_view(view_id)
     assert view["params"]["group"] == ["Salesman"]
+    cte = client.post(
+        "/dev/db-explorer",
+        data={
+            "sql": "WITH x AS (SELECT 1 AS n) UPDATE views SET name = name",
+            "csrf": client.csrf,
+        },
+        follow_redirects=True,
+    )
+    assert "Confirm write" in cte.text
+
+
+def test_delete_named_view(client):
+    login(client)
+    created = client.post(
+        "/api/views",
+        json={"name": "Throwaway", "report_key": "invoiced", "params": {}},
+        headers=csrf_headers(client),
+    ).json()
+    view_id = created["id"]
+    gone = client.post(f"/api/views/{view_id}/delete", headers=csrf_headers(client))
+    assert gone.status_code == 200
+    assert gone.json() == {"ok": True}
+    leftover = [view["id"] for view in client.get("/api/views?report=invoiced").json()["views"]]
+    assert view_id not in leftover
