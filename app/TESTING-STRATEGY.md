@@ -36,7 +36,7 @@
 | Manager Run now | company schedules only, not another user's personal |
 | Salesman schedule add | company view_id creates no row |
 | Invoiced 2+ salesmen | Audit - Reversals + Totals by Salesman tabs |
-| Invoiced one salesman | Totals omitted (P4.I7). Audit only if reversal rows remain (P4.I6) |
+| Invoiced salesman/customers | every tab (Full Details, Invoices, Commissions) matches the filter |
 | Save view for another user | salesman sees the named view |
 | views.params.group | must be a JSON array or omitted |
 | Last Order store-visit | Recent invoiced helper + dedicated xlsx PK |

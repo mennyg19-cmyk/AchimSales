@@ -179,27 +179,27 @@ def invoiced_payload() -> dict:
             "commissions": {
                 "name": "Commissions",
                 "rows": [
-                    {"SalesmanName": "Dweck, David", "Percent": 0.05, "NetCommission": 985.0, "CommissionDollars": 49.25},
-                    {"SalesmanName": "Kaufman, Herschel", "Percent": 0.03, "NetCommission": 500.0, "CommissionDollars": 15.0},
+                    {"Salesman": "DDweck", "SalesmanName": "Dweck, David", "Percent": 0.05, "NetCommission": 985.0, "CommissionDollars": 49.25},
+                    {"Salesman": "HKaufman", "SalesmanName": "Kaufman, Herschel", "Percent": 0.03, "NetCommission": 500.0, "CommissionDollars": 15.0},
                 ],
             },
             "full_details": {
                 "name": "Full Details",
                 "rows": [
-                    {"InvoiceNumber": "IN01008282", "CustomerName": "HD SUPPLY", "Total Invoice": 1035.0, "SalesmanName": "Dweck, David"},
-                    {"InvoiceNumber": "FCRD-004181", "CustomerName": "MAZER WHOLESALE", "Total Invoice": -50.0, "SalesmanName": "Dweck, David"},
-                    {"InvoiceNumber": "IN01008290", "CustomerName": "AMAZON.COM DEDC, LLC", "Total Invoice": 520.0, "SalesmanName": "Kaufman, Herschel"},
+                    {"InvoiceNumber": "IN01008282", "CustomerAccount": "C-1001", "CustomerName": "HD SUPPLY", "Total Invoice": 1035.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
+                    {"InvoiceNumber": "FCRD-004181", "CustomerAccount": "C-1002", "CustomerName": "MAZER WHOLESALE", "Total Invoice": -50.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
+                    {"InvoiceNumber": "IN01008290", "CustomerAccount": "C-2001", "CustomerName": "AMAZON.COM DEDC, LLC", "Total Invoice": 520.0, "Salesman": "HKaufman", "SalesmanName": "Kaufman, Herschel"},
                 ],
             },
             "credits": {
                 "name": "Credits",
-                "rows": [{"InvoiceNumber": "FCRD-004181", "CustomerName": "MAZER WHOLESALE", "Total Invoice": -50.0}],
+                "rows": [{"InvoiceNumber": "FCRD-004181", "CustomerAccount": "C-1002", "CustomerName": "MAZER WHOLESALE", "Salesman": "DDweck", "Total Invoice": -50.0}],
             },
             "invoices": {
                 "name": "Invoices",
                 "rows": [
-                    {"InvoiceNumber": "IN01008282", "Total Invoice": 1035.0},
-                    {"InvoiceNumber": "IN01008290", "Total Invoice": 520.0},
+                    {"InvoiceNumber": "IN01008282", "CustomerAccount": "C-1001", "Salesman": "DDweck", "Total Invoice": 1035.0},
+                    {"InvoiceNumber": "IN01008290", "CustomerAccount": "C-2001", "Salesman": "HKaufman", "Total Invoice": 520.0},
                 ],
             },
             "audit_reversals": {
@@ -329,16 +329,30 @@ _BUILDERS = {
 
 
 def _row_salesman(row: dict) -> str:
-    return str(row.get("salesman") or row.get("Salesman") or "")
+    direct = str(row.get("salesman") or row.get("Salesman") or "")
+    if direct:
+        return direct
+    name = str(row.get("SalesmanName") or "")
+    for salesman in SALESMEN:
+        if salesman["name"] == name:
+            return salesman["key"]
+    return ""
 
 
 def _row_account(row: dict) -> str:
-    return str(
+    direct = str(
         row.get("CustomerAccount")
         or row.get("Customer Account")
         or row.get("account")
         or ""
     )
+    if direct:
+        return direct
+    name = str(row.get("CustomerName") or row.get("Customer") or "")
+    for customer in CUSTOMERS:
+        if customer["name"] == name:
+            return customer["account"]
+    return ""
 
 
 def _filter_tabs(payload: dict, keep) -> None:
@@ -361,13 +375,10 @@ def mock_report(
     payload = deepcopy(builder())
     tabs = payload["data"]["tabs"]
     if salesman:
-        _filter_tabs(
-            payload,
-            lambda row: _row_salesman(row) == salesman or not _row_salesman(row),
-        )
+        _filter_tabs(payload, lambda row: _row_salesman(row) == salesman)
     if customers:
         wanted = set(customers)
-        _filter_tabs(payload, lambda row: not _row_account(row) or _row_account(row) in wanted)
+        _filter_tabs(payload, lambda row: _row_account(row) in wanted)
     if key == "number_4" and n4_mode in {"by_customer", "by_item"}:
         keep_prefix = "by_customer" if n4_mode == "by_customer" else "by_item"
         payload["data"]["tabs"] = {

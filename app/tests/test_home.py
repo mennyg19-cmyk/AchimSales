@@ -780,6 +780,29 @@ def test_invoiced_hides_totals_for_one_salesman(client):
     assert "audit_reversals" in dweck
 
 
+def test_invoiced_filters_apply_to_every_tab(client):
+    login(client)
+    dweck = client.post(
+        "/api/reports/invoiced/run",
+        json={"salesman": "DDweck"},
+        headers=csrf_headers(client),
+    ).json()["data"]["tabs"]
+    details = {row["CustomerName"] for row in dweck["full_details"]["rows"]}
+    assert "HD SUPPLY" in details
+    assert "AMAZON.COM DEDC, LLC" not in details
+    assert {row["Salesman"] for row in dweck["commissions"]["rows"]} == {"DDweck"}
+    assert {row["InvoiceNumber"] for row in dweck["invoices"]["rows"]} == {"IN01008282"}
+    hd = client.post(
+        "/api/reports/invoiced/run",
+        json={"customers": ["C-1001"]},
+        headers=csrf_headers(client),
+    ).json()["data"]["tabs"]
+    assert {row["CustomerAccount"] for row in hd["full_details"]["rows"]} == {"C-1001"}
+    assert {row["CustomerAccount"] for row in hd["summary_by_customer"]["rows"]} == {"C-1001"}
+    assert "audit_reversals" not in hd
+    assert "totals_by_salesman" not in hd
+
+
 def test_save_view_for_other_user_and_group_array(client):
     login(client)
     bad = client.post(
