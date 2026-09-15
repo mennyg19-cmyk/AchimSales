@@ -2,6 +2,25 @@
 {% block title %}Reports{% endblock %}
 {% block container_class %}container-narrow{% endblock %}
 
+{% macro report_card(href, icon, title, meta, disabled=false) %}
+{% if disabled %}
+<div class="report-card report-card-disabled" aria-disabled="true">
+{% else %}
+<a class="report-card" href="{{ href }}">
+{% endif %}
+    <div class="report-card-icon"><i data-feather="{{ icon }}"></i></div>
+    <div class="report-card-body">
+        <div class="report-card-title">{{ title }}</div>
+        <div class="report-card-meta">{{ meta }}</div>
+    </div>
+    {% if not disabled %}<i data-feather="chevron-right" class="report-card-arrow"></i>{% endif %}
+{% if disabled %}
+</div>
+{% else %}
+</a>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="page-head">
     <h1 class="page-title">Reports</h1>
@@ -12,23 +31,9 @@
 <div class="report-grid">
     {% for r in report_cards %}
     {% if r.in_app %}
-    <a class="report-card" href="/report/customer-last-order">
-        <div class="report-card-icon"><i data-feather="user-check"></i></div>
-        <div class="report-card-body">
-            <div class="report-card-title">{{ r.title }}</div>
-            <div class="report-card-meta">Pick a customer &middot; store-visit view</div>
-        </div>
-        <i data-feather="chevron-right" class="report-card-arrow"></i>
-    </a>
+    {{ report_card("/report/customer-last-order", "user-check", r.title, "Pick a customer · store-visit view") }}
     {% else %}
-    <a class="report-card" href="/reports/{{ r.key }}">
-        <div class="report-card-icon"><i data-feather="bar-chart-2"></i></div>
-        <div class="report-card-body">
-            <div class="report-card-title">{{ r.title }}</div>
-            <div class="report-card-meta">Interactive &middot; Excel export</div>
-        </div>
-        <i data-feather="chevron-right" class="report-card-arrow"></i>
-    </a>
+    {{ report_card("/reports/" ~ r.key, "bar-chart-2", r.title, "Interactive · Excel export") }}
     {% endif %}
     {% endfor %}
 </div>
@@ -44,14 +49,7 @@
 <summary class="section-title">Company views</summary>
 <div class="report-grid">
     {% for s in company_views %}
-    <a class="report-card" href="{{ s.url }}">
-        <div class="report-card-icon"><i data-feather="globe"></i></div>
-        <div class="report-card-body">
-            <div class="report-card-title">{{ s.name }}</div>
-            <div class="report-card-meta">{{ s.report_title }} &middot; company view</div>
-        </div>
-        <i data-feather="chevron-right" class="report-card-arrow"></i>
-    </a>
+    {{ report_card(s.url, "globe", s.name, s.report_title ~ " · company view") }}
     {% endfor %}
 </div>
 </details>
@@ -62,14 +60,7 @@
 <summary class="section-title">My presets</summary>
 <div class="report-grid">
     {% for s in presets %}
-    <a class="report-card" href="{{ s.url }}">
-        <div class="report-card-icon"><i data-feather="bookmark"></i></div>
-        <div class="report-card-body">
-            <div class="report-card-title">{{ s.name }}</div>
-            <div class="report-card-meta">{{ s.report_title }} &middot; saved view</div>
-        </div>
-        <i data-feather="chevron-right" class="report-card-arrow"></i>
-    </a>
+    {{ report_card(s.url, "bookmark", s.name, s.report_title ~ " · saved view") }}
     {% endfor %}
 </div>
 </details>
@@ -79,13 +70,7 @@
 <h2 class="section-title">Coming soon</h2>
 <div class="report-grid">
     {% for key, title in backlog %}
-    <div class="report-card report-card-disabled" aria-disabled="true">
-        <div class="report-card-icon"><i data-feather="clock"></i></div>
-        <div class="report-card-body">
-            <div class="report-card-title">{{ title }}</div>
-            <div class="report-card-meta">Not built yet</div>
-        </div>
-    </div>
+    {{ report_card("#", "clock", title, "Not built yet", disabled=true) }}
     {% endfor %}
 </div>
 {% endif %}

@@ -1,4 +1,11 @@
-## 2026-09-15 Dummy home site on Cloudflare, Azure-ready, no cutover
+## 2026-09-15 Loop C leftover file splits deferred
+**What I had to decide:** Split `test_home.py` (752 lines) and `routes_admin.py` (467, mixed settings/People/dev) now vs after dummy click-through.
+**Options I considered:** Split both this commit; split tests only; leave until a refactor command.
+**What I chose:** Leave both. `routes_admin.py` is under 500 lines. Dummy tests stay one file. Report-card and SalesGroup markup are already de-duped with Jinja macros.
+**Why:** Ponytail vs Loop C finding 7. Protocol-safe for ACL already landed; splitting files now risks a dummy-preview regression without a new behavior.
+**Status:** DECIDED
+
+
 **What I had to decide:** Build remaining inventory on mock JSON vs wait for the office API key; where testers try it.
 **Options I considered:** Slice 2 doorway first; dummy full site on the existing Cloudflare tunnel; stand up a new Azure Web App now.
 **What I chose:** Finish the dummy home (all report cards, Last Order, Settings/People, views, Keep/Recent, schedules, xlsx, mock outbox) on the Cloudflare preview. Keep Azure zip/startup as-is for a *new* Web App. Do not create or bind Azure until Menny says cut over.
