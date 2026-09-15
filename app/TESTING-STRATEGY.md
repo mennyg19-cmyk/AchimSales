@@ -23,4 +23,9 @@
 | Schedule Copy | extra row owned by signed-in user |
 | `POST /api/dev/reporting/<id>/run` without key | 501 mock |
 
+| Hidden report | company-view card gone from `/` |
+| Salesman vs other user's job/schedule log | 404 / 302 |
+| Salesman `/dev/role-picker` | 302 `/settings` |
+| Exclusions | Last Order picker hides those accounts |
+
 Never set `REPORTING_API_KEY` in CI.
