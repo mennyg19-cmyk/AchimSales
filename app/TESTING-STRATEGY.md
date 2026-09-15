@@ -17,5 +17,10 @@
 | `APP_ENV=production` | `/login/preview` 403 |
 | `REPORTING_API_BASE_URL=https://reports.achimonline.com` | boot refuse |
 | gunicorn UvicornWorker | `/healthz` 200 |
+| Signed-in mutating POST without `X-CSRF-Token` | 403 |
+| `next=` off-site | ignored, lands `/` |
+| Disabled External row | magic-link 403 |
+| Schedule Copy | extra row owned by signed-in user |
+| `POST /api/dev/reporting/<id>/run` without key | 501 mock |
 
 Never set `REPORTING_API_KEY` in CI.

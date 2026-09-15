@@ -8,13 +8,13 @@ from openpyxl import Workbook
 
 
 def workbook_bytes(payload: dict) -> bytes:
-    data = payload.get("data") or {}
-    tabs = data.get("tabs") or {}
+    report = payload.get("data") or {}
+    tabs = report.get("tabs") or {}
     book = Workbook()
-    first = True
+    is_first_sheet = True
     for key, tab in tabs.items():
-        sheet = book.active if first else book.create_sheet()
-        first = False
+        sheet = book.active if is_first_sheet else book.create_sheet()
+        is_first_sheet = False
         sheet.title = str(tab.get("name") or key)[:31]
         rows = tab.get("rows") or []
         if not rows:

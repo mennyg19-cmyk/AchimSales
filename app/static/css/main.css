@@ -11,3 +11,13 @@
 .modal{background:var(--bg-card);color:var(--text);border-radius:12px;max-width:480px;width:100%;padding:16px}
 .help-btn{margin-left:8px;border:1px solid var(--border);background:transparent;border-radius:999px;width:22px;height:22px;cursor:pointer;color:var(--text-muted)}
 .commission-cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));padding:12px}
+.form-narrow{max-width:480px}
+.mt-12{margin-top:12px}
+.mt-8{margin-top:8px}
+.header-icon{width:16px;height:16px}
+.auth-extra-btn{margin-top:10px}
+.auth-modal-copy{margin:8px 0 16px;font-size:14px;color:var(--text-muted)}
+.auth-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.auth-field-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;margin:8px 0}
+.modal-overlay{display:flex}
+.modal-overlay[hidden],[hidden]{display:none!important}

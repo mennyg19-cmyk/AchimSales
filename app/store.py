@@ -94,7 +94,12 @@ def list_views(email: str, privileged: bool) -> list[dict]:
                 "SELECT * FROM views WHERE owner_email = ? OR kind = 'company' ORDER BY name",
                 (email,),
             ).fetchall()
-    return [dict(row) for row in rows]
+    parsed = []
+    for row in rows:
+        view = dict(row)
+        view["params"] = json.loads(view.pop("params_json") or "{}")
+        parsed.append(view)
+    return parsed
 
 
 def add_view(owner_email: str | None, report_key: str, name: str, kind: str, params: dict, include_period: int) -> int:
@@ -182,12 +187,12 @@ def list_schedules() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def add_schedule(view_id: int, owner_email: str, freq: str, run_time: str, recipients: str) -> int:
+def add_schedule(view_id: int, owner_email: str, freq: str, run_time: str, recipients: str, weekdays: str = "", monthday: int | None = None) -> int:
     with db() as conn:
         cur = conn.execute(
-            """INSERT INTO schedules (view_id, owner_email, freq, run_time, recipients, is_active)
-               VALUES (?, ?, ?, ?, ?, 1)""",
-            (view_id, owner_email, freq, run_time, recipients),
+            """INSERT INTO schedules (view_id, owner_email, freq, run_time, weekdays, monthday, recipients, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
+            (view_id, owner_email, freq, run_time, weekdays, monthday, recipients),
         )
         return int(cur.lastrowid)
 
@@ -248,15 +253,6 @@ def get_user_by_id(user_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def user_groups(user_id: int) -> list[str]:
-    with db() as conn:
-        rows = conn.execute(
-            "SELECT sales_group FROM user_sales_groups WHERE user_id = ? ORDER BY sales_group",
-            (user_id,),
-        ).fetchall()
-    return [row["sales_group"] for row in rows]
-
-
 def set_user_groups(user_id: int, groups: list[str]) -> None:
     with db() as conn:
         conn.execute("DELETE FROM user_sales_groups WHERE user_id = ?", (user_id,))
@@ -282,20 +278,12 @@ def list_views_for_report(email: str, report_key: str, privileged: bool) -> list
                    ORDER BY name""",
                 (report_key, email),
             ).fetchall()
-    out = []
+    parsed = []
     for row in rows:
-        item = dict(row)
-        item["params"] = json.loads(item.pop("params_json") or "{}")
-        out.append(item)
-    return out
-
-
-def update_view(view_id: int, name: str, params: dict, include_period: int) -> None:
-    with db() as conn:
-        conn.execute(
-            "UPDATE views SET name = ?, params_json = ?, include_period = ? WHERE id = ?",
-            (name, json.dumps(params), include_period, view_id),
-        )
+        view = dict(row)
+        view["params"] = json.loads(view.pop("params_json") or "{}")
+        parsed.append(view)
+    return parsed
 
 
 def get_schedule(schedule_id: int) -> dict | None:
@@ -323,12 +311,18 @@ def set_test_emails(emails: list[str]) -> None:
 
 
 def exclusions_for(email: str) -> list[str]:
-    raw = setting(f"exclusions:{email.lower()}", "[]")
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    return parsed if isinstance(parsed, list) else []
+    parsed = json.loads(setting(f"exclusions:{email.lower()}", "[]"))
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"Customer exclusions for {email} must be a JSON list, got {type(parsed).__name__}."
+        )
+    return parsed
+
+
+def mail_recipients(explicit: str) -> str:
+    if setting("schedule_test_mode") == "1":
+        return ", ".join(test_emails())
+    return explicit
 
 
 def set_exclusions(email: str, accounts: list[str]) -> None:
@@ -353,8 +347,3 @@ def abandon_orphan_runs() -> int:
                WHERE status IN ('running', 'queued')"""
         )
         return cur.rowcount
-
-
-def delete_job(job_id: int) -> None:
-    with db() as conn:
-        conn.execute("DELETE FROM jobs WHERE id = ? AND kept = 0", (job_id,))

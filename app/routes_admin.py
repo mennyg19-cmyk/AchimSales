@@ -12,11 +12,12 @@ import config
 import store
 from db import db
 from deps import (
+    THEME_BODY_CLASS,
     flash,
-    is_admin,
     is_privileged,
-    login_redirect,
+    need_login,
     page,
+    require_csrf,
     session_from_row,
     session_user,
 )
@@ -29,10 +30,10 @@ FLAGS = (
 
 
 def _guard_admin(request: Request):
-    user = session_user(request)
-    if not user:
-        return login_redirect()
-    if not is_admin(user):
+    denied = need_login(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
         flash(request, "Admin only.", "warn")
         return RedirectResponse("/settings", status_code=302)
     return None
@@ -40,13 +41,14 @@ def _guard_admin(request: Request):
 
 @router.get("/settings")
 def settings_page(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     vis = store.visibility_map()
     reports = [
-        {**item, "enabled": vis.get(item["key"], True)}
-        for item in catalog.REPORTS
+        {**report, "enabled": vis.get(report["key"], True)}
+        for report in catalog.REPORTS
     ]
     flags = [
         {"key": key, "description": desc, "enabled": store.setting(key, "0") == "1"}
@@ -68,11 +70,15 @@ def settings_page(request: Request):
 
 @router.post("/api/settings/theme")
 async def set_theme(request: Request):
-    if not session_user(request):
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     body = await request.json()
     value = (body or {}).get("theme")
-    if value not in {"light", "dark", "monochrome", "monochrome_dark"}:
+    if value not in THEME_BODY_CLASS:
         return JSONResponse({"error": "Unknown theme"}, status_code=400)
     request.session["theme"] = value
     return {"ok": True, "theme": value}
@@ -80,10 +86,13 @@ async def set_theme(request: Request):
 
 @router.post("/api/settings/visibility")
 async def set_visibility(request: Request):
-    user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
-    if not is_admin(user):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
         return JSONResponse({"error": "Admin only"}, status_code=403)
     body = await request.json()
     key = (body or {}).get("key") or ""
@@ -95,14 +104,17 @@ async def set_visibility(request: Request):
 
 @router.post("/api/settings/flag")
 async def set_flag(request: Request):
-    user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
-    if not is_admin(user):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
         return JSONResponse({"error": "Admin only"}, status_code=403)
     body = await request.json()
     key = (body or {}).get("key") or ""
-    allowed = {item[0] for item in FLAGS}
+    allowed = {flag[0] for flag in FLAGS}
     if key not in allowed:
         return JSONResponse({"error": "Unknown flag"}, status_code=400)
     store.set_setting(key, "1" if (body or {}).get("enabled") else "0")
@@ -111,10 +123,13 @@ async def set_flag(request: Request):
 
 @router.post("/api/settings/test-mode")
 async def set_test_mode(request: Request):
-    user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
-    if not is_admin(user):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
         return JSONResponse({"error": "Admin only"}, status_code=403)
     body = await request.json()
     store.set_setting("schedule_test_mode", "1" if (body or {}).get("enabled") else "0")
@@ -123,22 +138,29 @@ async def set_test_mode(request: Request):
 
 @router.post("/api/settings/test-emails")
 async def set_test_email_list(request: Request):
-    user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
-    if not is_admin(user):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
         return JSONResponse({"error": "Admin only"}, status_code=403)
     body = await request.json()
     emails = (body or {}).get("emails") or []
-    store.set_test_emails([str(item).strip() for item in emails if str(item).strip()])
+    store.set_test_emails([str(addr).strip() for addr in emails if str(addr).strip()])
     return {"ok": True, "emails": store.test_emails()}
 
 
 @router.post("/api/settings/exclusions")
 async def set_exclusions(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     body = await request.json()
     store.set_exclusions(user["email"], (body or {}).get("accounts") or [])
     return {"ok": True}
@@ -168,10 +190,14 @@ def users_add(
     role: str = Form("salesman"),
     sales_group: str = Form(""),
     is_external: str = Form(""),
+    csrf: str = Form(""),
 ):
     blocked = _guard_admin(request)
     if blocked:
         return blocked
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     email = email.strip().lower()
     if not email or role not in config.ROLES:
         flash(request, "Email and a valid role are required.", "error")
@@ -195,10 +221,14 @@ def users_edit(
     is_external: str = Form(""),
     can_see_company_views: str = Form(""),
     sharepoint_access: str = Form(""),
+    csrf: str = Form(""),
 ):
     blocked = _guard_admin(request)
     if blocked:
         return blocked
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     if role not in config.ROLES:
         flash(request, "Unknown role.", "error")
         return RedirectResponse("/admin/users", status_code=303)
@@ -222,11 +252,15 @@ def users_edit(
 
 
 @router.post("/admin/users/{user_id}/view-as")
-def view_as(request: Request, user_id: int):
+def view_as(request: Request, user_id: int, csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
-    if user.get("role") != "developer" and not is_privileged(user):
+    if not is_privileged(user):
         flash(request, "View as is for developers.", "warn")
         return RedirectResponse("/admin/users", status_code=302)
     target = store.get_user_by_id(user_id)
@@ -241,7 +275,10 @@ def view_as(request: Request, user_id: int):
 
 
 @router.post("/impersonate/stop")
-def stop_impersonate(request: Request):
+def stop_impersonate(request: Request, csrf: str = Form("")):
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     original = request.session.get("impersonating")
     if original:
         request.session["user"] = original
@@ -254,9 +291,10 @@ def stop_impersonate(request: Request):
 def role_picker(request: Request):
     if config.PRODUCTION:
         return JSONResponse({"error": "Not in production"}, status_code=404)
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     return page(request, "role_picker.html", active_tab="settings", users=store.list_users())
 
 
@@ -278,21 +316,26 @@ def schedule_runs(request: Request):
 
 @router.get("/dev/db-explorer")
 def db_explorer(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
-    if user.get("role") != "developer" and not is_privileged(user):
+    if not is_privileged(user):
         flash(request, "Developer only.", "warn")
         return RedirectResponse("/settings", status_code=302)
     return page(request, "db_explorer.html", active_tab="settings", rows=None, error=None, sql="")
 
 
 @router.post("/dev/db-explorer")
-def db_explorer_run(request: Request, sql: str = Form("")):
+def db_explorer_run(request: Request, sql: str = Form(""), csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
-    if user.get("role") != "developer" and not is_privileged(user):
+    if not is_privileged(user):
         flash(request, "Developer only.", "warn")
         return RedirectResponse("/settings", status_code=302)
     stripped = sql.strip().rstrip(";")
@@ -341,10 +384,37 @@ def db_explorer_run(request: Request, sql: str = Form("")):
 
 @router.get("/dev/notif-diagnostic")
 def notif_diagnostic(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
-    if user.get("role") != "developer" and not is_privileged(user):
+    if not is_privileged(user):
         flash(request, "Developer only.", "warn")
         return RedirectResponse("/settings", status_code=302)
     return page(request, "notif_diagnostic.html", active_tab="settings", outbox=store.list_outbox())
+
+
+@router.post("/api/dev/reporting/{report_id}/run")
+async def reporting_api_run(request: Request, report_id: str):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    if not is_privileged(user):
+        return JSONResponse({"error": "Developer only"}, status_code=403)
+    if not config.reporting_api_key():
+        return JSONResponse(
+            {
+                "error": "REPORTING_API_KEY is not set. This preview uses catalog mock JSON instead of the office doorway.",
+                "mock": True,
+                "report_id": report_id,
+            },
+            status_code=501,
+        )
+    return JSONResponse(
+        {"error": "Live Reporting API calls are not enabled on this dummy site."},
+        status_code=501,
+    )

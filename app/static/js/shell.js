@@ -1,4 +1,7 @@
-const THEME_ORDER = ["light", "dark", "monochrome", "monochrome_dark"];
+const THEME_ORDER = (document.body.getAttribute("data-themes") || "light,dark,monochrome,monochrome_dark")
+  .split(",")
+  .map((name) => name.trim())
+  .filter(Boolean);
 const THEME_ICONS = {
   light: "sun",
   dark: "moon",
@@ -28,17 +31,15 @@ function initThemeToggle() {
   const btn = document.getElementById("themeToggleBtn");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    const next = THEME_ORDER[(THEME_ORDER.indexOf(currentTheme()) + 1) % THEME_ORDER.length];
+    const previous = currentTheme();
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(previous) + 1) % THEME_ORDER.length];
     applyTheme(btn, next);
-    try {
-      await fetch(btn.getAttribute("data-url") || "/api/settings/theme", {
+    const res =       await fetch(btn.getAttribute("data-url") || "/api/settings/theme", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({ theme: next }),
-      });
-    } catch (_err) {
-      /* visual toggle already applied */
-    }
+      }).catch(() => null);
+    if (!res || !res.ok) applyTheme(btn, previous);
   });
 }
 
@@ -49,11 +50,14 @@ function initSettingsTheme() {
   save.addEventListener("click", async () => {
     const theme = select.value;
     applyTheme(document.getElementById("themeToggleBtn"), theme);
-    await fetch("/api/settings/theme", {
+    const res = await fetch("/api/settings/theme", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       body: JSON.stringify({ theme }),
-    });
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      alert("Theme save failed" + (res ? " (HTTP " + res.status + ")" : " (network)"));
+    }
   });
 }
 
@@ -66,6 +70,10 @@ function initRecentReports() {
   async function load() {
     panel.hidden = false;
     const res = await fetch("/api/jobs");
+    if (!res.ok) {
+      body.textContent = "Could not load recent runs (HTTP " + res.status + "). Expected a signed-in session.";
+      return;
+    }
     const data = await res.json();
     const jobs = data.jobs || [];
     if (!jobs.length) {

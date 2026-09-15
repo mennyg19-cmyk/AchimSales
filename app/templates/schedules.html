@@ -19,7 +19,8 @@
 <section class="settings-card">
     <h2 class="section-title">Add a schedule</h2>
     {% if views %}
-    <form method="post" action="/schedules/add" class="auth-form" style="max-width:480px;">
+    <form method="post" action="/schedules/add" class="auth-form form-narrow">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
         <label class="auth-field"><span class="auth-label">View</span>
             <select name="view_id" required>
                 {% for v in views %}
@@ -30,11 +31,20 @@
             </select>
         </label>
         <label class="auth-field"><span class="auth-label">When</span>
-            <select name="freq">
+            <select name="freq" id="schedFreq">
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
             </select>
+        </label>
+        <div class="sched-weekdays" id="weekdayRow" hidden>
+            {% for day, label in [("mon","Mon"),("tue","Tue"),("wed","Wed"),("thu","Thu"),("fri","Fri")] %}
+            <label class="sched-day"><input type="checkbox" name="weekdays" value="{{ day }}"> {{ label }}</label>
+            {% endfor %}
+        </div>
+        <label class="auth-field" id="monthdayRow" hidden>
+            <span class="auth-label">Day of month</span>
+            <input name="monthday" type="number" min="1" max="31" value="1">
         </label>
         <label class="auth-field"><span class="auth-label">Time (America/New_York)</span>
             <input name="run_time" type="time" value="08:00"></label>
@@ -60,14 +70,21 @@
             <td>{{ s.recipients }}</td>
             <td>{{ s.last_status or '—' }} {{ s.last_run or '' }}</td>
             <td class="cell-actions">
-                <form method="post" action="/schedules/{{ s.id }}/run-now" style="display:inline;">
+                <form method="post" action="/schedules/{{ s.id }}/run-now" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
                     <button class="btn btn-sm btn-primary" type="submit">Run now</button>
                 </form>
-                <form method="post" action="/schedules/{{ s.id }}/toggle" style="display:inline;">
+                <form method="post" action="/schedules/{{ s.id }}/toggle" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
                     <button class="btn btn-sm btn-outline" type="submit">{{ 'Pause' if s.is_active else 'Resume' }}</button>
                 </form>
+                <form method="post" action="/schedules/{{ s.id }}/copy" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <button class="btn btn-sm btn-outline" type="submit">Copy</button>
+                </form>
                 <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
-                <form method="post" action="/schedules/{{ s.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this schedule?');">
+                <form method="post" action="/schedules/{{ s.id }}/delete" class="inline-form" onsubmit="return confirm('Delete this schedule?');">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
                     <button class="btn btn-sm btn-outline" type="submit">Delete</button>
                 </form>
             </td>
@@ -83,7 +100,7 @@
 <details class="run-log-panel" open>
     <summary class="run-log-summary">Recent run log</summary>
     {% if is_privileged %}
-    <form method="post" action="/api/schedules/clear-stuck" onsubmit="event.preventDefault(); fetch(this.action,{method:'POST'}).then(function(){ location.reload(); });">
+    <form method="post" action="/api/schedules/clear-stuck" onsubmit="event.preventDefault(); fetch(this.action,{method:'POST',headers:csrfHeaders()}).then(function(){ location.reload(); });">
         <button type="submit" class="btn btn-sm btn-outline">Clear stuck runs</button>
     </form>
     {% endif %}
@@ -105,4 +122,18 @@
     <p class="run-log-empty">No schedule runs yet. Use Run now.</p>
     {% endif %}
 </details>
+<script>
+(function () {
+  var freq = document.getElementById("schedFreq");
+  var week = document.getElementById("weekdayRow");
+  var month = document.getElementById("monthdayRow");
+  function sync() {
+    var value = freq ? freq.value : "daily";
+    if (week) week.hidden = value !== "weekly";
+    if (month) month.hidden = value !== "monthly";
+  }
+  if (freq) freq.addEventListener("change", sync);
+  sync();
+})();
+</script>
 {% endblock %}

@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Sales">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#2563eb">
+    <meta name="theme-color" content="{{ theme_color }}">
     <title>{% block title %}Sales Reports{% endblock %}</title>
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
@@ -16,7 +16,8 @@
     <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
     {% block head %}{% endblock %}
 </head>
-<body class="{{ theme_class }}">
+<body class="{{ theme_class }}" data-themes="{{ theme_names }}"
+      data-csrf="{{ csrf }}" data-can-company="{{ '1' if is_privileged else '0' }}">
     {% if user %}
     <header class="app-header">
         <div class="header-left">
@@ -28,7 +29,8 @@
                 {{ user.role|title }}
             </span>
             {% if impersonating %}
-            <form method="post" action="/impersonate/stop" style="display:inline;">
+            <form method="post" action="/impersonate/stop" class="inline-form">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
                 <button type="submit" class="btn btn-sm btn-outline" title="Stop viewing as {{ user.email }}">Stop View as</button>
             </form>
             {% endif %}
@@ -38,9 +40,10 @@
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
                     data-url="/api/settings/theme">
-                <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture', 'monochrome_dark': 'disc'}.get(theme, 'sun') }}" style="width:16px;height:16px;"></i>
+                <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture', 'monochrome_dark': 'disc'}.get(theme, 'sun') }}" class="header-icon"></i>
             </button>
-            <form method="post" action="/logout" style="display:inline;">
+            <form method="post" action="/logout" class="inline-form">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
                 <button type="submit" class="btn btn-sm btn-outline">Sign Out</button>
             </form>
         </div>
@@ -80,6 +83,7 @@
         </div>
         <div id="recentBody" class="recent-panel-body">Loading…</div>
     </div>
+    <script src="/static/js/csrf.js?v={{ asset_v }}"></script>
     <script src="/static/js/shell.js?v={{ asset_v }}"></script>
     {% block scripts %}{% endblock %}
 </body>

@@ -48,7 +48,7 @@
     rows.forEach(function (row) {
       var ok = (!term || (row.getAttribute("data-name") + row.getAttribute("data-account")).toLowerCase().indexOf(term) !== -1)
         && (!group || row.getAttribute("data-salesman") === group);
-      row.style.display = ok ? "" : "none";
+      row.hidden = !ok;
     });
   }
   if (search) search.addEventListener("input", filter);

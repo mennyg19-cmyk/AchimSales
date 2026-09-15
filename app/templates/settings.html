@@ -31,7 +31,7 @@
                 <option value="monochrome_dark" {% if theme == 'monochrome_dark' %}selected{% endif %}>Monochrome Dark</option>
             </select>
         </label>
-        <button type="button" id="settingsThemeSave" class="btn btn-primary btn-sm" style="margin-top:12px;">Save</button>
+        <button type="button" id="settingsThemeSave" class="btn btn-primary btn-sm mt-12">Save</button>
     </section>
     <section class="settings-card">
         <h2 class="section-title">Customer exclusions</h2>
@@ -44,7 +44,7 @@
             </label>
             {% endfor %}
         </div>
-        <button type="button" id="exclSave" class="btn btn-outline btn-sm" style="margin-top:12px;">Save exclusions</button>
+        <button type="button" id="exclSave" class="btn btn-outline btn-sm mt-12">Save exclusions</button>
     </section>
 </details>
 
@@ -149,7 +149,7 @@
             <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>
             <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
         </div>
-        <p class="flag-desc">OData vs SQL source picker is retired. This app only talks to the office Reporting API (mocked here).</p>
+        <p class="flag-desc">OData vs SQL source picker is retired. This app only talks to the office Reporting API (mocked here). POST /api/dev/reporting/&lt;id&gt;/run returns 501 until REPORTING_API_KEY is set.</p>
     </section>
 </details>
 {% endif %}

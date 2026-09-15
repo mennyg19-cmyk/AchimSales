@@ -49,7 +49,7 @@ function showCommissionCards(rows) {
   const wrap = document.getElementById("commissionCards");
   const grid = document.getElementById("reportTable");
   wrap.hidden = false;
-  grid.style.display = "none";
+  grid.hidden = true;
   wrap.innerHTML = rows.map((row) => {
     const name = row.SalesmanName || row.Salesman || "";
     const pct = row.Percent != null ? Math.round(row.Percent * 1000) / 10 + "%" : "";
@@ -72,12 +72,13 @@ function showTab(key) {
     return;
   }
   wrap.hidden = true;
-  grid.style.display = "";
+  grid.hidden = false;
   if (table) table.destroy();
   table = new Tabulator("#reportTable", {
     data: rows,
     layout: "fitDataStretch",
     placeholder: "No rows",
+    movableColumns: true,
     columns: columnsFromRows(rows),
   });
 }
@@ -104,6 +105,8 @@ function renderTabs(payload) {
   const to = data.to_date || "";
   meta.textContent = (from && to ? from + " – " + to + " · " : "") + (data.source || "mock") + " data";
   document.getElementById("reportSurface").hidden = false;
+  const preview = document.getElementById("apiPreview");
+  if (preview) preview.textContent = JSON.stringify(payload, null, 2);
   if (keys.length) showTab(keys[0]);
 }
 
@@ -111,7 +114,7 @@ async function runReport() {
   const params = collectParams();
   const res = await fetch("/api/reports/" + params.report_key + "/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders(),
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error("Could not load mock JSON");
@@ -173,10 +176,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const period = document.getElementById("periodSelect");
   if (period) period.addEventListener("change", toggleCustomDates);
+  const rawParams = controls.getAttribute("data-view-params") || "{}";
   try {
-    applySavedParams(JSON.parse(controls.getAttribute("data-view-params") || "{}"));
-  } catch (_err) {
-    /* ignore bad saved params */
+    applySavedParams(JSON.parse(rawParams));
+  } catch (err) {
+    document.getElementById("reportMeta").textContent =
+      "Saved view params could not be read (" + err.message + "). Expected JSON object.";
   }
   document.getElementById("runBtn").addEventListener("click", () => {
     runReport().catch((err) => {
@@ -184,15 +189,21 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("reportSurface").hidden = false;
     });
   });
-  document.getElementById("emailMeBtn").addEventListener("click", async () => {
+  document.getElementById("emailMeBtn").addEventListener("click", () => {
+    document.getElementById("emailOverlay").hidden = false;
+  });
+  document.getElementById("emailConfirm").addEventListener("click", async () => {
     const params = collectParams();
+    params.recipients = document.getElementById("emailTo").value;
+    params.subject = document.getElementById("emailSubject").value;
     const res = await fetch("/api/reports/" + params.report_key + "/email", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       body: JSON.stringify(params),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     alert(res.ok ? "Mock mail queued to " + data.recipients : (data.error || "Email failed"));
+    if (res.ok) document.getElementById("emailOverlay").hidden = true;
   });
   document.getElementById("exportBtn").addEventListener("click", (evt) => {
     evt.preventDefault();
@@ -205,23 +216,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const name = prompt("Name this kept run", "Kept run");
     if (!name) return;
-    await fetch("/api/jobs/" + lastJobId + "/keep", {
+    const res = await fetch("/api/jobs/" + lastJobId + "/keep", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       body: JSON.stringify({ name }),
     });
-    alert("Kept.");
+    const data = await res.json().catch(() => ({}));
+    alert(res.ok ? "Kept." : (data.error || "Keep failed (HTTP " + res.status + ")"));
   });
-  document.getElementById("saveViewBtn").addEventListener("click", async () => {
-    const name = prompt("Name this view");
-    if (!name) return;
+  document.getElementById("saveViewBtn").addEventListener("click", () => {
+    document.getElementById("saveViewOverlay").hidden = false;
+    document.getElementById("saveViewName").focus();
+  });
+  document.getElementById("saveViewConfirm").addEventListener("click", async () => {
+    const name = document.getElementById("saveViewName").value.trim();
+    if (!name) {
+      alert("Name is required.");
+      return;
+    }
     const params = collectParams();
-    const kind = document.body.dataset.canCompany === "1" && confirm("Save for Company? Cancel = just for me")
-      ? "company"
-      : "personal";
-    await fetch("/api/views", {
+    const kind = document.getElementById("saveViewKind").value || "personal";
+    const res = await fetch("/api/views", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: csrfHeaders(),
       body: JSON.stringify({
         name,
         report_key: params.report_key,
@@ -230,12 +247,18 @@ document.addEventListener("DOMContentLoaded", () => {
         include_period: true,
       }),
     });
-    alert("View saved.");
+    const data = await res.json().catch(() => ({}));
+    alert(res.ok ? "View saved." : (data.error || "Save view failed (HTTP " + res.status + ")"));
+    if (res.ok) document.getElementById("saveViewOverlay").hidden = true;
   });
   document.getElementById("savedViewsBtn").addEventListener("click", async () => {
     const params = collectParams();
     const res = await fetch("/api/views?report=" + encodeURIComponent(params.report_key));
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "Could not load saved views (HTTP " + res.status + ")");
+      return;
+    }
     const names = (data.views || []).map((view) => view.id + ": " + view.name + " (" + view.kind + ")").join("\n");
     const picked = prompt("Open view id:\n" + (names || "(none)"));
     if (!picked) return;
@@ -244,17 +267,35 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("scheduleViewBtn").addEventListener("click", async () => {
     const params = collectParams();
     const res = await fetch("/api/views?report=" + encodeURIComponent(params.report_key));
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "Could not load views for schedule (HTTP " + res.status + ")");
+      return;
+    }
     if (!data.views || !data.views.length) {
       alert("Save a named view first, then Schedule.");
       return;
     }
     window.location.href = "/schedules?view=" + data.views[0].id;
   });
+  const refresh = document.getElementById("refreshBtn");
+  if (refresh) {
+    refresh.addEventListener("click", () => {
+      runReport().catch((err) => {
+        document.getElementById("reportMeta").textContent = err.message;
+      });
+    });
+  }
+  const resetLayout = document.getElementById("resetLayoutBtn");
+  if (resetLayout) {
+    resetLayout.addEventListener("click", () => {
+      if (activeKey) showTab(activeKey);
+    });
+  }
   const help = document.getElementById("helpBtn");
   if (help) {
     help.addEventListener("click", () => {
-      document.getElementById("helpOverlay").style.display = "flex";
+      document.getElementById("helpOverlay").hidden = false;
     });
   }
   runReport().catch((err) => {

@@ -10,7 +10,8 @@
 
 <details class="settings-card" open>
   <summary class="settings-subhead" style="cursor:pointer;">Add user</summary>
-  <form method="post" action="/admin/users/add" class="auth-form" style="margin-top:12px;max-width:420px;">
+  <form method="post" action="/admin/users/add" class="auth-form form-narrow mt-12">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
     <label class="auth-field"><span class="auth-label">Email</span>
       <input name="email" type="email" required placeholder="name@achimonline.com"></label>
     <label class="auth-field"><span class="auth-label">Role</span>
@@ -47,7 +48,8 @@
         <td class="cell-actions">
           <details>
             <summary class="btn btn-outline btn-sm">Edit</summary>
-            <form method="post" action="/admin/users/{{ u.id }}/edit" style="margin-top:8px;">
+            <form method="post" action="/admin/users/{{ u.id }}/edit" class="mt-8">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
               <label class="auth-field"><span class="auth-label">Display name</span>
                 <input name="display_name" value="{{ u.display_name }}"></label>
               <label class="auth-field"><span class="auth-label">Role</span>
@@ -65,7 +67,8 @@
             </form>
           </details>
           {% if u.email != user.email %}
-          <form method="post" action="/admin/users/{{ u.id }}/view-as" style="display:inline;">
+          <form method="post" action="/admin/users/{{ u.id }}/view-as" class="inline-form">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
             <button type="submit" class="btn btn-outline btn-sm">View as</button>
           </form>
           {% endif %}
@@ -83,7 +86,7 @@ document.getElementById("userSearch").addEventListener("input", function () {
   var term = this.value.toLowerCase();
   document.querySelectorAll("#userTable tbody tr").forEach(function (row) {
     var hay = (row.getAttribute("data-email") + row.getAttribute("data-name")).toLowerCase();
-    row.style.display = hay.indexOf(term) === -1 ? "none" : "";
+    row.hidden = hay.indexOf(term) === -1;
   });
 });
 </script>

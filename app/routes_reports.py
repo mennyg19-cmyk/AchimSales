@@ -11,8 +11,9 @@ from deps import (
     can_see_report,
     flash,
     is_privileged,
-    login_redirect,
+    need_login,
     page,
+    require_csrf,
     salesman_scope,
     session_user,
     visible_reports,
@@ -32,7 +33,7 @@ def _params_from_request(body: dict, spec: dict) -> dict:
     if "status" in filters:
         params["status"] = body.get("status") or ""
     if "year" in filters:
-        params["year"] = body.get("year") or "2026"
+        params["year"] = body.get("year") or catalog.YEAR_OPTIONS[0]
     if "n4_mode" in filters:
         params["n4_mode"] = body.get("n4_mode") or "both"
     if "salesman" in filters:
@@ -57,22 +58,23 @@ def _build_payload(key: str, user: dict, params: dict) -> dict:
         n4_mode=params.get("n4_mode") or "both",
         hide_commissions=not is_privileged(user),
     )
-    data = payload["data"]
+    report = payload["data"]
     if params.get("period"):
-        data["period"] = params["period"]
+        report["period"] = params["period"]
     if params.get("from_date"):
-        data["from_date"] = params["from_date"]
+        report["from_date"] = params["from_date"]
     if params.get("to_date"):
-        data["to_date"] = params["to_date"]
-    data["source"] = "mock"
+        report["to_date"] = params["to_date"]
+    report["source"] = "mock"
     return payload
 
 
 @router.get("/")
 def reports_home(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     cards = visible_reports(user)
     views = store.list_views(user["email"], is_privileged(user) or user.get("can_see_company_views"))
     titles = {item["key"]: item["title"] for item in catalog.REPORTS}
@@ -102,9 +104,10 @@ def reports_home(request: Request):
 
 @router.get("/reports/{report_key}")
 def report_page(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     spec = catalog.spec(report_key)
     if spec is None or spec["in_app"]:
         return RedirectResponse("/", status_code=302)
@@ -128,14 +131,16 @@ def report_page(request: Request, report_key: str):
         customers=catalog.CUSTOMERS,
         loaded_view=loaded,
         privileged=is_privileged(user),
+        can_company=is_privileged(user),
     )
 
 
 @router.get("/api/reports/{report_key}/mock")
 def report_mock(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     if catalog.spec(report_key) is None or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
     payload = _build_payload(report_key, user, {})
@@ -145,9 +150,13 @@ def report_mock(request: Request, report_key: str):
 
 @router.post("/api/reports/{report_key}/run")
 async def report_run(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     spec = catalog.spec(report_key)
     if spec is None or spec["in_app"] or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
@@ -161,9 +170,10 @@ async def report_run(request: Request, report_key: str):
 
 @router.get("/api/reports/{report_key}/xlsx")
 async def report_xlsx(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     spec = catalog.spec(report_key)
     if spec is None or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
@@ -182,9 +192,13 @@ async def report_xlsx(request: Request, report_key: str):
 
 @router.post("/api/reports/{report_key}/email")
 async def report_email(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     spec = catalog.spec(report_key)
     if spec is None or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
@@ -192,9 +206,7 @@ async def report_email(request: Request, report_key: str):
     params = _params_from_request(body or {}, spec)
     payload = _build_payload(report_key, user, params)
     store.save_job(report_key, spec["title"], payload)
-    recipients = (body or {}).get("recipients") or user["email"]
-    if store.setting("schedule_test_mode") == "1":
-        recipients = ", ".join(store.test_emails())
+    recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
     subject = (body or {}).get("subject") or f"[MOCK] {spec['title']}"
     store.add_outbox(recipients, subject, "Dummy Excel attached. Graph mail is not wired yet.")
     return {"ok": True, "recipients": recipients, "mock": True}
@@ -202,9 +214,10 @@ async def report_email(request: Request, report_key: str):
 
 @router.get("/report/customer-last-order")
 def last_order_pick(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     if not can_see_report(user, "customer_last_order"):
         flash(request, "Customer's Last Order is hidden.", "warn")
         return RedirectResponse("/", status_code=302)
@@ -222,9 +235,10 @@ def last_order_pick(request: Request):
 
 @router.get("/report/customer-last-order/{account}")
 def last_order_view(request: Request, account: str):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     found = catalog.last_order_for(account)
     if found is None:
         flash(request, "No mock customer with that account.", "warn")
@@ -238,18 +252,20 @@ def last_order_view(request: Request, account: str):
 
 @router.get("/api/jobs")
 def jobs_list(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     kept = request.query_params.get("kept") == "1"
     return {"jobs": store.list_jobs(kept_only=kept)}
 
 
 @router.get("/api/jobs/{job_id}")
 def job_get(request: Request, job_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     job = store.get_job(job_id)
     if job is None:
         return JSONResponse({"error": "Unknown run"}, status_code=404)
@@ -258,9 +274,13 @@ def job_get(request: Request, job_id: int):
 
 @router.post("/api/jobs/{job_id}/keep")
 async def job_keep(request: Request, job_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     body = await request.json()
     name = (body or {}).get("name") or "Kept run"
     store.keep_job(job_id, name)
@@ -269,9 +289,10 @@ async def job_keep(request: Request, job_id: int):
 
 @router.get("/api/views")
 def views_list(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     report_key = request.query_params.get("report") or ""
     privileged = is_privileged(user) or user.get("can_see_company_views")
     if report_key:
@@ -280,10 +301,14 @@ def views_list(request: Request):
 
 
 @router.post("/api/views")
-async def views_save(request: Request,):
+async def views_save(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     body = await request.json()
     name = ((body or {}).get("name") or "").strip()
     report_key = (body or {}).get("report_key") or ""
@@ -292,6 +317,11 @@ async def views_save(request: Request,):
     kind = (body or {}).get("kind") or "personal"
     if kind == "company" and not is_privileged(user):
         return JSONResponse({"error": "Company views are admin-only"}, status_code=403)
+    if kind == "company_default":
+        if not is_privileged(user):
+            return JSONResponse({"error": "Company Default is admin-only"}, status_code=403)
+        kind = "company"
+        name = name or "Company Default"
     owner = None if kind == "company" else user["email"]
     params = (body or {}).get("params") or {}
     include_period = 1 if (body or {}).get("include_period") else 0
@@ -301,9 +331,13 @@ async def views_save(request: Request,):
 
 @router.post("/api/views/{view_id}/delete")
 def views_delete(request: Request, view_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     view = store.get_view(view_id)
     if view is None:
         return JSONResponse({"error": "Unknown view"}, status_code=404)

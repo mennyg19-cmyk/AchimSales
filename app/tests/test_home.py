@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -19,7 +21,16 @@ def client(tmp_path, monkeypatch):
 
 
 def login(client: TestClient):
-    return client.post("/login/preview", follow_redirects=False)
+    res = client.post("/login/preview", follow_redirects=False)
+    html = client.get("/").text
+    match = re.search(r'data-csrf="([^"]+)"', html)
+    assert match, "signed-in pages must expose data-csrf"
+    client.csrf = match.group(1)
+    return res
+
+
+def csrf_headers(client: TestClient) -> dict[str, str]:
+    return {"X-CSRF-Token": client.csrf}
 
 
 def test_healthz(client):
@@ -73,7 +84,7 @@ def test_every_grid_report_returns_tabs(client):
     for item in REPORTS:
         if item["in_app"]:
             continue
-        payload = client.post(f"/api/reports/{item['key']}/run", json={}).json()
+        payload = client.post(f"/api/reports/{item['key']}/run", json={}, headers=csrf_headers(client)).json()
         tabs = payload["data"]["tabs"]
         assert tabs, item["key"]
         first = next(iter(tabs.values()))
@@ -121,7 +132,7 @@ def test_add_user_no_self_register(client):
     login(client)
     res = client.post(
         "/admin/users/add",
-        data={"email": "new.rep@achimonline.com", "role": "salesman", "display_name": "New Rep", "sales_group": "DDweck"},
+        data={"email": "new.rep@achimonline.com", "role": "salesman", "display_name": "New Rep", "sales_group": "DDweck", "csrf": client.csrf},
         follow_redirects=False,
     )
     assert res.status_code == 303
@@ -129,7 +140,7 @@ def test_add_user_no_self_register(client):
     assert "new.rep@achimonline.com" in html
     again = client.post(
         "/admin/users/add",
-        data={"email": "new.rep@achimonline.com", "role": "salesman"},
+        data={"email": "new.rep@achimonline.com", "role": "salesman", "csrf": client.csrf},
         follow_redirects=True,
     )
     assert "already on the list" in again.text
@@ -137,7 +148,7 @@ def test_add_user_no_self_register(client):
 
 def test_visibility_hides_card(client):
     login(client)
-    client.post("/api/settings/visibility", json={"key": "sales_by_state", "enabled": False})
+    client.post("/api/settings/visibility", json={"key": "sales_by_state", "enabled": False}, headers=csrf_headers(client))
     html = client.get("/").text
     assert "Sales by State" not in html
     hidden = client.get("/reports/sales_by_state", follow_redirects=False)
@@ -149,11 +160,12 @@ def test_save_view_and_schedule_run_now(client):
     created = client.post(
         "/api/views",
         json={"name": "My Invoiced", "report_key": "invoiced", "kind": "personal", "params": {"period": "mtd"}, "include_period": True},
+        headers=csrf_headers(client),
     ).json()
     assert created["ok"]
     add = client.post(
         "/schedules/add",
-        data={"view_id": created["id"], "freq": "daily", "run_time": "09:00", "recipients": "preview@achimonline.com"},
+        data={"view_id": created["id"], "freq": "daily", "run_time": "09:00", "recipients": "preview@achimonline.com", "csrf": client.csrf},
         follow_redirects=False,
     )
     assert add.status_code == 303
@@ -164,7 +176,7 @@ def test_save_view_and_schedule_run_now(client):
     with db() as conn:
         row = conn.execute("SELECT id FROM schedules ORDER BY id DESC LIMIT 1").fetchone()
         sid = row["id"]
-    client.post(f"/schedules/{sid}/run-now", follow_redirects=True)
+    client.post(f"/schedules/{sid}/run-now", data={"csrf": client.csrf}, follow_redirects=True)
     outbox = client.get("/dev/notif-diagnostic").text
     assert "[MOCK]" in outbox
     assert "preview@achimonline.com" in outbox
@@ -191,16 +203,16 @@ def test_xlsx_export(client):
 
 def test_email_me_writes_outbox(client):
     login(client)
-    res = client.post("/api/reports/invoiced/email", json={"period": "last_7_days"}).json()
+    res = client.post("/api/reports/invoiced/email", json={"period": "last_7_days"}, headers=csrf_headers(client)).json()
     assert res["ok"]
     assert res["mock"] is True
 
 
 def test_keep_job(client):
     login(client)
-    payload = client.post("/api/reports/invoiced/run", json={}).json()
+    payload = client.post("/api/reports/invoiced/run", json={}, headers=csrf_headers(client)).json()
     job_id = payload["data"]["job_id"]
-    client.post(f"/api/jobs/{job_id}/keep", json={"name": "Friday pack"})
+    client.post(f"/api/jobs/{job_id}/keep", json={"name": "Friday pack"}, headers=csrf_headers(client))
     jobs = client.get("/api/jobs?kept=1").json()["jobs"]
     assert any(job["keep_name"] == "Friday pack" for job in jobs)
 
@@ -225,3 +237,46 @@ def test_reporting_api_refuses_website_host(monkeypatch):
     from config import reporting_api_base
     with pytest.raises(RuntimeError, match="office doorway"):
         reporting_api_base()
+
+
+def test_api_run_requires_csrf(client):
+    login(client)
+    res = client.post("/api/reports/invoiced/run", json={})
+    assert res.status_code == 403
+
+
+def test_login_next_rejects_offsite(client):
+    html = client.get("/login?next=https://evil.example").text
+    assert 'name="next" value="/"' in html
+    res = client.post("/login/preview", data={"next": "//evil.example"}, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"] == "/"
+
+
+def test_disabled_magic_link_is_403(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        conn.execute("UPDATE users SET is_active = 0 WHERE email = 'external@example.com'")
+    client.post("/logout", data={"csrf": client.csrf})
+    res = client.post("/login/magic-link", data={"email": "external@example.com"})
+    assert res.status_code == 403
+
+
+def test_copy_schedule(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        row = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()
+        sid = row["id"]
+    copied = client.post(f"/schedules/{sid}/copy", data={"csrf": client.csrf}, follow_redirects=False)
+    assert copied.status_code == 303
+    html = client.get("/schedules").text
+    assert "Copied" in html or html.count("Run now") >= 2
+
+
+def test_reporting_api_stub_without_key(client):
+    login(client)
+    res = client.post("/api/dev/reporting/invoiced_report/run", headers=csrf_headers(client))
+    assert res.status_code == 501
+    assert res.json()["mock"] is True

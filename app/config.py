@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 APP_ENV = os.environ.get("APP_ENV", "preview").strip().lower()
 PRODUCTION = APP_ENV in {"prod", "production"}
-FIXTURES = ROOT / "fixtures"
+THEME_COLOR = "#2563eb"
 
 
 def db_path() -> Path:

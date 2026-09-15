@@ -13,7 +13,7 @@ Last updated: 2026-09-15 (dummy home site)
 
 ## What's in the dummy site
 
-Login, all home report cards on mock `data.tabs`, Last Order picker, Settings hub, Users & access, visibility, saved views, Keep/Recent, schedules + Run now → sqlite outbox, xlsx export. Azure `startup.sh` is gunicorn + UvicornWorker `main:app`.
+Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards on mock `data.tabs`, Last Order picker, Settings hub, Users & access, visibility, saved views (including Company Default), Keep/Recent, schedules + weekdays/monthday + Copy + Run now → sqlite outbox, xlsx export, CSRF on mutating POSTs. Azure `startup.sh` is gunicorn + UvicornWorker `main:app`.
 
 ## Locked (do not reopen)
 

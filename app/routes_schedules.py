@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import store
-from deps import flash, is_privileged, login_redirect, page, session_user
+from deps import flash, is_privileged, need_login, page, require_csrf, session_user
 from routes_reports import _build_payload
 
 router = APIRouter()
@@ -20,9 +20,7 @@ def _deliver(schedule: dict, user: dict) -> str:
         return "failure"
     payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
     store.save_job(schedule["report_key"], schedule["view_name"], payload)
-    recipients = schedule["recipients"]
-    if store.setting("schedule_test_mode") == "1":
-        recipients = ", ".join(store.test_emails())
+    recipients = store.mail_recipients(schedule["recipients"])
     store.add_outbox(
         recipients,
         f"[MOCK] {schedule['view_name']}",
@@ -34,9 +32,10 @@ def _deliver(schedule: dict, user: dict) -> str:
 
 @router.get("/schedules")
 def schedules_page(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     views = store.list_views(user["email"], is_privileged(user) or user.get("can_see_company_views"))
     named = [view for view in views if view["name"] and view["name"] != "Default"]
     rows = store.list_schedules()
@@ -64,10 +63,17 @@ def schedules_add(
     freq: str = Form("daily"),
     run_time: str = Form("08:00"),
     recipients: str = Form(""),
+    weekdays: list[str] = Form(default=[]),
+    monthday: str = Form(""),
+    csrf: str = Form(""),
 ):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     view = store.get_view(view_id)
     if view is None:
         flash(request, "Save a named view on a report first.", "warn")
@@ -75,25 +81,49 @@ def schedules_add(
     if freq not in {"daily", "weekly", "monthly"}:
         flash(request, "Frequency must be daily, weekly, or monthly.", "error")
         return RedirectResponse("/schedules", status_code=303)
-    store.add_schedule(view_id, user["email"], freq, run_time, recipients or user["email"])
+    day = int(monthday) if monthday.strip().isdigit() else None
+    store.add_schedule(
+        view_id,
+        user["email"],
+        freq,
+        run_time,
+        recipients or user["email"],
+        weekdays=",".join(weekdays),
+        monthday=day,
+    )
     flash(request, "Schedule saved. Run now sends mock mail to the outbox.")
     return RedirectResponse("/schedules", status_code=303)
 
 
 @router.post("/schedules/{schedule_id}/toggle")
-def schedules_toggle(request: Request, schedule_id: int):
+def schedules_toggle(request: Request, schedule_id: int, csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
+    row = store.get_schedule(schedule_id)
+    if row is None:
+        flash(request, "Unknown schedule.", "error")
+        return RedirectResponse("/schedules", status_code=303)
+    if row["owner_email"] != user["email"] and not is_privileged(user):
+        flash(request, "You can only pause your own schedules.", "warn")
+        return RedirectResponse("/schedules", status_code=303)
     store.toggle_schedule(schedule_id)
     return RedirectResponse("/schedules", status_code=303)
 
 
 @router.post("/schedules/{schedule_id}/delete")
-def schedules_delete(request: Request, schedule_id: int):
+def schedules_delete(request: Request, schedule_id: int, csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     row = store.get_schedule(schedule_id)
     if row and row["owner_email"] != user["email"] and not is_privileged(user):
         flash(request, "You can only delete your own schedules.", "warn")
@@ -104,10 +134,14 @@ def schedules_delete(request: Request, schedule_id: int):
 
 
 @router.post("/schedules/{schedule_id}/run-now")
-def schedules_run_now(request: Request, schedule_id: int):
+def schedules_run_now(request: Request, schedule_id: int, csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     row = store.get_schedule(schedule_id)
     if row is None:
         flash(request, "Unknown schedule.", "error")
@@ -125,9 +159,10 @@ def schedules_run_now(request: Request, schedule_id: int):
 
 @router.get("/schedules/{schedule_id}/history")
 def schedule_history(request: Request, schedule_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     row = store.get_schedule(schedule_id)
     if row is None:
         flash(request, "Unknown schedule.", "error")
@@ -144,9 +179,10 @@ def schedule_history(request: Request, schedule_id: int):
 
 @router.get("/schedules/runs/{run_id}")
 def schedule_run_log(request: Request, run_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     run = store.get_schedule_run(run_id)
     if run is None:
         flash(request, "Unknown schedule run.", "error")
@@ -168,9 +204,10 @@ def schedule_run_log(request: Request, run_id: int):
 
 @router.get("/settings/company-schedules")
 def company_schedules(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     if store.setting("show_company_schedule_setup", "0") != "1" and not is_privileged(user):
         flash(request, "Company schedule setup is hidden.", "warn")
         return RedirectResponse("/settings", status_code=302)
@@ -180,9 +217,10 @@ def company_schedules(request: Request):
 
 @router.get("/master-schedules")
 def master_schedules(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return login_redirect()
     if not is_privileged(user):
         flash(request, "Master schedules are admin-only on this preview.", "warn")
         return RedirectResponse("/schedules", status_code=302)
@@ -195,11 +233,41 @@ def master_schedules(request: Request):
     )
 
 
+@router.post("/schedules/{schedule_id}/copy")
+def schedules_copy(request: Request, schedule_id: int, csrf: str = Form("")):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
+    user = session_user(request)
+    row = store.get_schedule(schedule_id)
+    if row is None:
+        flash(request, "Unknown schedule.", "error")
+        return RedirectResponse("/schedules", status_code=303)
+    store.add_schedule(
+        row["view_id"],
+        user["email"],
+        row["freq"],
+        row["run_time"],
+        user["email"],
+        weekdays=row.get("weekdays") or "",
+        monthday=row.get("monthday"),
+    )
+    flash(request, "Copied. Recipients set to you — edit if needed.")
+    return RedirectResponse("/schedules", status_code=303)
+
+
 @router.post("/api/schedules/clear-stuck")
 def clear_stuck(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
     user = session_user(request)
-    if not user:
-        return JSONResponse({"error": "Sign in required"}, status_code=401)
     if not is_privileged(user):
         return JSONResponse({"error": "Admin only"}, status_code=403)
     count = store.abandon_orphan_runs()

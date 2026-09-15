@@ -15,7 +15,8 @@
             <td>{{ u.email }}</td>
             <td>{{ u.role }}</td>
             <td>
-                <form method="post" action="/admin/users/{{ u.id }}/view-as">
+                <form method="post" action="/admin/users/{{ u.id }}/view-as" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
                     <button class="btn btn-sm btn-outline" type="submit">View as</button>
                 </form>
             </td>

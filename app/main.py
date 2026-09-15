@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from urllib.parse import quote
+
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,7 +15,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import config
 import store
 from db import init_db
-from deps import flash, page, session_from_row, session_user
+from deps import flash, page, require_csrf, safe_next, session_from_row, session_user
 from routes_admin import router as admin_router
 from routes_reports import router as reports_router
 from routes_schedules import router as schedules_router
@@ -49,7 +51,7 @@ def create_app() -> FastAPI:
     application.include_router(schedules_router)
 
     @application.middleware("http")
-    async def always_on_and_disabled(request: Request, call_next):
+    async def always_on_root(request: Request, call_next):
         if request.method == "GET" and request.url.path in {"", "/"}:
             if (request.headers.get("user-agent") or "") == "AlwaysOn":
                 return JSONResponse({"status": "ok"})
@@ -67,11 +69,11 @@ def create_app() -> FastAPI:
     @application.get("/login")
     def login_page(request: Request):
         if session_user(request):
-            return RedirectResponse("/", status_code=302)
-        return page(request, "login.html")
+            return RedirectResponse(safe_next(request.query_params.get("next")), status_code=302)
+        return page(request, "login.html", next_url=safe_next(request.query_params.get("next")))
 
     @application.post("/login/preview")
-    def login_preview(request: Request):
+    def login_preview(request: Request, next: str = Form("/")):
         if config.PRODUCTION:
             return JSONResponse(
                 {"error": "Preview login is disabled when APP_ENV is production."},
@@ -82,26 +84,35 @@ def create_app() -> FastAPI:
             return JSONResponse({"error": "Preview admin is missing or disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
         request.session.pop("impersonating", None)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(safe_next(next), status_code=303)
 
     @application.post("/login/magic-link")
-    def magic_link_stub(request: Request, email: str = Form("")):
+    def magic_link_stub(request: Request, email: str = Form(""), next: str = Form("/")):
         email = email.strip().lower()
         row = store.get_user(email) if email else None
+        if row and not row["is_active"]:
+            return JSONResponse({"error": "This account is disabled."}, status_code=403)
         if row and row["is_active"] and row["is_external"] and not config.PRODUCTION:
             request.session["user"] = session_from_row(row)
             flash(request, "Preview shortcut: signed in as the External People row. Live mail is not sent.")
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse(safe_next(next), status_code=303)
         flash(
             request,
             "Magic link is not wired in this preview. "
             "It will only send when the People row is active and marked External.",
             "warn",
         )
-        return RedirectResponse("/login", status_code=303)
+        dest = "/login"
+        nxt = safe_next(next)
+        if nxt != "/":
+            dest += "?next=" + quote(nxt)
+        return RedirectResponse(dest, status_code=303)
 
     @application.post("/logout")
-    def logout(request: Request):
+    def logout(request: Request, csrf: str = Form("")):
+        denied = require_csrf(request, csrf)
+        if denied:
+            return denied
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
@@ -114,7 +125,7 @@ def create_app() -> FastAPI:
             "start_url": "/",
             "display": "standalone",
             "background_color": "#ffffff",
-            "theme_color": "#2563eb",
+            "theme_color": config.THEME_COLOR,
             "icons": [
                 {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
                 {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},

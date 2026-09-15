@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import secrets
 
+from urllib.parse import quote
+
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -35,8 +37,7 @@ def is_privileged(user: dict | None) -> bool:
     return bool(user) and user.get("role") in config.PRIVILEGED_ROLES
 
 
-def is_admin(user: dict | None) -> bool:
-    return bool(user) and user.get("role") in {"admin", "developer"}
+is_admin = is_privileged
 
 
 def csrf_token(request: Request) -> str:
@@ -57,13 +58,15 @@ def ctx(request: Request, **extra):
         "user": user,
         "theme": current,
         "theme_class": THEME_BODY_CLASS[current],
-        "asset_v": "home1",
+        "theme_names": ",".join(THEME_BODY_CLASS),
+        "theme_color": config.THEME_COLOR,
+        "asset_v": "home2",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
         "is_privileged": is_privileged(user),
         "is_admin": is_admin(user),
-        "is_developer": bool(user) and user.get("role") == "developer",
+        "is_developer": is_privileged(user) and user.get("role") == "developer",
         "impersonating": request.session.get("impersonating"),
         **extra,
     }
@@ -77,22 +80,46 @@ def login_redirect():
     return RedirectResponse("/login", status_code=302)
 
 
-def require_user(request: Request):
-    user = session_user(request)
-    if user:
-        return user
+def need_login(request: Request):
+    if session_user(request):
+        return None
     if request.url.path.startswith("/api/"):
         return JSONResponse({"error": "Sign in required"}, status_code=401)
-    return login_redirect()
+    nxt = request.url.path
+    if request.url.query:
+        nxt += "?" + request.url.query
+    target = safe_next(nxt)
+    if target == "/":
+        return login_redirect()
+    return RedirectResponse("/login?next=" + quote(target), status_code=302)
 
 
-def require_admin(request: Request):
-    user = session_user(request)
-    if user and is_admin(user):
-        return user
-    if not user:
-        return require_user(request)
-    return JSONResponse({"error": "Admin only"}, status_code=403)
+def safe_next(raw: str | None) -> str:
+    value = (raw or "").strip()
+    if not value.startswith("/") or value.startswith("//") or "\\" in value or "://" in value:
+        return "/"
+    return value
+
+
+def require_csrf(request: Request, form_token: str = ""):
+    expected = csrf_token(request)
+    got = (
+        request.headers.get("x-csrf-token")
+        or request.headers.get("x-csrf")
+        or form_token
+        or ""
+    )
+    if got and got == expected:
+        return None
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            {
+                "error": "CSRF token missing or wrong. Expected X-CSRF-Token matching the session."
+            },
+            status_code=403,
+        )
+    flash(request, "That form expired. Reload the page and try again.", "error")
+    return RedirectResponse(str(request.url.path), status_code=303)
 
 
 def flash(request: Request, message: str, kind: str = "success") -> None:
@@ -125,7 +152,7 @@ def can_see_report(user: dict, key: str) -> bool:
 
 
 def visible_reports(user: dict) -> list[dict]:
-    return [item for item in catalog.REPORTS if can_see_report(user, item["key"])]
+    return [report for report in catalog.REPORTS if can_see_report(user, report["key"])]
 
 
 def salesman_scope(user: dict) -> str:

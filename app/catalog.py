@@ -104,7 +104,7 @@ BACKLOG = (("customer_aging", "Customer Aging"),)
 
 
 def spec(key: str) -> dict | None:
-    return next((item for item in REPORTS if item["key"] == key), None)
+    return next((report for report in REPORTS if report["key"] == key), None)
 
 
 def _payload(key: str, title: str, tabs: dict, raw: list | None = None) -> dict:
@@ -247,9 +247,9 @@ def number_4_payload() -> dict:
 
 def customer_activity_payload() -> dict:
     rows = [
-        {"Customer Account": "C-1001", "Customer Name": "HD SUPPLY", "Salesman": "DDweck", "Last Order Date": "2026-09-02", "Last Order #": "SO-88021"},
-        {"Customer Account": "C-2001", "Customer Name": "AMAZON.COM DEDC, LLC", "Salesman": "HKaufman", "Last Order Date": "2026-09-04", "Last Order #": "SO-90110"},
-        {"Customer Account": "C-3001", "Customer Name": "UNASSIGNED CO", "Salesman": "", "Last Order Date": "2026-08-01", "Last Order #": "SO-10001"},
+        {"CustomerAccount": "C-1001", "CustomerName": "HD SUPPLY", "Salesman": "DDweck", "Last Order Date": "2026-09-02", "Last Order #": "SO-88021"},
+        {"CustomerAccount": "C-2001", "CustomerName": "AMAZON.COM DEDC, LLC", "Salesman": "HKaufman", "Last Order Date": "2026-09-04", "Last Order #": "SO-90110"},
+        {"CustomerAccount": "C-3001", "CustomerName": "UNASSIGNED CO", "Salesman": "", "Last Order Date": "2026-08-01", "Last Order #": "SO-10001"},
     ]
     return _payload(
         "customer_activity",
@@ -314,6 +314,13 @@ def _row_account(row: dict) -> str:
     )
 
 
+def _filter_tabs(payload: dict, keep) -> None:
+    report = payload["data"]
+    for tab in report["tabs"].values():
+        tab["rows"] = [row for row in tab["rows"] if keep(row)]
+    report["raw"] = [row for row in report["raw"] if keep(row)]
+
+
 def mock_report(
     key: str,
     salesman: str = "",
@@ -326,24 +333,14 @@ def mock_report(
         raise KeyError(key)
     payload = deepcopy(builder())
     tabs = payload["data"]["tabs"]
-    raw = payload["data"]["raw"]
     if salesman:
-        def salesman_ok(row: dict) -> bool:
-            return _row_salesman(row) == salesman or not _row_salesman(row)
-
-        for tab in tabs.values():
-            tab["rows"] = [row for row in tab["rows"] if salesman_ok(row)]
-        payload["data"]["raw"] = [row for row in raw if salesman_ok(row)]
-        raw = payload["data"]["raw"]
+        _filter_tabs(
+            payload,
+            lambda row: _row_salesman(row) == salesman or not _row_salesman(row),
+        )
     if customers:
         wanted = set(customers)
-        def customer_ok(row: dict) -> bool:
-            acct = _row_account(row)
-            return not acct or acct in wanted
-
-        for tab in tabs.values():
-            tab["rows"] = [row for row in tab["rows"] if customer_ok(row)]
-        payload["data"]["raw"] = [row for row in raw if customer_ok(row)]
+        _filter_tabs(payload, lambda row: not _row_account(row) or _row_account(row) in wanted)
     if key == "number_4" and n4_mode in {"by_customer", "by_item"}:
         keep_prefix = "by_customer" if n4_mode == "by_customer" else "by_item"
         payload["data"]["tabs"] = {
