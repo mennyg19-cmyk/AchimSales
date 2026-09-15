@@ -116,7 +116,7 @@ def schedules_add(
         flash(request, "Save a named view on a report first.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     if not can_use_view_for_schedule(user, view):
-        flash(request, "You can only schedule your own views or a company view.", "warn")
+        flash(request, "You can only schedule your own named views.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     if freq not in {"daily", "weekly", "monthly"}:
         flash(request, "Frequency must be daily, weekly, or monthly.", "error")
