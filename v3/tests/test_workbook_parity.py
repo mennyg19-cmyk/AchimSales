@@ -143,6 +143,46 @@ def test_delivery_parity_failure_does_not_block_send(tmp_path, monkeypatch):
     assert outcome.row_count == 2
 
 
+def test_delivery_skips_parity_on_huge_grid(tmp_path, monkeypatch):
+    db = _db(tmp_path)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    from web.delivery import service as delivery_service
+
+    huge = {
+        "tabs": [{
+            "key": "summary", "name": "Summary",
+            "columns": [{"field": "a", "header": "A"}],
+            "rows": [{"a": i} for i in range(delivery_service._MAX_PARITY_GRID_ROWS + 1)],
+        }],
+    }
+    called = {"n": 0}
+
+    def boom(*_a, **_k):
+        called["n"] += 1
+        raise AssertionError("parity must not run for huge grids")
+
+    monkeypatch.setattr("web.delivery.service.run_parity_files", boom)
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)),
+        lambda key: (lambda params, vk: huge),
+        email,
+        db=db,
+        precious_db_path=cfg.precious_db_path,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="ordered", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={}, layout=_layout_show_all(),
+        recipients="a@x.com", subject="S", report_name="Ordered",
+        compare_layout=_layout_show_all(),
+        parity_view_name="Ordered",
+    )
+    assert outcome.result.ok
+    assert called["n"] == 0
+    with db.precious() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM view_workbook_parity").fetchone()["n"] == 0
+
+
 def test_delivery_records_match_when_layouts_agree(tmp_path):
     db = _db(tmp_path)
     cfg = _cfg(tmp_path)

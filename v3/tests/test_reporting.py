@@ -384,8 +384,48 @@ def test_export_logs_each_sheet():
         details = [e["detail"] for e in job_trace.snapshot() if e.get("step") == "xlsx"]
         assert any("Summary" in d and "1 rows" in d for d in details)
         assert any("Detail" in d and "2 rows" in d for d in details)
+        assert any(d == "sheet Summary done" for d in details)
+        assert any(d == "saving workbook" for d in details)
     finally:
         job_trace.unbind()
+
+
+def test_export_flattens_high_cardinality_groups():
+    """Grouping by a near-unique key (order #) must not emit 1 banner per row."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import _MAX_EXCEL_GROUP_KEYS, build_workbook
+
+    n = _MAX_EXCEL_GROUP_KEYS + 50
+    rows = [
+        {"SalesOrderNumber": f"SO{i}", "Amt": 1.0, "Salesman": "A"}
+        for i in range(n)
+    ]
+    payload = {"tabs": [{
+        "key": "by_order", "name": "By Order",
+        "columns": [
+            {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": rows,
+    }]}
+    layout = {"views": {"by_order": {"group": ["SalesOrderNumber"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    values = [c.value for c in wb["By Order"]["A"]]
+    assert not any(isinstance(v, str) and v.startswith("SalesOrderNumber:") for v in values)
+    assert values[0] == "SalesOrderNumber"
+    assert values[-1] == "Total"
+    assert len(values) == n + 2  # header + data + total
+
+
+def test_export_fulfillment_fill_reuses_style_objects():
+    from web.reporting.export import _fulfillment_fill
+
+    a = _fulfillment_fill(1.0)
+    b = _fulfillment_fill(1.0)
+    c = _fulfillment_fill(0.0)
+    assert a is b
+    assert a is not c
 
 
 def test_export_produces_valid_xlsx():
