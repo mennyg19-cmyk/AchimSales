@@ -25,7 +25,9 @@
 | `POST /api/dev/reporting/<id>/run` with key (mocked doorway) | live `{rows}` |
 | No `REPORTING_API_KEY` | catalog mock + Dummy JSON banner; `data.source=mock` |
 | Key set (tests mock urllib / `doorway.run_report`) | `data.source=reporting_api`; Number 4 hits two SPs; Sales by State hits three |
-| Last Order with key | `customer_last_orders` lines, not catalog SO-88021 |
+| Last Order picker without key | Dummy JSON banner; C-1001 still SO-88021 |
+| Live salesman POST invoiced `{"salesman":"DDweck"}` | doorway body `Salesman=HKaufman` |
+| Last Order lookup miss, SP Salesman matches scope | 200; other Salesman 302 |
 | Doorway HTTP 4xx | no retry; 302 to `/` is an error |
 | Default `REPORTING_API_BASE_URL` | office doorway host, never reports.achimonline.com |
 | gunicorn timeout | 180s default |

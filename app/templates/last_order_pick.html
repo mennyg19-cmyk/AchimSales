@@ -9,6 +9,9 @@
     <h1 class="page-title">Customer's Last Order</h1>
     <p class="page-subtitle">Pick a customer to see their last order, ready for a store visit.</p>
 </div>
+{% if data_source == "mock" %}
+<div class="alert alert-warn" role="status">Dummy JSON. Add REPORTING_API_KEY to run live office stored procedures. This preview stays clickable either way.</div>
+{% endif %}
 <div class="settings-card" id="cloCard">
     {% if show_salesman_picker %}
     <label class="modal-field">

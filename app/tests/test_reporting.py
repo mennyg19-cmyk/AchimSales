@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from datetime import date
@@ -13,11 +14,13 @@ from fastapi.testclient import TestClient
 
 import assemble
 import doorway
+import lookups
 import params
 import period
 import reports
 from config import DEFAULT_REPORTING_API_BASE, reporting_api_base
 from main import create_app
+import store as home_store
 
 
 @pytest.fixture
@@ -31,14 +34,26 @@ def client(tmp_path, monkeypatch):
 def login(client: TestClient):
     client.post("/login/preview", follow_redirects=False)
     html = client.get("/").text
-    import re
-
     match = re.search(r'data-csrf="([^"]+)"', html)
     client.csrf = match.group(1)
 
 
 def csrf_headers(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.csrf}
+
+
+def become(client: TestClient, email: str):
+    row = home_store.get_user(email)
+    res = client.post(
+        f"/admin/users/{row['id']}/view-as",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    html = client.get("/").text
+    match = re.search(r'data-csrf="([^"]+)"', html)
+    assert match
+    client.csrf = match.group(1)
 
 
 def _result(report_id: str, rows: list, body: dict | None = None) -> doorway.ReportResult:
@@ -79,6 +94,8 @@ def fake_run(report_id, params_in=None, timeout=None):
             },
         ]
     elif report_id == "customer_last_orders":
+        acct = str((params_in or {}).get("CustomerAccount") or "C-1001")
+        salesman = "HKaufman" if acct == "X-LIVE" else "DDweck"
         rows = [
             {
                 "Order Rank": 1,
@@ -90,8 +107,8 @@ def fake_run(report_id, params_in=None, timeout=None):
                 "Sales Price": 5,
                 "Total": 10,
                 "PO #": "PO1",
-                "Customer Account": "C-1001",
-                "Salesman": "DDweck",
+                "Customer Account": acct,
+                "Salesman": salesman,
             }
         ]
     elif report_id in {"customer_item_sales_rolling_12", "item_customer_sales_rolling_12"}:
@@ -241,6 +258,39 @@ def test_live_last_order(live_client):
     html = live_client.get("/report/customer-last-order/C-1001").text
     assert "SO-LIVE" in html
     assert "Widget" in html
+
+
+def test_live_salesman_invoiced_clamps_sp_salesman(live_client):
+    login(live_client)
+    become(live_client, "salesman@achimonline.com")
+    fake_run.calls = []
+    live_client.post(
+        "/api/reports/invoiced/run",
+        json={"salesman": "DDweck"},
+        headers=csrf_headers(live_client),
+    )
+    invoiced = next(call for call in fake_run.calls if call[0] == "invoiced_report")
+    assert invoiced[1].get("Salesman") == "HKaufman"
+
+
+def test_last_order_picker_shows_dummy_banner(client):
+    login(client)
+    pick = client.get("/report/customer-last-order").text
+    assert "Dummy JSON" in pick
+    view = client.get("/report/customer-last-order/C-1001").text
+    assert "SO-88021" in view
+    assert "Dummy JSON" in view
+
+
+def test_live_last_order_acl_uses_row_salesman_when_lookup_misses(live_client, monkeypatch):
+    monkeypatch.setattr(lookups, "customer", lambda account: None)
+    login(live_client)
+    become(live_client, "salesman@achimonline.com")
+    ok = live_client.get("/report/customer-last-order/X-LIVE", follow_redirects=False)
+    assert ok.status_code == 200
+    assert "SO-LIVE" in ok.text
+    denied = live_client.get("/report/customer-last-order/C-1001", follow_redirects=False)
+    assert denied.status_code == 302
 
 
 def test_dev_reporting_live(live_client):

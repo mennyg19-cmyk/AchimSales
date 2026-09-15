@@ -84,19 +84,22 @@ def _live_payload(key: str, params_in: dict) -> dict:
 
 def build_payload(key: str, user: dict, params_in: dict) -> dict:
     salesman = _viewer_salesman(user, params_in)
+    scoped = dict(params_in)
+    if salesman:
+        scoped["salesman"] = salesman
     if not doorway.configured():
         payload = catalog.mock_report(
             key,
             salesman=salesman,
-            customers=params_in.get("customers") or None,
-            n4_mode=params_in.get("n4_mode") or "both",
+            customers=scoped.get("customers") or None,
+            n4_mode=scoped.get("n4_mode") or "both",
             hide_commissions=not is_privileged(user),
         )
         payload["data"]["source"] = "mock"
-        return _stamp_period(payload, params_in)
-    payload = _live_payload(key, params_in)
+        return _stamp_period(payload, scoped)
+    payload = _live_payload(key, scoped)
     payload["data"]["source"] = "reporting_api"
-    return _apply_filters(payload, key, user, params_in)
+    return _apply_filters(payload, key, user, scoped)
 
 
 def last_order_page(account: str, user: dict) -> dict | None:
@@ -112,11 +115,15 @@ def last_order_page(account: str, user: dict) -> dict | None:
     ).rows
     if info is None and not rows:
         return None
-    customer = info or {
-        "account": account,
-        "name": account,
-        "salesman": "",
-    }
+    from_rows = assemble.customer_from_rows(account, rows)
+    if info is None:
+        customer = from_rows
+    else:
+        customer = dict(info)
+        if not customer.get("salesman"):
+            customer["salesman"] = from_rows["salesman"]
+        if not customer.get("name") or customer.get("name") == account:
+            customer["name"] = from_rows["name"] or customer.get("name") or account
     recent: list[dict] = []
     try:
         invoiced = doorway.run_report(

@@ -249,6 +249,21 @@ def sales_by_state_tabs(summary: list[dict], nyc: list[dict], detail: list[dict]
     }
 
 
+def customer_from_rows(account: str, rows: list[dict]) -> dict:
+    salesman = ""
+    name = ""
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not salesman:
+            salesman = str(_cell(row, "Salesman", "SalesGroup") or "")
+        if not name:
+            name = str(_cell(row, "Customer Name", "CustomerName", "Customer") or "")
+        if salesman and name:
+            break
+    return {"account": account, "name": name or account, "salesman": salesman}
+
+
 def last_order_view(account: str, rows: list[dict], customer: dict, recent_invoices: list[dict]) -> dict:
     """Newest Order Rank (or first order number) plus its lines. No ADDON rollup."""
     rows = [row for row in rows if isinstance(row, dict)]
