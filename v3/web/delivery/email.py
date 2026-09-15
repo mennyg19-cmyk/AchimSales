@@ -223,7 +223,7 @@ class EmailService:
                 subject or report_name, recipients, filename, eml_name="",
                 sent=False, channel="", sp_path=folder_path or upload_path,
                 sp_saved=False, sp_url=sp_url, sp_error=sp_err,
-                error=companion_err or "Companion workbook upload failed",
+                error=companion_err,
                 companions=companion_names,
             )
         record_path = folder_path or (upload_path if sp_saved else None)
