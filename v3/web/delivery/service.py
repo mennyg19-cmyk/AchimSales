@@ -25,7 +25,7 @@ from web.delivery.workbook_parity import (
     run_parity_files,
 )
 from web.jobs.trace import raise_if_cancelled, step as job_step
-from web.reporting.export import build_workbook_bundle
+from web.reporting.export import _MAX_SHEET_ROWS_IN_MAIN, build_workbook_bundle
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
@@ -35,7 +35,10 @@ log = logging.getLogger(__name__)
 # Silent dual-build + full cell compare of a second YTD Ordered workbook (500k+
 # grid rows) can OOM / wedge the B1 worker after the real file is already built.
 # Deliveries still go out; digests just miss that one dual score.
-_MAX_PARITY_GRID_ROWS = 100_000
+# Keep in lockstep with the companion-split threshold: after a split, oversized
+# tab rows are cleared, so parity must skip whenever any sheet was large enough
+# to leave the main book.
+_MAX_PARITY_GRID_ROWS = _MAX_SHEET_ROWS_IN_MAIN
 
 
 @dataclass
