@@ -188,14 +188,8 @@ def schedules_run_now(request: Request, schedule_id: int, csrf: str = Form("")):
         return denied
     user = session_user(request)
     row = store.get_schedule(schedule_id)
-    if row is None:
-        flash(request, "Unknown schedule.", "error")
-        return RedirectResponse("/schedules", status_code=303)
-    shared = row["owner_email"] != user["email"]
-    if shared and user.get("role") == "manager" and not is_privileged(user):
-        pass  # Q9: view-only managers Send now on shared only
-    elif shared and not is_privileged(user) and user.get("role") != "manager":
-        flash(request, "You can only run your own schedules.", "warn")
+    if row is None or not can_read_schedule(user, row):
+        flash(request, "You can only run a schedule you can see.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     _deliver(row, user)
     flash(request, "Mock send finished. Check Settings → Developer → Notification diagnostic.")

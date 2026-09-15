@@ -668,20 +668,79 @@ def test_cannot_delete_own_login(client):
     )
     assert res.status_code == 303
     assert home_store.get_user("preview@achimonline.com") is not None
+
+
+def test_manager_cannot_run_others_personal_schedule(client):
     login(client)
     created = client.post(
         "/api/views",
         json={
-            "name": "Admin only view",
+            "name": "Admin personal IDOR bait",
             "report_key": "invoiced",
             "kind": "personal",
             "params": {"period": "mtd"},
-            "include_period": True,
         },
         headers=csrf_headers(client),
     ).json()
-    view_id = created["id"]
+    client.post(
+        "/schedules/add",
+        data={
+            "view_id": created["id"],
+            "freq": "daily",
+            "run_time": "07:00",
+            "recipients": "preview@achimonline.com",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
     from db import db
+    with db() as conn:
+        sid = conn.execute(
+            "SELECT id FROM schedules WHERE view_id = ? ORDER BY id DESC LIMIT 1",
+            (created["id"],),
+        ).fetchone()["id"]
+        company = conn.execute(
+            "SELECT s.id FROM schedules s JOIN views v ON v.id = s.view_id "
+            "WHERE v.kind = 'company' LIMIT 1"
+        ).fetchone()["id"]
+        before = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
+            (sid,),
+        ).fetchone()["n"]
+    become(client, "manager@achimonline.com")
+    blocked = client.post(
+        f"/schedules/{sid}/run-now",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 303
+    with db() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
+            (sid,),
+        ).fetchone()["n"]
+    assert after == before
+    company_run = client.post(
+        f"/schedules/{company}/run-now",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert company_run.status_code == 303
+    with db() as conn:
+        company_runs = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
+            (company,),
+        ).fetchone()["n"]
+    assert company_runs >= 1
+
+
+def test_salesman_cannot_schedule_company_view(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        view_id = conn.execute(
+            "SELECT id FROM views WHERE name = 'Daily Ordered' AND kind = 'company'"
+        ).fetchone()["id"]
     become(client, "salesman@achimonline.com")
     with db() as conn:
         before = conn.execute(
@@ -704,3 +763,5 @@ def test_cannot_delete_own_login(client):
             "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
         ).fetchone()["n"]
     assert after == before
+    html = client.get("/schedules").text
+    assert "Daily Ordered" not in html

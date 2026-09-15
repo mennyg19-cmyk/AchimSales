@@ -33,6 +33,8 @@
 | PWA icons 192/512 | PNG magic |
 | Dashboard flag | badge on Users, no Dashboard bottom nav |
 | Delete own login | refused |
+| Manager Run now | company schedules only, not another user's personal |
+| Salesman schedule add | company view_id creates no row |
 
 Never set `REPORTING_API_KEY` in CI.
 
