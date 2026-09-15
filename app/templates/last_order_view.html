@@ -50,7 +50,7 @@
 {% if view.recent_invoices %}
 <div class="settings-card">
     <h3>Recent invoiced</h3>
-    <p class="flag-desc">Dummy helper from the Invoiced mock for this account.</p>
+    <p class="flag-desc">Dummy helper{% if view.source == "reporting_api" %} from Invoiced (last 7 days){% else %} from the Invoiced mock{% endif %} for this account.</p>
     <table class="simple-table">
         <thead><tr><th>Invoice</th><th>Date</th><th>Total</th></tr></thead>
         <tbody>

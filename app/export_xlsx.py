@@ -1,4 +1,4 @@
-"""Build an .xlsx of data.tabs for download. Dummy-site export; no office call."""
+"""Build an .xlsx of data.tabs for download."""
 
 from __future__ import annotations
 

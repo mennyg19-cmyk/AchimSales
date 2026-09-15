@@ -1,3 +1,11 @@
+## 2026-09-15 Live office Reporting API behind the dummy site
+**What I had to decide:** Call the office doorway for every report now vs keep catalog JSON until Menny pastes the key; fallback vs fail when the SP errors.
+**Options I considered:** Always mock; live when KEY is set else mock; silent mock fallback after a live 502.
+**What I chose:** Default BASE is the West US 3 test doorway. No KEY → catalog mock + banner (Cloudflare stays clickable). KEY set → live `POST /api/reports/{id}/run`. Thin tabs from `{rows}` (or pass through `data.tabs`). Number 4 = two SPs; Sales by State = three. Last Order uses `customer_last_orders`. Doorway errors are 502 (schedules mark failure), not silent mock. Tests mock `doorway.run_report` / urllib. Entra/Graph still stubs. No production cutover.
+**Why:** Menny asked for the API hooked up on a full-featured site. The key is still not in this VM.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Loop C leftover file splits deferred
 **What I had to decide:** Split `test_home.py` (752 lines) and `routes_admin.py` (467, mixed settings/People/dev) now vs after dummy click-through.
 **Options I considered:** Split both this commit; split tests only; leave until a refactor command.

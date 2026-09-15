@@ -1,4 +1,4 @@
-"""Home-site rebuild: v3 look, mock JSON reports, Azure-safe factory."""
+"""Home-site rebuild: v3 look, FastAPI, office doorway or catalog mock."""
 
 from __future__ import annotations
 

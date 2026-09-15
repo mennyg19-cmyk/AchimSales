@@ -167,7 +167,7 @@ async function runReport(bodyOverride) {
   const preview = document.getElementById("apiPreview");
   if (preview && !bodyOverride) preview.value = JSON.stringify(params, null, 2);
   setStatus("Running…", true);
-  logJob("Start mock run");
+  logJob("Start run");
   if (runAbort) runAbort.abort();
   runAbort = new AbortController();
   try {
@@ -177,8 +177,8 @@ async function runReport(bodyOverride) {
       body: JSON.stringify(params),
       signal: runAbort.signal,
     });
-    if (!res.ok) throw new Error("Could not load mock JSON (HTTP " + res.status + ")");
-    const payload = await res.json();
+    const payload = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(payload.error || ("Could not run report (HTTP " + res.status + ")"));
     logJob("Bound " + Object.keys((payload.data || {}).tabs || {}).length + " tabs");
     renderTabs(payload);
     setStatus("Loaded.", false);

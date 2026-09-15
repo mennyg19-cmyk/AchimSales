@@ -151,7 +151,7 @@
             <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
             <a class="btn btn-outline btn-sm" href="/master-schedules">Master schedules</a>
         </div>
-        <p class="flag-desc">OData vs SQL source picker is retired. This app only talks to the office Reporting API (mocked here). POST /api/dev/reporting/&lt;id&gt;/run returns 501 until REPORTING_API_KEY is set.</p>
+        <p class="flag-desc">OData vs SQL source picker is retired. This app talks to the office Reporting API when REPORTING_API_KEY is set; otherwise catalog mock JSON. POST /api/dev/reporting/&lt;id&gt;/run returns 501 without the key, or live rows when it is set.</p>
     </section>
 </details>
 {% endif %}

@@ -362,23 +362,23 @@ def _filter_tabs(payload: dict, keep) -> None:
     report["raw"] = [row for row in report["raw"] if keep(row)]
 
 
-def mock_report(
-    key: str,
+def apply_viewer_filters(
+    payload: dict,
+    *,
     salesman: str = "",
     customers: list[str] | None = None,
     n4_mode: str = "both",
     hide_commissions: bool = False,
+    report_key: str = "",
 ) -> dict:
-    builder = _BUILDERS.get(key)
-    if builder is None:
-        raise KeyError(key)
-    payload = deepcopy(builder())
-    tabs = payload["data"]["tabs"]
+    """Post-filter tabs the grid already has. Same rules for mock and live rows."""
+    key = report_key or payload.get("data", {}).get("report_key") or ""
     if salesman:
         _filter_tabs(payload, lambda row: _row_salesman(row) == salesman)
     if customers:
         wanted = set(customers)
         _filter_tabs(payload, lambda row: _row_account(row) in wanted)
+    tabs = payload["data"]["tabs"]
     if key == "number_4" and n4_mode in {"by_customer", "by_item"}:
         keep_prefix = "by_customer" if n4_mode == "by_customer" else "by_item"
         payload["data"]["tabs"] = {
@@ -395,6 +395,27 @@ def mock_report(
     if audit and not audit["rows"]:
         payload["data"]["tabs"].pop("audit_reversals", None)
     return payload
+
+
+def mock_report(
+    key: str,
+    salesman: str = "",
+    customers: list[str] | None = None,
+    n4_mode: str = "both",
+    hide_commissions: bool = False,
+) -> dict:
+    builder = _BUILDERS.get(key)
+    if builder is None:
+        raise KeyError(key)
+    payload = deepcopy(builder())
+    return apply_viewer_filters(
+        payload,
+        salesman=salesman,
+        customers=customers,
+        n4_mode=n4_mode,
+        hide_commissions=hide_commissions,
+        report_key=key,
+    )
 
 
 def last_order_for(account: str) -> dict | None:

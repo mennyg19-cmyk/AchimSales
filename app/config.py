@@ -31,8 +31,13 @@ def session_secret() -> str:
     return env_secret or "preview-only-not-for-production"
 
 
+DEFAULT_REPORTING_API_BASE = (
+    "https://achim-reporting-api-test-hpadbffpcwe0dnga.westus3-01.azurewebsites.net"
+)
+
+
 def reporting_api_base() -> str:
-    raw = (os.environ.get("REPORTING_API_BASE_URL") or "").strip().rstrip("/")
+    raw = (os.environ.get("REPORTING_API_BASE_URL") or DEFAULT_REPORTING_API_BASE).strip().rstrip("/")
     if not raw:
         return ""
     host = raw.split("://", 1)[-1].split("/", 1)[0].lower()

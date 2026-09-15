@@ -6,7 +6,7 @@ This folder is **not** the leftover Flask preview in `/rebuild` and **must not**
 
 ## Dummy preview (what this branch serves)
 
-Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and mock outbox. Data is catalog JSON — no office API, no Graph, no Entra.
+Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and mock outbox. Reports call the office Reporting API when `REPORTING_API_KEY` is set; without it they stay on catalog JSON (banner on home and report pages). No Graph, no Entra.
 
 ```
 cd app
@@ -16,7 +16,7 @@ PYTHONPATH=. python -m uvicorn main:app --host 0.0.0.0 --port 8080
 
 Open `/login` → **Achim User Login** (Preview Admin). External Rep Login with `external@example.com` signs in the seeded external row (preview only).
 
-`pytest` from this folder uses a temp sqlite file. It never calls the Reporting API.
+`pytest` from this folder uses a temp sqlite file. It never calls the live Reporting API (doorway is mocked).
 
 ## Azure Web Apps — will it run?
 
@@ -36,7 +36,7 @@ bash create-azure-webapp.sh achim-sales-home-preview
 .\deploy.ps1 -Name achim-sales-home-preview
 ```
 
-App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Do not bind `reports.achimonline.com` yet.
+App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Do not bind `reports.achimonline.com` yet.
 
 `deploy.ps1` refuses the live app name.
 

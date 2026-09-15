@@ -11,7 +11,7 @@ cd "${ROOT}"
 
 PORT="${PORT:-8000}"
 WORKERS="${WEB_CONCURRENCY:-2}"
-TIMEOUT="${GUNICORN_TIMEOUT:-120}"
+TIMEOUT="${GUNICORN_TIMEOUT:-180}"
 
 pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
 

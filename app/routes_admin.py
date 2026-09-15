@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import config
+import doorway
 import store
 from db import db
 from deps import (
@@ -516,6 +517,7 @@ def diagnostics(request: Request):
         active_tab="settings",
         salesman_tabs=list((salesman["data"]["tabs"] or {}).keys()),
         number4_tabs=list((number4["data"]["tabs"] or {}).keys()),
+        doorway_on=doorway.configured(),
         blocked="P4.I8 salesman vs SalesGroup is BLOCKED. Testers stay admin until Menny maps live rows.",
     )
 
@@ -540,7 +542,22 @@ async def reporting_api_run(request: Request, report_id: str):
             },
             status_code=501,
         )
-    return JSONResponse(
-        {"error": "Live Reporting API calls are not enabled on this dummy site."},
-        status_code=501,
-    )
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    sp_params = {key: value for key, value in request.query_params.items() if value not in (None, "")}
+    sp_params.update({key: value for key, value in body.items() if value not in (None, "")})
+    try:
+        result = doorway.run_report(report_id, sp_params)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err), "report_id": report_id}, status_code=502)
+    return {
+        "report_id": result.report_id,
+        "row_count": len(result.rows),
+        "rows": result.rows,
+        "body": result.body,
+    }

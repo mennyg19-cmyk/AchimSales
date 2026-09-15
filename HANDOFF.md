@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-15 (dummy home site)
+Last updated: 2026-09-15 (office API hookup)
 
-**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. No production cutover. No office API.
+**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. No production cutover.
 
 ## Working tree
 
@@ -13,7 +13,9 @@ Last updated: 2026-09-15 (dummy home site)
 
 ## What's in the dummy site
 
-Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards on mock `data.tabs`, Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (including Company Default and save-for-other-user), Keep/Recent, schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + Copy + Run now → sqlite outbox, Hebcal honest banner, master schedule history, diagnostics, explorer (confirm writes; views.group array), xlsx export + recent exports, CSRF, PWA icons. Azure `startup.sh` is gunicorn + UvicornWorker `main:app`.
+Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards (live doorway or mock `data.tabs`), Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (including Company Default and save-for-other-user), Keep/Recent, schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + Copy + Run now → sqlite outbox, Hebcal honest banner, master schedule history, diagnostics, explorer (confirm writes; views.group array), xlsx export + recent exports, CSRF, PWA icons. Azure `startup.sh` is gunicorn + UvicornWorker `main:app` (timeout 180s).
+
+Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 
 ## Locked (do not reopen)
 
@@ -25,7 +27,7 @@ Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all 
 
 ## What's next
 
-1. Menny clicks the dummy Cloudflare URL
-2. If it looks right: new Azure Web App, then DNS
-3. Office API key → replace catalog mocks
+1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
+2. Menny clicks the dummy Cloudflare URL
+3. If it looks right: new Azure Web App, then DNS
 4. Entra + Graph when secrets exist

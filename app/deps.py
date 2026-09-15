@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 import catalog
 import config
+import doorway
 import store
 
 templates = Jinja2Templates(directory=str(config.ROOT / "templates"))
@@ -57,13 +58,14 @@ def ctx(request: Request, **extra):
         "theme_class": THEME_BODY_CLASS[current],
         "theme_names": ",".join(THEME_BODY_CLASS),
         "theme_color": config.THEME_COLOR,
-        "asset_v": "home3",
+        "asset_v": "home4",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
         "is_privileged": is_privileged(user),
         "is_developer": is_privileged(user) and user.get("role") == "developer",
         "impersonating": request.session.get("impersonating"),
+        "data_source": "reporting_api" if doorway.configured() else "mock",
         **extra,
     }
 

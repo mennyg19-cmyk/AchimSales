@@ -22,6 +22,13 @@
 | Disabled External row | magic-link 403 |
 | Schedule Copy | extra row owned by signed-in user |
 | `POST /api/dev/reporting/<id>/run` without key | 501 mock |
+| `POST /api/dev/reporting/<id>/run` with key (mocked doorway) | live `{rows}` |
+| No `REPORTING_API_KEY` | catalog mock + Dummy JSON banner; `data.source=mock` |
+| Key set (tests mock urllib / `doorway.run_report`) | `data.source=reporting_api`; Number 4 hits two SPs; Sales by State hits three |
+| Last Order with key | `customer_last_orders` lines, not catalog SO-88021 |
+| Doorway HTTP 4xx | no retry; 302 to `/` is an error |
+| Default `REPORTING_API_BASE_URL` | office doorway host, never reports.achimonline.com |
+| gunicorn timeout | 180s default |
 | Extra SalesGroup on a salesman | Last Order includes those customers |
 | Per-report Allow | card stays when global visibility is off |
 | Per-report Deny | card gone even when global is on |

@@ -20,6 +20,7 @@ def test_startup_script_is_azure_shaped():
     assert "${PORT" in text
     assert "main:app" in text
     assert "achim-sales-reports" in text  # warning to never point live at this
+    assert "GUNICORN_TIMEOUT:-180" in text
 
 
 def test_gunicorn_worker_serves_healthz():

@@ -19,6 +19,9 @@
         {% if loaded_view %}Loaded view: {{ loaded_view.name }}{% endif %}
     </span>
 </div>
+{% if data_source == "mock" %}
+<div class="alert alert-warn" role="status">Dummy JSON until REPORTING_API_KEY is set. Run still fills the grid.</div>
+{% endif %}
 
 <div class="report-controls" id="reportControls"
      data-report-key="{{ report_key }}"
@@ -112,7 +115,7 @@
 <textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="10" spellcheck="false"></textarea>
 <div id="apiRunWrap" class="api-run-wrap" hidden>
     <button type="button" id="apiRunBtn" class="btn btn-primary btn-sm">Run with this body</button>
-    <span class="muted">Edit the JSON, then run. Dummy still uses catalog mocks, not the office API.</span>
+    <span class="muted">{% if data_source == "reporting_api" %}Edit the JSON, then run against the office doorway.{% else %}Edit the JSON, then run. Dummy catalog until REPORTING_API_KEY is set.{% endif %}</span>
 </div>
 {% endif %}
     </div>

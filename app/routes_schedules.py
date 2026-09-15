@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import store
+from doorway import DoorwayError
 from deps import (
     can_read_schedule,
     can_use_view_for_schedule,
@@ -27,7 +28,11 @@ def _deliver(schedule: dict, user: dict) -> str:
     if spec is None:
         store.mark_schedule_run(schedule["id"], "failure", "Unknown report on the saved view.")
         return "failure"
-    payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
+    try:
+        payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
+    except DoorwayError as err:
+        store.mark_schedule_run(schedule["id"], "failure", str(err))
+        return "failure"
     store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
     extra = []
@@ -41,12 +46,18 @@ def _deliver(schedule: dict, user: dict) -> str:
         extra.append(f"SharePoint {schedule['sharepoint_folder']}")
     if schedule.get("onedrive_folder"):
         extra.append(f"OneDrive {schedule['onedrive_folder']}")
-    detail = "Scheduled dummy workbook. Graph is not wired on this preview."
+    source = (payload.get("data") or {}).get("source") or "mock"
+    detail = (
+        "Scheduled workbook from the office Reporting API. Graph is not wired on this preview."
+        if source == "reporting_api"
+        else "Scheduled dummy workbook. Graph is not wired on this preview."
+    )
     if extra:
         detail += " " + "; ".join(extra)
     store.add_outbox(
         recipients,
-        schedule.get("subject") or f"[MOCK] {schedule['view_name']}",
+        schedule.get("subject")
+        or (schedule["view_name"] if source == "reporting_api" else f"[MOCK] {schedule['view_name']}"),
         detail,
     )
     store.mark_schedule_run(schedule["id"], "success", f"Mock mail queued to {recipients}")

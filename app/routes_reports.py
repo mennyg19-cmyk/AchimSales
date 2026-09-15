@@ -6,6 +6,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 import catalog
+import doorway
+import lookups
+import reports
 import store
 from deps import (
     can_see_report,
@@ -16,7 +19,6 @@ from deps import (
     page,
     require_csrf,
     salesman_keys,
-    salesman_scope,
     session_user,
     visible_reports,
 )
@@ -49,26 +51,22 @@ def _params_from_request(body: dict, spec: dict) -> dict:
 
 
 def _build_payload(key: str, user: dict, params: dict) -> dict:
-    scope = salesman_scope(user)
-    salesman = params.get("salesman") or scope
-    if scope and salesman and salesman != scope:
-        salesman = scope
-    payload = catalog.mock_report(
-        key,
-        salesman=salesman,
-        customers=params.get("customers") or None,
-        n4_mode=params.get("n4_mode") or "both",
-        hide_commissions=not is_privileged(user),
-    )
-    report = payload["data"]
-    if params.get("period"):
-        report["period"] = params["period"]
-    if params.get("from_date"):
-        report["from_date"] = params["from_date"]
-    if params.get("to_date"):
-        report["to_date"] = params["to_date"]
-    report["source"] = "mock"
-    return payload
+    return reports.build_payload(key, user, params)
+
+
+def _lookups(user: dict) -> tuple[list[dict], list[dict]]:
+    salesmen = lookups.salesmen()
+    scope = salesman_keys(user)
+    if scope is not None:
+        salesmen = [row for row in salesmen if row.get("key") in scope]
+    customers = lookups.customers()
+    excluded = set(store.exclusions_for(user["email"]))
+    customers = [
+        row
+        for row in customers
+        if row["account"] not in excluded and (scope is None or row.get("salesman") in scope)
+    ]
+    return salesmen, customers
 
 
 @router.get("/")
@@ -120,6 +118,7 @@ def report_page(request: Request, report_key: str):
         return RedirectResponse("/", status_code=302)
     view_id = request.query_params.get("view")
     loaded = store.get_view(int(view_id)) if view_id and view_id.isdigit() else None
+    salesmen, customers = _lookups(user)
     return page(
         request,
         "report_view.html",
@@ -131,8 +130,8 @@ def report_page(request: Request, report_key: str):
         status_options=catalog.STATUS_OPTIONS,
         n4_mode_options=catalog.N4_MODE_OPTIONS,
         year_options=catalog.YEAR_OPTIONS,
-        salesmen=catalog.SALESMEN,
-        customers=catalog.CUSTOMERS,
+        salesmen=salesmen,
+        customers=customers,
         loaded_view=loaded,
         privileged=is_privileged(user),
         can_company=is_privileged(user),
@@ -148,7 +147,11 @@ def report_mock(request: Request, report_key: str):
     user = session_user(request)
     if catalog.spec(report_key) is None or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
-    payload = _build_payload(report_key, user, {})
+    payload = catalog.mock_report(
+        report_key,
+        hide_commissions=not is_privileged(user),
+    )
+    payload["data"]["source"] = "mock"
     store.save_job(report_key, catalog.spec(report_key)["title"], payload, owner_email=user["email"])
     return payload
 
@@ -167,7 +170,10 @@ async def report_run(request: Request, report_key: str):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
     body = await request.json()
     params = _params_from_request(body or {}, spec)
-    payload = _build_payload(report_key, user, params)
+    try:
+        payload = _build_payload(report_key, user, params)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err)}, status_code=502)
     job_id = store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
     payload["data"]["job_id"] = job_id
     return payload
@@ -186,7 +192,10 @@ async def report_xlsx(request: Request, report_key: str):
     raw_customers = request.query_params.get("customers") or ""
     if raw_customers:
         params["customers"] = [part for part in raw_customers.split(",") if part]
-    payload = _build_payload(report_key, user, params)
+    try:
+        payload = _build_payload(report_key, user, params)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err)}, status_code=502)
     store.save_job(report_key, spec["title"] + " export", payload, owner_email=user["email"])
     return Response(
         workbook_bytes(payload),
@@ -209,15 +218,23 @@ async def report_email(request: Request, report_key: str):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
     body = await request.json()
     params = _params_from_request(body or {}, spec)
-    payload = _build_payload(report_key, user, params)
-    store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
+    try:
+        payload = _build_payload(report_key, user, params)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err)}, status_code=502)
+    source = (payload.get("data") or {}).get("source") or "mock"
+    live = source == "reporting_api"
     recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
-    subject = (body or {}).get("subject") or f"[MOCK] {spec['title']}"
-    store.add_outbox(recipients, subject, "Dummy Excel attached. Graph mail is not wired yet.")
+    subject = (body or {}).get("subject") or (spec["title"] if live else f"[MOCK] {spec['title']}")
+    store.add_outbox(
+        recipients,
+        subject,
+        "Excel attached. Graph mail is not wired yet." if live else "Dummy Excel attached. Graph mail is not wired yet.",
+    )
     folder = ((body or {}).get("sharepoint_folder") or "").strip()
     if folder:
         store.add_outbox(recipients, subject + " [SharePoint]", f"Would upload to {folder}. Graph is not wired.")
-    return {"ok": True, "recipients": recipients, "mock": True}
+    return {"ok": True, "recipients": recipients, "mock": not live}
 
 
 @router.get("/report/customer-last-order")
@@ -229,20 +246,14 @@ def last_order_pick(request: Request):
     if not can_see_report(user, "customer_last_order"):
         flash(request, "Customer's Last Order is hidden.", "warn")
         return RedirectResponse("/", status_code=302)
-    scope = salesman_keys(user)
-    excluded = set(store.exclusions_for(user["email"]))
-    customers = [
-        row
-        for row in catalog.CUSTOMERS
-        if (scope is None or row["salesman"] in scope) and row["account"] not in excluded
-    ]
+    salesmen, customers = _lookups(user)
     return page(
         request,
         "last_order_pick.html",
         active_tab="reports",
         customers=customers,
-        salesmen=catalog.SALESMEN,
-        show_salesman_picker=scope is None,
+        salesmen=salesmen,
+        show_salesman_picker=salesman_keys(user) is None,
     )
 
 
@@ -255,15 +266,19 @@ def last_order_view(request: Request, account: str):
     if not can_see_report(user, "customer_last_order"):
         flash(request, "Customer's Last Order is hidden.", "warn")
         return RedirectResponse("/", status_code=302)
-    found = catalog.last_order_for(account)
-    if found is None:
-        flash(request, "No mock customer with that account.", "warn")
-        return RedirectResponse("/report/customer-last-order", status_code=302)
     if account in store.exclusions_for(user["email"]):
         flash(request, "That customer is on your exclusion list.", "warn")
         return RedirectResponse("/report/customer-last-order", status_code=302)
+    try:
+        found = reports.last_order_page(account, user)
+    except doorway.DoorwayError as err:
+        flash(request, str(err), "error")
+        return RedirectResponse("/report/customer-last-order", status_code=302)
+    if found is None:
+        flash(request, "No customer with that account.", "warn")
+        return RedirectResponse("/report/customer-last-order", status_code=302)
     scope = salesman_keys(user)
-    if scope is not None and found["customer"]["salesman"] not in scope:
+    if scope is not None and found["customer"].get("salesman") not in scope:
         flash(request, "That customer is outside your SalesGroup.", "warn")
         return RedirectResponse("/report/customer-last-order", status_code=302)
     return page(request, "last_order_view.html", active_tab="reports", view=found)
@@ -277,13 +292,16 @@ def last_order_xlsx(request: Request, account: str):
     user = session_user(request)
     if not can_see_report(user, "customer_last_order"):
         return JSONResponse({"error": "Hidden"}, status_code=404)
-    found = catalog.last_order_for(account)
-    if found is None:
-        return JSONResponse({"error": "Unknown customer"}, status_code=404)
     if account in store.exclusions_for(user["email"]):
         return JSONResponse({"error": "Excluded"}, status_code=404)
+    try:
+        found = reports.last_order_page(account, user)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err)}, status_code=502)
+    if found is None:
+        return JSONResponse({"error": "Unknown customer"}, status_code=404)
     scope = salesman_keys(user)
-    if scope is not None and found["customer"]["salesman"] not in scope:
+    if scope is not None and found["customer"].get("salesman") not in scope:
         return JSONResponse({"error": "Outside your SalesGroup"}, status_code=404)
     payload = {
         "data": {

@@ -128,6 +128,7 @@ def test_home_lists_all_cards(client):
     assert "Coming soon" in html
     assert "Daily Ordered" in html
     assert "Daily Invoiced" in html
+    assert "Dummy JSON" in html
 
 
 def test_last_order_store_visit(client):
