@@ -520,6 +520,13 @@ def cancel_job(job_id: str):
             "step": "job",
             "detail": "cancelled",
         })
+        from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+        if job.type == SCHEDULE_RUN_JOB_TYPE:
+            from web.data.repositories.schedules import ScheduleRunRepository
+            ScheduleRunRepository(current_app.config["DB"]).finish_open_for_job(
+                job_id, status="cancelled",
+                debug_log="Cancelled from the Schedules page.",
+            )
     return jsonify({"cancelled": cancelled,
                     "status": "cancelled" if cancelled else job.status})
 

@@ -89,6 +89,12 @@ def make_tick(db, job_repo: JobRepository, runner=None):
                 log.info("schedule tick enqueued %d due schedule(s)", n)
         except Exception:  # noqa: BLE001 - a tick must never crash the scheduler
             log.exception("schedule tick failed")
+        try:
+            reaped = reap_stale_schedule_runs(db, job_repo)
+            if reaped:
+                log.warning("reaped %d schedule run(s) stuck in running", reaped)
+        except Exception:  # noqa: BLE001 - reaper must not kill the scheduler
+            log.exception("stale schedule-run reaper failed")
         if runner is None:
             return
         try:
@@ -97,6 +103,45 @@ def make_tick(db, job_repo: JobRepository, runner=None):
             log.exception("pending fail-notice flush failed")
 
     return tick
+
+
+# Two hours: long YTD reports can run a while; longer than this with no finish
+# almost always means a dead worker thread or a hung Reporting API call.
+_STALE_RUN_SECONDS = 2 * 60 * 60
+
+
+def reap_stale_schedule_runs(db, job_repo: JobRepository | None = None,
+                             older_than_seconds: float = _STALE_RUN_SECONDS) -> int:
+    """Cancel schedule_runs (and linked jobs) stuck in ``running`` too long.
+
+    Pass ``older_than_seconds=0`` (or negative) to clear every running row — used
+    by the admin Clear stuck button and after a deploy leaves orphans.
+    """
+    age = None if older_than_seconds <= 0 else older_than_seconds
+    runs = ScheduleRunRepository(db)
+    stale = runs.list_running(older_than_seconds=age)
+    if not stale:
+        return 0
+    if age is None:
+        reason = (
+            "Stopped — cleared while stuck in Running "
+            "(app restart or Clear stuck)."
+        )
+    else:
+        minutes = int(age // 60)
+        reason = (
+            f"Stopped — stuck in Running for over {minutes} minutes "
+            "(likely a hung report call or a dead worker)."
+        )
+    for row in stale:
+        job_id = str((row.output_meta or {}).get("job_id") or "").strip()
+        if job_id and job_repo is not None:
+            job_repo.cancel(job_id)
+        runs.finish(
+            row.id, status="cancelled", debug_log=reason,
+            output_meta={"abandoned": True, "stale_reaper": True},
+        )
+    return len(stale)
 
 
 def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,

@@ -17,6 +17,9 @@ type RunLogRow = {
   message?: string;
   log_url?: string;
   job_log?: JobLogEntry[];
+  job_id?: string;
+  can_cancel?: boolean;
+  job_step?: string;
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -79,6 +82,23 @@ function canSeeJobLog(): boolean {
   return document.getElementById("runLogPanel")?.getAttribute("data-job-log") === "1";
 }
 
+function cancelRunUrl(runId: number): string {
+  const tpl = document.getElementById("runLogPanel")?.getAttribute("data-cancel-run-url") || "";
+  return tpl.replace("__ID__", String(runId));
+}
+
+async function cancelScheduleRun(runId: number): Promise<boolean> {
+  const data = await actJson(cancelRunUrl(runId), "POST", {});
+  return Boolean(data && (data.cancelled === true || data.status === "cancelled"));
+}
+
+async function clearStuckRuns(): Promise<number> {
+  const url = document.getElementById("runLogPanel")?.getAttribute("data-clear-stuck-url") || "";
+  if (!url) return 0;
+  const data = await actJson(url, "POST", {});
+  return typeof data?.cleared === "number" ? data.cleared : 0;
+}
+
 function renderRunLog(runs: RunLogRow[]): void {
   const panel = document.getElementById("runLogPanel");
   const body = document.getElementById("runLogBody");
@@ -87,6 +107,14 @@ function renderRunLog(runs: RunLogRow[]): void {
   if (count) {
     count.textContent = String(runs.length);
     count.hidden = runs.length === 0;
+  }
+  const stuck = runs.filter((r) => r.status === "running");
+  const clearBtn = document.getElementById("clearStuckRunsBtn") as HTMLButtonElement | null;
+  if (clearBtn) {
+    clearBtn.hidden = stuck.length === 0;
+    clearBtn.textContent = stuck.length
+      ? `Clear ${stuck.length} stuck run${stuck.length === 1 ? "" : "s"}`
+      : "Clear stuck runs";
   }
   if (!runs.length) {
     body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>`;
@@ -109,10 +137,16 @@ function renderRunLog(runs: RunLogRow[]): void {
       }
       logCell = `<td>${link}${steps}</td>`;
     }
+    const cancel = r.can_cancel
+      ? `<button type="button" class="btn btn-sm btn-outline js-cancel-run" data-run-id="${r.id}">Cancel</button>`
+      : "";
+    const stepNote = r.status === "running" && r.job_step
+      ? ` <span class="active-job-step">${esc(r.job_step)}</span>`
+      : "";
     return `<tr>
       <td class="run-log-when">${esc(when)}</td>
       <td><span class="mini-flag">${esc(r.kind)}</span> ${esc(r.title)}</td>
-      <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
+      <td><span class="${badgeClass(r.status)}">${esc(status)}</span>${stepNote} ${cancel}</td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
       ${logCell}
@@ -358,6 +392,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const watch = target.closest("button.js-watch-job") as HTMLButtonElement | null;
     if (watch?.dataset.jobId) void watchActiveJob(watch.dataset.jobId);
   });
+  document.getElementById("runLogBody")?.addEventListener("click", async (ev) => {
+    const target = ev.target as HTMLElement;
+    const btn = target.closest("button.js-cancel-run") as HTMLButtonElement | null;
+    if (!btn?.dataset.runId) return;
+    btn.disabled = true;
+    await cancelScheduleRun(Number(btn.dataset.runId));
+    await refreshRunLog();
+  });
+  document.getElementById("clearStuckRunsBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("clearStuckRunsBtn") as HTMLButtonElement;
+    if (!window.confirm("Cancel every schedule run that is still marked Running?")) return;
+    btn.disabled = true;
+    const n = await clearStuckRuns();
+    btn.disabled = false;
+    await refreshRunLog();
+    if (n) window.alert(`Cleared ${n} stuck run${n === 1 ? "" : "s"}.`);
+  });
   const runLog = document.getElementById("runJobLog");
   const jobUrl = runLog?.getAttribute("data-job-url") || "";
   if (runLog && jobUrl) void pollJobLog(jobUrl, runLog);
@@ -366,4 +417,5 @@ document.addEventListener("DOMContentLoaded", () => {
     const first = document.querySelector<HTMLElement>(".js-watch-job")?.dataset.jobId;
     if (first) void watchActiveJob(first);
   })();
+  window.setInterval(() => { void refreshRunLog(); }, 15000);
 });

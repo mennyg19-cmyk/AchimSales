@@ -565,6 +565,7 @@ def schedules_page():
         "active_tab": "schedules", "schedules": items,
         "schedule_groups": groups,
         "is_admin": is_privileged, "is_privileged": is_privileged,
+        "is_developer": authz.is_developer(p),
         "can_see_company": False,
         "has_sharepoint": is_privileged and authz.has_sharepoint_access(p),
         "has_schedulable_views": _has_schedulable_views(p, is_privileged),
@@ -651,6 +652,22 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
         else:
             continue
         meta = r.output_meta or {}
+        job_id = str(meta.get("job_id") or "").strip()
+        message = r.debug_log or meta.get("summary") or ""
+        job_step = ""
+        if r.status == "running" and job_id:
+            job = _job_repo().get(job_id)
+            if job is not None:
+                from web.data.repositories.jobs import _step_label
+                job_step = _step_label(job.log) if job.log else ""
+                if job.status == "cancelled":
+                    message = message or "Job cancelled — clearing this history row…"
+                elif job.status == "failure":
+                    message = job.error or message or "Job failed"
+                elif job_step and not message:
+                    message = f"Still working: {job_step}"
+                elif job.status in ("queued", "running") and not message:
+                    message = f"Job {job.status}" + (f" — {job_step}" if job_step else "")
         out.append({
             "id": r.id,
             "schedule_id": r.schedule_id,
@@ -660,10 +677,13 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
             "started_at": r.started_at,
             "finished_at": r.finished_at,
             "rows": r.rows,
-            "message": r.debug_log or meta.get("summary") or "",
+            "message": message,
             "send_channel": meta.get("send_channel") or "",
             "log_url": url_for("schedules.run_log", run_id=r.id),
             "job_log": meta.get("job_log") or [],
+            "job_id": job_id,
+            "can_cancel": r.status == "running",
+            "job_step": job_step,
         })
         if len(out) >= limit:
             break
@@ -699,6 +719,44 @@ def recent_runs():
             row.pop("log_url", None)
             row.pop("job_log", None)
     return jsonify({"runs": runs, "active_jobs": _active_schedule_jobs(p)})
+
+
+@schedules_bp.post("/api/schedules/runs/<int:run_id>/cancel")
+@require_login
+def cancel_schedule_run(run_id: int):
+    """Cancel one stuck/running history row and its linked job (if any)."""
+    p = _principal()
+    run = _run_or_404(run_id, p)
+    if run.status != "running":
+        return jsonify({"cancelled": False, "status": run.status})
+    job_id = str((run.output_meta or {}).get("job_id") or "").strip()
+    if job_id:
+        job = _job_repo().get(job_id)
+        if job is not None and job.status in ("queued", "running"):
+            if not (_authz().is_privileged(p) or job.owner_user_id == _uid(p.email)):
+                abort(403, description="Forbidden")
+            _job_repo().cancel(job_id)
+    _runs().finish(
+        run.id, status="cancelled",
+        debug_log="Cancelled from the Schedules run log.",
+        output_meta={"abandoned": True},
+    )
+    return jsonify({"cancelled": True, "status": "cancelled", "job_id": job_id})
+
+
+@schedules_bp.post("/api/schedules/runs/clear-stuck")
+@require_login
+def clear_stuck_schedule_runs():
+    """Cancel every schedule_runs row still marked running (admin/developer)."""
+    p = _principal()
+    if not (_authz().is_privileged(p) or _authz().is_developer(p)):
+        abort(403, description="Forbidden")
+    from web.scheduling.tick import reap_stale_schedule_runs
+    # age 0 = everything still running, including ones stuck since a deploy
+    n = reap_stale_schedule_runs(
+        current_app.config["DB"], _job_repo(), older_than_seconds=0,
+    )
+    return jsonify({"cleared": n})
 
 
 def _create_personal_from_view(
@@ -1260,6 +1318,7 @@ def company_schedules_page():
         "active_tab": "settings",
         "is_admin": True,
         "is_privileged": True,
+        "is_developer": authz.is_developer(p),
         "can_see_company": True,
         "company_page": True,
         "has_sharepoint": authz.has_sharepoint_access(p),
