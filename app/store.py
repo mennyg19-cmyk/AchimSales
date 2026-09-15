@@ -127,12 +127,12 @@ def delete_view(view_id: int) -> None:
         conn.execute("DELETE FROM views WHERE id = ?", (view_id,))
 
 
-def save_job(report_key: str, title: str, payload: dict, kept: int = 0, keep_name: str | None = None) -> int:
+def save_job(report_key: str, title: str, payload: dict, owner_email: str = "", kept: int = 0, keep_name: str | None = None) -> int:
     with db() as conn:
         cur = conn.execute(
-            """INSERT INTO jobs (report_key, title, status, created_at, kept, keep_name, payload_json)
-               VALUES (?, ?, 'success', ?, ?, ?, ?)""",
-            (report_key, title, now_iso(), kept, keep_name, json.dumps(payload)),
+            """INSERT INTO jobs (report_key, title, status, created_at, kept, keep_name, payload_json, owner_email)
+               VALUES (?, ?, 'success', ?, ?, ?, ?, ?)""",
+            (report_key, title, now_iso(), kept, keep_name, json.dumps(payload), owner_email),
         )
         return int(cur.lastrowid)
 
@@ -142,13 +142,20 @@ def keep_job(job_id: int, name: str) -> None:
         conn.execute("UPDATE jobs SET kept = 1, keep_name = ? WHERE id = ?", (name, job_id))
 
 
-def list_jobs(kept_only: bool = False) -> list[dict]:
-    sql = "SELECT id, report_key, title, status, created_at, kept, keep_name FROM jobs"
+def list_jobs(kept_only: bool = False, owner_email: str | None = None) -> list[dict]:
+    sql = "SELECT id, report_key, title, status, created_at, kept, keep_name, owner_email FROM jobs"
+    clauses = []
+    args: list = []
     if kept_only:
-        sql += " WHERE kept = 1"
+        clauses.append("kept = 1")
+    if owner_email is not None:
+        clauses.append("owner_email = ?")
+        args.append(owner_email)
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY id DESC LIMIT 30"
     with db() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, args).fetchall()
     return [dict(row) for row in rows]
 
 

@@ -33,6 +33,21 @@ def csrf_headers(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.csrf}
 
 
+def become(client: TestClient, email: str):
+    import store as home_store
+    row = home_store.get_user(email)
+    res = client.post(
+        f"/admin/users/{row['id']}/view-as",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    html = client.get("/").text
+    match = re.search(r'data-csrf="([^"]+)"', html)
+    assert match
+    client.csrf = match.group(1)
+
+
 def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok"}
 
@@ -280,3 +295,76 @@ def test_reporting_api_stub_without_key(client):
     res = client.post("/api/dev/reporting/invoiced_report/run", headers=csrf_headers(client))
     assert res.status_code == 501
     assert res.json()["mock"] is True
+
+
+def test_exclusions_hide_last_order_customer(client):
+    login(client)
+    res = client.post(
+        "/api/settings/exclusions",
+        json={"accounts": ["C-1001"]},
+        headers=csrf_headers(client),
+    )
+    assert res.status_code == 200
+    pick = client.get("/report/customer-last-order").text
+    assert "C-1001" not in pick
+    assert "HD SUPPLY" not in pick
+    hidden = client.get("/report/customer-last-order/C-1001", follow_redirects=False)
+    assert hidden.status_code == 302
+
+
+def test_salesman_cannot_read_others_jobs(client):
+    login(client)
+    payload = client.post("/api/reports/invoiced/run", json={}, headers=csrf_headers(client)).json()
+    job_id = payload["data"]["job_id"]
+    become(client, "salesman@achimonline.com")
+    listed = client.get("/api/jobs").json()["jobs"]
+    assert all(job["id"] != job_id for job in listed)
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
+    keep = client.post(
+        f"/api/jobs/{job_id}/keep",
+        json={"name": "stolen"},
+        headers=csrf_headers(client),
+    )
+    assert keep.status_code == 404
+
+
+def test_salesman_cannot_read_others_schedule_logs(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        sid = conn.execute(
+            "SELECT id FROM schedules WHERE owner_email = 'preview@achimonline.com' LIMIT 1"
+        ).fetchone()["id"]
+    client.post(f"/schedules/{sid}/run-now", data={"csrf": client.csrf}, follow_redirects=True)
+    with db() as conn:
+        run_id = conn.execute(
+            "SELECT id FROM schedule_runs WHERE schedule_id = ? ORDER BY id DESC LIMIT 1",
+            (sid,),
+        ).fetchone()["id"]
+    become(client, "salesman@achimonline.com")
+    hist = client.get(f"/schedules/{sid}/history", follow_redirects=False)
+    assert hist.status_code == 302
+    log = client.get(f"/schedules/runs/{run_id}", follow_redirects=False)
+    assert log.status_code == 302
+
+
+def test_role_picker_is_privileged(client):
+    login(client)
+    become(client, "salesman@achimonline.com")
+    res = client.get("/dev/role-picker", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/settings"
+
+
+def test_hidden_report_hides_company_view_card(client):
+    login(client)
+    home = client.get("/").text
+    assert "Daily Ordered" in home
+    client.post(
+        "/api/settings/visibility",
+        json={"key": "ordered", "enabled": False},
+        headers=csrf_headers(client),
+    )
+    html = client.get("/").text
+    assert "Daily Ordered" not in html
+    assert "/reports/ordered" not in html

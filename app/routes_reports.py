@@ -9,6 +9,7 @@ import catalog
 import store
 from deps import (
     can_see_report,
+    can_read_job,
     flash,
     is_privileged,
     need_login,
@@ -81,6 +82,8 @@ def reports_home(request: Request):
     company = []
     presets = []
     for view in views:
+        if not can_see_report(user, view["report_key"]):
+            continue
         href = f"/reports/{view['report_key']}?view={view['id']}"
         card = {
             "name": view["name"],
@@ -144,7 +147,7 @@ def report_mock(request: Request, report_key: str):
     if catalog.spec(report_key) is None or not can_see_report(user, report_key):
         return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
     payload = _build_payload(report_key, user, {})
-    store.save_job(report_key, catalog.spec(report_key)["title"], payload)
+    store.save_job(report_key, catalog.spec(report_key)["title"], payload, owner_email=user["email"])
     return payload
 
 
@@ -163,7 +166,7 @@ async def report_run(request: Request, report_key: str):
     body = await request.json()
     params = _params_from_request(body or {}, spec)
     payload = _build_payload(report_key, user, params)
-    job_id = store.save_job(report_key, spec["title"], payload)
+    job_id = store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
     payload["data"]["job_id"] = job_id
     return payload
 
@@ -182,7 +185,7 @@ async def report_xlsx(request: Request, report_key: str):
     if raw_customers:
         params["customers"] = [part for part in raw_customers.split(",") if part]
     payload = _build_payload(report_key, user, params)
-    store.save_job(report_key, spec["title"] + " export", payload)
+    store.save_job(report_key, spec["title"] + " export", payload, owner_email=user["email"])
     return Response(
         workbook_bytes(payload),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -205,7 +208,7 @@ async def report_email(request: Request, report_key: str):
     body = await request.json()
     params = _params_from_request(body or {}, spec)
     payload = _build_payload(report_key, user, params)
-    store.save_job(report_key, spec["title"], payload)
+    store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
     recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
     subject = (body or {}).get("subject") or f"[MOCK] {spec['title']}"
     store.add_outbox(recipients, subject, "Dummy Excel attached. Graph mail is not wired yet.")
@@ -222,7 +225,12 @@ def last_order_pick(request: Request):
         flash(request, "Customer's Last Order is hidden.", "warn")
         return RedirectResponse("/", status_code=302)
     scope = salesman_scope(user)
-    customers = [row for row in catalog.CUSTOMERS if not scope or row["salesman"] == scope]
+    excluded = set(store.exclusions_for(user["email"]))
+    customers = [
+        row
+        for row in catalog.CUSTOMERS
+        if (not scope or row["salesman"] == scope) and row["account"] not in excluded
+    ]
     return page(
         request,
         "last_order_pick.html",
@@ -243,6 +251,9 @@ def last_order_view(request: Request, account: str):
     if found is None:
         flash(request, "No mock customer with that account.", "warn")
         return RedirectResponse("/report/customer-last-order", status_code=302)
+    if account in store.exclusions_for(user["email"]):
+        flash(request, "That customer is on your exclusion list.", "warn")
+        return RedirectResponse("/report/customer-last-order", status_code=302)
     scope = salesman_scope(user)
     if scope and found["customer"]["salesman"] != scope:
         flash(request, "That customer is outside your SalesGroup.", "warn")
@@ -257,7 +268,9 @@ def jobs_list(request: Request):
         return denied
     user = session_user(request)
     kept = request.query_params.get("kept") == "1"
-    return {"jobs": store.list_jobs(kept_only=kept)}
+    if is_privileged(user):
+        return {"jobs": store.list_jobs(kept_only=kept)}
+    return {"jobs": store.list_jobs(kept_only=kept, owner_email=user["email"])}
 
 
 @router.get("/api/jobs/{job_id}")
@@ -267,7 +280,7 @@ def job_get(request: Request, job_id: int):
         return denied
     user = session_user(request)
     job = store.get_job(job_id)
-    if job is None:
+    if job is None or not can_read_job(user, job):
         return JSONResponse({"error": "Unknown run"}, status_code=404)
     return job
 
@@ -281,6 +294,9 @@ async def job_keep(request: Request, job_id: int):
     if denied:
         return denied
     user = session_user(request)
+    job = store.get_job(job_id)
+    if job is None or not can_read_job(user, job):
+        return JSONResponse({"error": "Unknown run"}, status_code=404)
     body = await request.json()
     name = (body or {}).get("name") or "Kept run"
     store.keep_job(job_id, name)

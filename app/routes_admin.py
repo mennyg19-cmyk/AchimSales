@@ -295,6 +295,9 @@ def role_picker(request: Request):
     if denied:
         return denied
     user = session_user(request)
+    if not is_privileged(user):
+        flash(request, "Role picker is for developers.", "warn")
+        return RedirectResponse("/settings", status_code=302)
     return page(request, "role_picker.html", active_tab="settings", users=store.list_users())
 
 

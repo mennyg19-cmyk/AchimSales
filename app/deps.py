@@ -159,3 +159,17 @@ def salesman_scope(user: dict) -> str:
     if is_privileged(user) or user.get("role") == "manager":
         return ""
     return user.get("sales_group") or ""
+
+
+def can_read_schedule(user: dict, row: dict) -> bool:
+    if is_privileged(user):
+        return True
+    if row.get("owner_email") == user.get("email"):
+        return True
+    return user.get("role") == "manager"
+
+
+def can_read_job(user: dict, job: dict) -> bool:
+    if is_privileged(user):
+        return True
+    return (job.get("owner_email") or "") == user.get("email")

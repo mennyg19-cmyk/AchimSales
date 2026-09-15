@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     kept INTEGER NOT NULL DEFAULT 0,
     keep_name TEXT,
-    payload_json TEXT NOT NULL
+    payload_json TEXT NOT NULL,
+    owner_email TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY,
@@ -116,6 +117,9 @@ def db():
 def init_db() -> None:
     with db() as conn:
         conn.executescript(SCHEMA)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+        if "owner_email" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''")
         for row in SEED_USERS:
             conn.execute(
                 """INSERT OR IGNORE INTO users

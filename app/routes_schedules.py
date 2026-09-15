@@ -7,7 +7,15 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import store
-from deps import flash, is_privileged, need_login, page, require_csrf, session_user
+from deps import (
+    can_read_schedule,
+    flash,
+    is_privileged,
+    need_login,
+    page,
+    require_csrf,
+    session_user,
+)
 from routes_reports import _build_payload
 
 router = APIRouter()
@@ -19,7 +27,7 @@ def _deliver(schedule: dict, user: dict) -> str:
         store.mark_schedule_run(schedule["id"], "failure", "Unknown report on the saved view.")
         return "failure"
     payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
-    store.save_job(schedule["report_key"], schedule["view_name"], payload)
+    store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
     store.add_outbox(
         recipients,
@@ -43,6 +51,9 @@ def schedules_page(request: Request):
         own = [row for row in rows if row["owner_email"] == user["email"]]
         shared = [row for row in rows if row["owner_email"] != user["email"]]
         rows = own + shared if user.get("role") == "manager" else own
+    recent = store.list_schedule_runs()[:20]
+    if not is_privileged(user):
+        recent = [run for run in recent if can_read_schedule(user, run)]
     return page(
         request,
         "schedules.html",
@@ -51,7 +62,7 @@ def schedules_page(request: Request):
         views=named,
         test_mode_on=store.setting("schedule_test_mode") == "1",
         test_emails=store.test_emails(),
-        recent_runs=store.list_schedule_runs()[:20],
+        recent_runs=recent,
         preselect_view=request.query_params.get("view") or "",
     )
 
@@ -164,7 +175,7 @@ def schedule_history(request: Request, schedule_id: int):
         return denied
     user = session_user(request)
     row = store.get_schedule(schedule_id)
-    if row is None:
+    if row is None or not can_read_schedule(user, row):
         flash(request, "Unknown schedule.", "error")
         return RedirectResponse("/schedules", status_code=302)
     runs = [item for item in store.list_schedule_runs() if item["schedule_id"] == schedule_id]
@@ -184,7 +195,7 @@ def schedule_run_log(request: Request, run_id: int):
         return denied
     user = session_user(request)
     run = store.get_schedule_run(run_id)
-    if run is None:
+    if run is None or not can_read_schedule(user, run):
         flash(request, "Unknown schedule run.", "error")
         return RedirectResponse("/schedules", status_code=302)
     when = run["started_at"]
