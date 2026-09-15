@@ -4,7 +4,7 @@
 **Options I considered:** `params_id` + `layout_id` on the schedule; a single `group_by` text column; replace tables in place.
 **What I chose:** One `views` row is filters + layout. Schedules (`report_schedules`) store only `view_id` plus clock/delivery/window. Grouping and sort are child rows (`layout_tab_groups`, `layout_tab_sorters`) because they are ordered lists. New tables sit beside `saved_reports` / `company_views` / `report_defaults` / `schedules` / `master_schedules` until round-trip + workbook parity pass. Spec: `v3/docs/normalized-views.md`.
 **Why:** The GUI and the clock already want the same object. Copying JSON is why explorer edits and scheduled files drift. A `group_by` column cannot store Daily Ordered Summary (Salesman then Customer Name). Dropping old tables first would make a mismatch unrecoverable.
-**Status:** DECIDED (open list confirmed 2026-09-15: yes to all; step 2 dual-write in; Gate B workbook compare in this PR)
+**Status:** DECIDED (open list confirmed 2026-09-15: yes to all; Gate A/B + dual-write + live-read from assembled tables; JSON still dual-written, not dropped)
 
 
 ## 2026-09-11 Blank GET / AlwaysOn 401 on report runs

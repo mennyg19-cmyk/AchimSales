@@ -2849,7 +2849,9 @@ function applyParamsObject(params: Record<string, unknown>): void {
   });
   const statusEl = document.querySelector<HTMLSelectElement>('[name="status"]');
   if (statusEl && params.status != null) {
-    const raw = String(params.status);
+    const raw = Array.isArray(params.status)
+      ? String(params.status[0] ?? "")
+      : String(params.status);
     const aliases: Record<string, string> = { open: "Open order" };
     const mapped = aliases[raw.trim().toLowerCase()] || raw;
     if ([...statusEl.options].some((o) => o.value === mapped)) statusEl.value = mapped;
@@ -2861,7 +2863,11 @@ function applyParamsObject(params: Record<string, unknown>): void {
   const end = params.end_date ?? params.to;
   if (sd && start != null) sd.value = String(start);
   if (ed && end != null) ed.value = String(end);
-  applySalesman(typeof params.salesman === "string" ? params.salesman : "");
+  const salesmanRaw = params.salesman;
+  const salesmanVal = Array.isArray(salesmanRaw)
+    ? String(salesmanRaw[0] ?? "")
+    : (typeof salesmanRaw === "string" ? salesmanRaw : "");
+  applySalesman(salesmanVal);
   const custs = params.customers;
   const list = Array.isArray(custs) ? custs : (custs ? String(custs).split(",") : []);
   list.forEach((c) => { const k = String(c).trim(); if (k) selectedCustomers.set(k, k); });

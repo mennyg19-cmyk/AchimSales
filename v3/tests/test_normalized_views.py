@@ -67,6 +67,15 @@ def test_handle_falls_back_to_email_local_part():
     assert suggest_handle("", "mike.roth@achim.com") == "mikeroth"
 
 
+def test_canonicalize_keeps_spaced_status_and_salesman_as_one_value():
+    assert canonicalize_params({"status": "Open order", "salesman": "H Kaufman"}) == {
+        "status": ["Open order"], "salesman": ["H Kaufman"],
+    }
+    assert canonicalize_params({"status": "Open order,Delivered"})["status"] == [
+        "Open order", "Delivered",
+    ]
+
+
 def test_gate_a_round_trip_company_and_personal_and_defaults(tmp_path):
     db = _db(tmp_path)
     users = UserRepository(db)
@@ -297,6 +306,34 @@ def test_edit_old_layout_json_updates_new_tables(tmp_path):
             (pid,),
         ).fetchone()["id"]
         assert assemble_layout(conn, vid)["views"]["by_order"]["group"] == ["Salesman"]
+
+
+def test_repo_read_prefers_new_tables_when_json_is_stale(tmp_path):
+    """Live GUI/clock path: assembled tables win over a stale layout_json copy."""
+    db = _db(tmp_path)
+    u = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    pid = SavedReportRepository(db).create(
+        u.id, "ordered", "Open Orders", {},
+        {"views": {"by_order": {"group": []}}})
+    with db.precious() as conn:
+        tab = conn.execute(
+            "SELECT t.id FROM layout_tabs t JOIN views v ON v.id=t.view_id"
+            " WHERE v.legacy_id=? AND t.tab_key='by_order'",
+            (pid,),
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO layout_tab_groups(id, tab_id, position, column_name)"
+            " VALUES ('g-live', ?, 1, 'Salesman')",
+            (tab["id"],),
+        )
+        # Leave layout_json as group: [] — do not call after_table_write.
+    row = SavedReportRepository(db).get_any(pid)
+    assert row.layout["views"]["by_order"]["group"] == ["Salesman"]
+    with db.precious() as conn:
+        raw = conn.execute(
+            "SELECT layout_json FROM saved_reports WHERE id=?", (pid,),
+        ).fetchone()["layout_json"]
+    assert '"group": []' in raw.replace(" ", "") or '"group":[]' in raw.replace(" ", "")
 
 
 PERSONAL_ORDERED_VIEW = "Open Orders"

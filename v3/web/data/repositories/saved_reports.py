@@ -4,16 +4,20 @@ A preset is a named, per-user shortcut that captures a report's filter params +
 grid layout so the owner can re-open "My March Ordered view" in one click.
 Reads/writes take a user_id. Salesmen only touch their own rows; admins may use
 get_any / list_all to set up someone else's views.
+
+Reads prefer the normalized `views` tree when a projected row exists; JSON stays
+as the dual-write fallback until cutover drops it.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from web.data.connection import Database
 from web.data.normalized_views import (
+    assemble_legacy_view,
     drop_synced_view_conn,
     sync_saved_report_conn,
 )
@@ -36,6 +40,14 @@ class SavedReport:
             name=r["name"], params=json.loads(r["params_json"] or "{}"),
             layout=json.loads(r["layout_json"] or "{}"), created_at=r["created_at"],
         )
+
+
+def _hydrate(conn: sqlite3.Connection, row: SavedReport) -> SavedReport:
+    got = assemble_legacy_view(conn, "saved_reports", row.id)
+    if got is None:
+        return row
+    params, layout = got
+    return replace(row, params=params, layout=layout)
 
 
 class SavedReportRepository:
@@ -68,21 +80,21 @@ class SavedReportRepository:
                 "SELECT * FROM saved_reports WHERE user_id=? ORDER BY report_key, name",
                 (user_id,),
             ).fetchall()
-            return [SavedReport.from_row(r) for r in rows]
+            return [_hydrate(conn, SavedReport.from_row(r)) for r in rows]
 
     def list_all(self) -> list[SavedReport]:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT * FROM saved_reports ORDER BY user_id, report_key, name",
             ).fetchall()
-            return [SavedReport.from_row(r) for r in rows]
+            return [_hydrate(conn, SavedReport.from_row(r)) for r in rows]
 
     def get_any(self, preset_id: int) -> SavedReport | None:
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT * FROM saved_reports WHERE id=?", (preset_id,),
             ).fetchone()
-            return SavedReport.from_row(row) if row else None
+            return _hydrate(conn, SavedReport.from_row(row)) if row else None
 
     def get_by_name(self, user_id: int, report_key: str, name: str) -> SavedReport | None:
         with self.db.precious() as conn:
@@ -90,7 +102,7 @@ class SavedReportRepository:
                 "SELECT * FROM saved_reports WHERE user_id=? AND report_key=? AND name=?",
                 (user_id, report_key, name.strip()),
             ).fetchone()
-            return SavedReport.from_row(row) if row else None
+            return _hydrate(conn, SavedReport.from_row(row)) if row else None
 
     def get(self, preset_id: int, user_id: int) -> SavedReport | None:
         with self.db.precious() as conn:
@@ -98,7 +110,7 @@ class SavedReportRepository:
                 "SELECT * FROM saved_reports WHERE id=? AND user_id=?",
                 (preset_id, user_id),
             ).fetchone()
-            return SavedReport.from_row(row) if row else None
+            return _hydrate(conn, SavedReport.from_row(row)) if row else None
 
     def update(self, preset_id: int, user_id: int, *, name: str | None = None,
                params: dict | None = None, layout: dict | None = None) -> bool:

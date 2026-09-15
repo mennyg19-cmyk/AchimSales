@@ -1346,8 +1346,8 @@ def test_home_preset_url_keeps_salesman_and_open_status(tmp_path):
     assert created.status_code == 201
     pid = created.get_json()["id"]
     saved = client.get(f"/api/reports/presets/{pid}").get_json()
-    assert saved["params"]["salesman"] == "HGoldberg"
-    assert saved["params"]["status"] == "Open order"
+    assert saved["params"]["salesman"] == ["HGoldberg"]
+    assert saved["params"]["status"] == ["Open order"]
     html = client.get("/").get_data(as_text=True)
     assert "Heshy Open Orders" in html
     assert "salesman=HGoldberg" in html

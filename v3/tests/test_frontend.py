@@ -198,7 +198,9 @@ def test_report_viewer_meeting_ux():
     params_fn = src.split("function applyParamsObject", 1)[1].split("function closePresetsPanel", 1)[0]
     assert "form?.reset()" in params_fn
     assert "pendingSalesman = null" in params_fn
-    assert "applySalesman(typeof params.salesman === \"string\" ? params.salesman : \"\")" in params_fn
+    assert "applySalesman(salesmanVal)" in params_fn
+    assert "Array.isArray(salesmanRaw)" in params_fn
+    assert "Array.isArray(params.status)" in params_fn
     assert "void loadCustomers()" in params_fn
     assert "async function syncLiveViewParamsIfUnchanged" in src
     assert "if (!opts.overrideParams) await syncLiveViewParamsIfUnchanged()" in src

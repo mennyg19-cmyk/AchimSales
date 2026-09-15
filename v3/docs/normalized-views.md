@@ -1,6 +1,6 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (step 2 dual-write is in; Gate B workbook compare next; do not drop old tables until Gate B + live-read cutover).
+Status: **locked 2026-09-15** (Gate A + dual-write + Gate B green; live reads use assembled `views` tables with JSON fallback; do not drop old tables until write-side stops dual-writing).
 
 This replaces three view tables and the layout/params copies on schedules with one `views` tree. The report page and the clock job both read that tree. JSON blobs stay on jobs, notifications, and job logs.
 

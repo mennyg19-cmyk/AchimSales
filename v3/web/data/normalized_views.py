@@ -1,6 +1,7 @@
-"""Old JSON views/schedules → normalized tables, and back to dicts.
+"""Old JSON views/schedules ↔ normalized tables.
 
-Step 1 only: projector + assemble. Live read path still uses the JSON blobs.
+Step 2–3: dual-write keeps JSON for rollback; live GUI/clock read assembled
+tables when the projected row exists.
 """
 
 from __future__ import annotations
@@ -102,9 +103,10 @@ def _as_str_list(raw) -> list[str]:
     s = str(raw).strip()
     if not s:
         return []
+    # Comma-separated only. Do not split on spaces ("Open order", "H Kaufman").
     if "," in s:
         return [p.strip() for p in s.split(",") if p.strip()]
-    return [p for p in s.split() if p]
+    return [s]
 
 
 def _as_bool(raw) -> bool:
@@ -402,6 +404,46 @@ def assemble_params(conn: sqlite3.Connection, view_id: str) -> dict:
     return out
 
 
+def assemble_legacy_view(conn: sqlite3.Connection, legacy_source: str,
+                         legacy_id: int) -> tuple[dict, dict] | None:
+    """Params + layout from the projected row, or None if that row is missing."""
+    if not _table_exists(conn, "views"):
+        return None
+    row = conn.execute(
+        "SELECT id FROM views WHERE legacy_source=? AND legacy_id=?",
+        (legacy_source, int(legacy_id)),
+    ).fetchone()
+    if row is None:
+        return None
+    return assemble_params(conn, row["id"]), assemble_layout(conn, row["id"])
+
+
+def live_view_payload(db: Database, legacy_source: str, legacy_id: int,
+                      params: dict | None, layout: dict | None) -> tuple[dict, dict]:
+    """GUI/clock read: assembled tables when present, else the JSON copy."""
+    fallback = (
+        params if isinstance(params, dict) else {},
+        layout if isinstance(layout, dict) else {},
+    )
+    with db.precious() as conn:
+        got = assemble_legacy_view(conn, legacy_source, int(legacy_id))
+    return got if got is not None else fallback
+
+
+def live_default_payload(db: Database, report_key: str,
+                         params: dict | None, layout: dict | None) -> tuple[dict, dict]:
+    return live_view_payload(
+        db, "report_defaults", _legacy_int(report_key), params, layout)
+
+
+def _legacy_int(text: str) -> int:
+    """Stable positive int for TEXT-keyed legacy rows (report_defaults)."""
+    n = 0
+    for ch in text:
+        n = (n * 33 + ord(ch)) & 0x7FFFFFFF
+    return n or 1
+
+
 def assemble_layout(conn: sqlite3.Connection, view_id: str) -> dict:
     row = conn.execute("SELECT active_tab_key FROM views WHERE id=?", (view_id,)).fetchone()
     if row is None:
@@ -515,14 +557,6 @@ def _project_defaults(conn: sqlite3.Connection, handles: dict[int, str]) -> None
             updated_by_handle=_updated_by(handles, r["updated_by"] if "updated_by" in r.keys() else None),
             legacy_source="report_defaults", legacy_id=_legacy_int(r["report_key"]),
         )
-
-
-def _legacy_int(text: str) -> int:
-    """Stable positive int for TEXT-keyed legacy rows (report_defaults)."""
-    n = 0
-    for ch in text:
-        n = (n * 33 + ord(ch)) & 0x7FFFFFFF
-    return n or 1
 
 
 def _project_company_views(conn: sqlite3.Connection, handles: dict[int, str]) -> None:
