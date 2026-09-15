@@ -879,5 +879,8 @@ def _seed_company_views(app: Flask, db) -> None:
         from web.scheduling.company_layouts import seed_canonical_company_views
 
         seed_canonical_company_views(db)
+        from web.data.normalized_views import project_from_legacy
+
+        project_from_legacy(db)
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("company view seed failed")

@@ -1,6 +1,6 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (build new tables alongside the old JSON ones; do not drop old tables until parity passes).
+Status: **locked 2026-09-15** (step 1 in progress: new tables + old→new projector; do not drop old tables until parity passes).
 
 This replaces three view tables and the layout/params copies on schedules with one `views` tree. The report page and the clock job both read that tree. JSON blobs stay on jobs, notifications, and job logs.
 
@@ -50,7 +50,7 @@ Foreign keys are ON (already). Every child holds the parent id. Do not store bot
 | `name` | TEXT NOT NULL |
 | `owner_handle` | TEXT NULL FK `users(handle)` ON DELETE CASCADE. Null for company/default |
 | `period`, `start_date`, `end_date`, `year`, `mode` | scalar filters, nullable |
-| `active_tab_id` | TEXT NULL FK `layout_tabs(id)` DEFERRABLE. Tab list is the source of order |
+| `active_tab_key` | TEXT NULL. Matches `layout_tabs.tab_key` (no circular FK to tab id) |
 | `updated_at`, `updated_by_handle` | SET NULL on user delete for company rows |
 
 Unique: `(kind, owner_handle, report_key, name)` with `owner_handle` null for company/default (SQLite unique + nulls: use a unique index on `report_key` WHERE `kind='default'`, and `UNIQUE(report_key, name)` WHERE `kind='company'`).
@@ -70,9 +70,10 @@ FK `view_id` → `views(id)` ON DELETE CASCADE.
 | `id` | TEXT PK |
 | `view_id` | FK CASCADE |
 | `tab_key` | `by_customer`, `summary`, clone keys, … |
-| `position` | 1-based on-screen / Excel sheet order (`layout.order`) |
+| `position` | 1-based on-screen / Excel sheet order (`layout.order`); NULL if the tab is not in `order` |
 | `clone_of_tab_key` | NULL unless this is a duplicated tab (`clones[].baseKey`) |
 | `tab_name` | clone display name; NULL = report default name |
+| `has_view` | 1 if the tab was in `layout.views` (so zero group rows means `group: []`) |
 
 Unique `(view_id, tab_key)`.
 
@@ -165,12 +166,10 @@ Canonical JSON: stable key order, `group: []` present on stored tabs, no deliver
 
 Live `/legacy` (`webapp/`) schema. Rebuild `/test-next`. `schedule_runs` history mapping (integer polymorphic ids → new TEXT ids) is a cutover follow-up: add nullable `report_schedule_id` when the new clock writes runs; backfill at drop time.
 
-## Still open (answer before CREATE TABLE)
+## Locked answers (2026-09-15 “yes to all”)
 
-Recommended answers are below. Reply “yes to all” or change one.
-
-1. **Live path during step 2.** Old JSON stays live (clock + current report page) until Gate A is green. The new builder writes new tables and dual-writes old JSON. **Rec: yes.**
-2. **What “report builder” is.** Not a second app. Save this view, company Default, and the explorer edit the new tables. **Rec: yes.**
-3. **Cadence / recipients as tables in step 1.** Same pass as views (no JSON on `report_schedules`). **Rec: yes.**
-4. **Gate B fixture list.** Daily Ordered, Heshy Open Orders, one personal Ordered, one Number 4, one By Order with `group: []`. Add more if Gate A shows a weird view. **Rec: yes.**
-5. **Handle collisions with salesman keys.** User `hkaufman` and SalesGroup `Hkaufman` may look the same; they live in different columns. **Rec: allow, do not suffix just because a salesman exists.**
+1. During step 2, old JSON stays live until Gate A is green. The new builder dual-writes.
+2. Report builder = Save this view + explorer on the new tables, not a second app.
+3. Cadence and recipients are tables in step 1.
+4. Gate B fixtures: Daily Ordered, Heshy Open Orders, one personal Ordered, one Number 4, one By Order with `group: []`.
+5. User handle may match a salesman key. Do not suffix just because a salesman exists.
