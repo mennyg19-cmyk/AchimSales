@@ -13,12 +13,12 @@ from routes_reports import _build_payload
 router = APIRouter()
 
 
-def _deliver(schedule: dict, user_email: str) -> str:
+def _deliver(schedule: dict, user: dict) -> str:
     spec = catalog.spec(schedule["report_key"])
     if spec is None:
         store.mark_schedule_run(schedule["id"], "failure", "Unknown report on the saved view.")
         return "failure"
-    payload = _build_payload(schedule["report_key"], {"email": user_email, "role": "admin", "sales_group": ""}, schedule.get("params") or {})
+    payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
     store.save_job(schedule["report_key"], schedule["view_name"], payload)
     recipients = schedule["recipients"]
     if store.setting("schedule_test_mode") == "1":
@@ -118,7 +118,7 @@ def schedules_run_now(request: Request, schedule_id: int):
     elif shared and not is_privileged(user) and user.get("role") != "manager":
         flash(request, "You can only run your own schedules.", "warn")
         return RedirectResponse("/schedules", status_code=303)
-    _deliver(row, user["email"])
+    _deliver(row, user)
     flash(request, "Mock send finished. Check Settings → Developer → Notification diagnostic.")
     return RedirectResponse("/schedules", status_code=303)
 
