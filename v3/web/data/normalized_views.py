@@ -1,7 +1,7 @@
 """Old JSON views/schedules ↔ normalized tables.
 
-Step 2–3: dual-write keeps JSON for rollback; live GUI/clock read assembled
-tables when the projected row exists.
+Dual-write still refreshes JSON for silent parity compares. Live GUI/clock
+reads always assemble from the normalized tables — never layout_json.
 """
 
 from __future__ import annotations
@@ -439,21 +439,46 @@ def assemble_legacy_view(conn: sqlite3.Connection, legacy_source: str,
 
 
 def live_view_payload(db: Database, legacy_source: str, legacy_id: int,
-                      params: dict | None, layout: dict | None) -> tuple[dict, dict]:
-    """GUI/clock read: assembled tables when present, else the JSON copy."""
-    fallback = (
-        params if isinstance(params, dict) else {},
-        layout if isinstance(layout, dict) else {},
-    )
+                      params: dict | None = None, layout: dict | None = None,
+                      ) -> tuple[dict, dict]:
+    """GUI/clock read: always from assembled tables.
+
+    ``params`` / ``layout`` args are ignored for the return value (kept so
+    callers do not break). JSON may still seed missing projections via sync,
+    but live readers never get the JSON blob back.
+    """
+    del params, layout
     with db.precious() as conn:
         got = assemble_legacy_view(conn, legacy_source, int(legacy_id))
-    return got if got is not None else fallback
+        if got is not None:
+            return got
+        if legacy_source == "saved_reports":
+            sync_saved_report_conn(conn, int(legacy_id))
+        elif legacy_source == "company_views":
+            sync_company_view_conn(conn, int(legacy_id))
+        elif legacy_source == "report_defaults":
+            # legacy_id is the stable hash; recover report_key from views/defaults.
+            row = conn.execute(
+                "SELECT report_key FROM report_defaults",
+            ).fetchall()
+            for r in row:
+                if _legacy_int(r["report_key"]) == int(legacy_id):
+                    sync_report_default_conn(conn, r["report_key"])
+                    break
+        got = assemble_legacy_view(conn, legacy_source, int(legacy_id))
+        if got is not None:
+            return got
+    return {}, {}
 
 
 def live_default_payload(db: Database, report_key: str,
-                         params: dict | None, layout: dict | None) -> tuple[dict, dict]:
-    return live_view_payload(
-        db, "report_defaults", _legacy_int(report_key), params, layout)
+                         params: dict | None = None, layout: dict | None = None,
+                         ) -> tuple[dict, dict]:
+    del params, layout
+    with db.precious() as conn:
+        sync_report_default_conn(conn, report_key)
+        got = assemble_legacy_view(conn, "report_defaults", _legacy_int(report_key))
+    return got if got is not None else ({}, {})
 
 
 def _legacy_int(text: str) -> int:

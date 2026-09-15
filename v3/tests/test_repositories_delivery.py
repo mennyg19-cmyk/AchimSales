@@ -228,8 +228,16 @@ def test_view_and_layout_helpers():
     assert view_and_layout_for_update(
         {"view_name": "Default"}, "March", kept) == (DEFAULT_VIEW_NAME, {})
     assert resolve_send_layout("Default", {}, {"active": "def"}) == {"active": "def"}
-    assert resolve_send_layout("Default", {"order": ["x"]}, {"active": "def"}) == {"order": ["x"]}
-    assert resolve_send_layout("March", {"active": "m"}, {"active": "def"}) == {"active": "m"}
+    assert resolve_send_layout("Default", {"order": ["x"]}, {"active": "def"}) == {"active": "def"}
+    assert resolve_send_layout("March", {"active": "m"}, {"active": "def"}) == {"active": "def"}
     live = {"views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
     assert resolve_send_layout("Daily Ordered", {"active": "old"}, {"active": "def"}, live) == live
-    assert resolve_send_layout("Daily Ordered", {"active": "old"}, {"active": "def"}, {}) == {"active": "old"}
+    assert resolve_send_layout("Daily Ordered", {"active": "old"}, {"active": "def"}, {}) == {"active": "def"}
+
+
+def test_resolve_send_layout_ignores_schedule_json_snapshot():
+    """Schedule layout_json must never win over live Default / named assemble."""
+    stale = {"views": {"by_order": {"group": ["SalesOrderNumber"]}}}
+    live_default = {"views": {"by_order": {"group": []}}}
+    assert resolve_send_layout("Default", stale, live_default) == live_default
+    assert resolve_send_layout("Ordered", stale, live_default, {}) == live_default

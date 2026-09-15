@@ -21,11 +21,10 @@ from web.auth.principal import Principal
 from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.company_views import CompanyViewRepository
 from web.data.repositories.report_defaults import (
+    CUSTOM_VIEW_NAME,
     DEFAULT_VIEW_NAME,
     ReportDefaultRepository,
-    layout_has_snapshot,
     normalize_view_name,
-    resolve_send_layout,
 )
 from web.data.repositories.saved_reports import SavedReportRepository
 from web.data.repositories.schedules import (
@@ -205,36 +204,115 @@ class ScheduleRunner:
         return filters
 
     def _layout_for(self, sched, schedule_type: str) -> dict:
-        """Named views send the live saved layout, not a stale schedule snapshot."""
-        name = getattr(sched, "view_name", None)
-        live = {}
-        if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
-            stored = dict(getattr(sched, "params", None) or {})
-            use_company = (
-                schedule_type == MASTER or stored.get("view_source") == "company"
+        """Live send layout from assembled tables only — never layout_json."""
+        from web.data.normalized_views import assemble_layout
+
+        view_id = self._live_view_id(sched, schedule_type)
+        if not view_id:
+            log.warning(
+                "no assembled view for %s:%s view=%r — empty layout",
+                schedule_type, getattr(sched, "id", None),
+                getattr(sched, "view_name", None),
             )
+            return {}
+        with self.user_repo.db.precious() as conn:
+            return assemble_layout(conn, view_id)
+
+    def _live_view_id(self, sched, schedule_type: str) -> str | None:
+        """Resolve ``views.id`` for this send; seed tables from JSON only if missing."""
+        from web.data.normalized_views import (
+            assign_handles,
+            canonicalize_layout,
+            canonicalize_params,
+            company_view_id,
+            personal_view_id,
+            sync_company_view_conn,
+            sync_report_default_conn,
+            sync_saved_report_conn,
+            _ensure_default_view,
+            _upsert_view,
+        )
+
+        db = self.user_repo.db
+        name = normalize_view_name(getattr(sched, "view_name", None))
+        report_key = sched.report_key
+        stored = dict(getattr(sched, "params", None) or {})
+        use_company = (
+            schedule_type == MASTER or stored.get("view_source") == "company"
+        )
+
+        personal = None
+        cv = None
+        if name not in (DEFAULT_VIEW_NAME, CUSTOM_VIEW_NAME):
             if schedule_type == PERSONAL and not use_company:
                 owner_id = getattr(sched, "owner_user_id", None)
                 personal = (
-                    self.saved_reports.get_by_name(
-                        owner_id, sched.report_key, name)
+                    self.saved_reports.get_by_name(owner_id, report_key, name)
                     if owner_id else None
                 )
-                if personal is not None:
-                    live = dict(personal.layout or {})
-                else:
+                if personal is None:
                     use_company = True
-            if use_company:
-                live = self.company_views.get_layout(sched.report_key, name)
-        return resolve_send_layout(
-            name,
-            sched.layout,
-            self.defaults.get_layout(sched.report_key),
-            live,
-        )
+            if use_company or schedule_type == MASTER:
+                cv = self.company_views.get_by_name(report_key, name)
+
+        with db.precious() as conn:
+            if name == DEFAULT_VIEW_NAME:
+                sync_report_default_conn(conn, report_key)
+                return _ensure_default_view(conn, report_key)
+
+            if personal is not None:
+                sync_saved_report_conn(conn, personal.id)
+                row = conn.execute(
+                    "SELECT id FROM views WHERE legacy_source='saved_reports'"
+                    " AND legacy_id=?",
+                    (personal.id,),
+                ).fetchone()
+                if row:
+                    return row["id"]
+
+            if cv is not None:
+                sync_company_view_conn(conn, cv.id)
+                row = conn.execute(
+                    "SELECT id FROM views WHERE legacy_source='company_views'"
+                    " AND legacy_id=?",
+                    (cv.id,),
+                ).fetchone()
+                if row:
+                    return row["id"]
+
+            legacy_kind = "personal" if schedule_type == PERSONAL else "master"
+            source = f"snapshot:{legacy_kind}"
+            row = conn.execute(
+                "SELECT id FROM views WHERE legacy_source=? AND legacy_id=?",
+                (source, int(sched.id)),
+            ).fetchone()
+            if row:
+                return row["id"]
+            handles = assign_handles(conn)
+            owner_handle = None
+            if schedule_type == PERSONAL:
+                owner_handle = handles.get(getattr(sched, "owner_user_id", None))
+            elif getattr(sched, "owner_user_id", None) is not None:
+                owner_handle = handles.get(int(sched.owner_user_id))
+            snap_name = f"Schedule {getattr(sched, 'name', '') or sched.id}".strip()
+            if owner_handle:
+                snap_id = personal_view_id(owner_handle, report_key, snap_name)
+                snap_kind = "personal"
+            else:
+                snap_id = company_view_id(report_key, snap_name)
+                snap_kind = "company"
+                owner_handle = None
+            return _upsert_view(
+                conn, view_id=snap_id, kind=snap_kind, report_key=report_key,
+                name=snap_name, owner_handle=owner_handle,
+                params=canonicalize_params(getattr(sched, "params", None) or {}),
+                layout=canonicalize_layout(getattr(sched, "layout", None) or {}),
+                updated_by_handle=owner_handle,
+                legacy_source=source, legacy_id=int(sched.id),
+            )
 
     def _legacy_view_ref(self, sched, schedule_type: str) -> dict:
-        """Resolve which legacy JSON row (or schedule snapshot) backs this send.
+        """Resolve which legacy JSON row backs silent parity (JSON garbage only).
 
         Keys: ``source`` (saved_reports|company_views|report_defaults|snapshot),
         ``legacy_id``, ``report_key``, ``snapshot`` (layout dict when source=snapshot).
@@ -242,11 +320,10 @@ class ScheduleRunner:
         name = getattr(sched, "view_name", None)
         norm = normalize_view_name(name)
         if norm == DEFAULT_VIEW_NAME:
-            snap = getattr(sched, "layout", None)
-            if layout_has_snapshot(snap if isinstance(snap, dict) else None):
-                return {"source": "snapshot", "snapshot": dict(snap),
-                        "report_key": sched.report_key}
             return {"source": "report_defaults", "report_key": sched.report_key}
+        if norm == CUSTOM_VIEW_NAME:
+            return {"source": "snapshot", "snapshot": dict(getattr(sched, "layout", None) or {}),
+                    "report_key": sched.report_key}
         stored = dict(getattr(sched, "params", None) or {})
         use_company = schedule_type == MASTER or stored.get("view_source") == "company"
         if schedule_type == PERSONAL and not use_company:
@@ -263,10 +340,11 @@ class ScheduleRunner:
             if cv is not None:
                 return {"source": "company_views", "legacy_id": cv.id}
         return {"source": "snapshot",
-                "snapshot": dict(getattr(sched, "layout", None) or {})}
+                "snapshot": dict(getattr(sched, "layout", None) or {}),
+                "report_key": sched.report_key}
 
     def _legacy_json_layout(self, sched, schedule_type: str) -> dict | None:
-        """Raw layout_json for silent parity (bypass live-read hydrate)."""
+        """Raw layout_json for silent parity only (bypass live assemble)."""
         from web.data.normalized_views import loads_json_object
 
         ref = self._legacy_view_ref(sched, schedule_type)
@@ -285,24 +363,7 @@ class ScheduleRunner:
         return raw_legacy_layout(self.user_repo.db, source, int(ref["legacy_id"]))
 
     def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
-        ref = self._legacy_view_ref(sched, schedule_type)
-        db = self.user_repo.db
-        source = ref.get("source")
-        with db.precious() as conn:
-            if source in ("report_defaults", "snapshot") and ref.get("report_key"):
-                row = conn.execute(
-                    "SELECT id FROM views WHERE kind='default' AND report_key=?",
-                    (ref["report_key"],),
-                ).fetchone()
-                return row["id"] if row else None
-            if source in ("saved_reports", "company_views") and ref.get("legacy_id") is not None:
-                row = conn.execute(
-                    "SELECT id FROM views WHERE legacy_source=? AND legacy_id=?",
-                    (source, ref["legacy_id"]),
-                ).fetchone()
-                return row["id"] if row else None
-        return None
-
+        return self._live_view_id(sched, schedule_type)
     def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
         if not self.settings.view_workbook_parity_enabled():
             return {}

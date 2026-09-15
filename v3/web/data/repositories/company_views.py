@@ -3,7 +3,8 @@
 Default is still one-per-report in ``report_defaults``. These are extra named
 views everyone can pick in Saved views and on schedules.
 
-Reads prefer the normalized `views` tree when a projected row exists.
+Reads always assemble from the normalized `views` tree (syncing from JSON
+once if missing). JSON is not returned for live use.
 """
 
 from __future__ import annotations
@@ -50,7 +51,10 @@ class CompanyView:
 def _hydrate(conn: sqlite3.Connection, row: CompanyView) -> CompanyView:
     got = assemble_legacy_view(conn, "company_views", row.id)
     if got is None:
-        return row
+        sync_company_view_conn(conn, row.id)
+        got = assemble_legacy_view(conn, "company_views", row.id)
+    if got is None:
+        return replace(row, params={}, layout={})
     params, layout = got
     return replace(row, params=params, layout=layout)
 
