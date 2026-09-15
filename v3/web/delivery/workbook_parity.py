@@ -240,16 +240,6 @@ def raw_legacy_layout(db: Database, legacy_source: str, legacy_id: int) -> dict 
             row = conn.execute(
                 "SELECT layout_json FROM company_views WHERE id=?", (legacy_id,),
             ).fetchone()
-        elif legacy_source == "report_defaults":
-            vr = conn.execute(
-                "SELECT report_key FROM views WHERE legacy_source=? AND legacy_id=?",
-                (legacy_source, legacy_id),
-            ).fetchone()
-            if vr is not None:
-                row = conn.execute(
-                    "SELECT layout_json FROM report_defaults WHERE report_key=?",
-                    (vr["report_key"],),
-                ).fetchone()
         if row is None:
             return None
         return loads_json_object(row["layout_json"])

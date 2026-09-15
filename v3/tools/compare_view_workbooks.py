@@ -66,6 +66,11 @@ def _sheet_grid(xlsx_bytes: bytes):
     return sheet_grid(xlsx_bytes)
 
 
+def _diff_sheets(old_sheets, new_sheets) -> list[str]:
+    from web.delivery.workbook_parity import diff_sheet_grids
+    return diff_sheet_grids(old_sheets, new_sheets)
+
+
 def _xlsx(payload: dict, layout: dict) -> bytes:
     shaped = apply_layout(expand_clones(payload, layout), layout)
     return build_workbook(shaped, layout)
@@ -174,33 +179,6 @@ def _run_params(assembled_params: dict, fallback_period: str | None) -> dict:
     ):
         params["period"] = fallback_period
     return params
-
-
-def _diff_sheets(old_sheets, new_sheets) -> list[str]:
-    notes: list[str] = []
-    if [n for n, _ in old_sheets] != [n for n, _ in new_sheets]:
-        notes.append(
-            f"sheet names: old={[n for n, _ in old_sheets]} "
-            f"new={[n for n, _ in new_sheets]}"
-        )
-        return notes
-    for (name, old_rows), (_, new_rows) in zip(old_sheets, new_sheets):
-        if old_rows == new_rows:
-            continue
-        notes.append(f"{name}: {len(old_rows)} vs {len(new_rows)} rows")
-        for i, (a, b) in enumerate(zip(old_rows, new_rows)):
-            if a != b:
-                notes.append(f"  row {i}: old={a!r}")
-                notes.append(f"  row {i}: new={b!r}")
-                if len(notes) > 40:
-                    notes.append("  … truncated")
-                    return notes
-        if len(old_rows) != len(new_rows):
-            notes.append(
-                f"  length mismatch after shared prefix "
-                f"({len(old_rows)} vs {len(new_rows)})"
-            )
-    return notes
 
 
 def main(argv: list[str] | None = None) -> int:
