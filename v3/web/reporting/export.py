@@ -823,29 +823,47 @@ class WorkbookBundle:
 
 # Sheet titles allow more than Windows/SharePoint filenames; strip both.
 _INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+_MAX_FILE_STEM = 60
 
 
-def _file_stem(label: str) -> str:
+def _file_stem(label: str, *, max_len: int = _MAX_FILE_STEM) -> str:
     s = _INVALID_SHEET.sub("_", (label or "Sheet").strip())
     s = _INVALID_FILENAME.sub("_", s)
     s = re.sub(r"\s+", "_", s).strip("._") or "Sheet"
-    return s[:60]
+    return s[:max_len]
 
 
 def _unique_file_stem(label: str, key: str | None, used: set[str]) -> str:
-    """Filename-safe stem unique among companions in this bundle."""
-    base = _file_stem(str(label))
-    if base not in used:
-        used.add(base)
-        return base
-    key_bit = _file_stem(str(key or "tab"))[:24]
-    candidate = f"{base}_{key_bit}"[:60]
-    n = 2
-    while candidate in used:
-        candidate = f"{base}_{n}"[:60]
-        n += 1
-    used.add(candidate)
-    return candidate
+    """Filename-safe stem unique among companions (case-insensitive).
+
+    ``used`` stores casefolded stems already claimed. Truncation always leaves
+    room for a numeric suffix so a shared 60-char prefix cannot hang the worker.
+    """
+    raw = _file_stem(str(label), max_len=200)
+
+    def claim(stem: str) -> str | None:
+        stem = (stem[:_MAX_FILE_STEM].strip("._") or "Sheet")
+        fold = stem.casefold()
+        if fold in used:
+            return None
+        used.add(fold)
+        return stem
+
+    hit = claim(raw)
+    if hit:
+        return hit
+
+    key_bit = _file_stem(str(key or "tab"), max_len=24)
+    # Try key suffix once, then _2, _3, … (suffix space reserved before truncate).
+    suffixes = [f"_{key_bit}"] if key_bit and key_bit.casefold() != raw.casefold() else []
+    suffixes.extend(f"_{n}" for n in range(2, 10_000))
+    for suffix in suffixes:
+        body_len = max(1, _MAX_FILE_STEM - len(suffix))
+        hit = claim(raw[:body_len] + suffix)
+        if hit:
+            return hit
+    # Exhausted — should be unreachable for real tab counts.
+    raise RuntimeError(f"Could not allocate unique companion stem for {label!r}")
 
 
 def _layout_for_tab(layout: dict | None, tab_key: str | None) -> dict | None:

@@ -1315,4 +1315,23 @@ def test_workbook_bundle_unique_safe_companion_stems():
     bundle = build_workbook_bundle(payload, None, max_sheet_rows=20)
     stems = [p.stem for p in bundle.extras]
     assert len(stems) == len(set(stems))
+    assert len({s.casefold() for s in stems}) == len(stems)
     assert all("|" not in s and "/" not in s and ":" not in s for s in stems)
+
+
+def test_unique_file_stem_long_prefix_and_casefold():
+    """60-char prefix collisions must terminate; case-only names must not clash."""
+    from web.reporting.export import _MAX_FILE_STEM, _unique_file_stem
+
+    used: set[str] = set()
+    long = "X" * 80
+    a = _unique_file_stem(long, "tab_a", used)
+    b = _unique_file_stem(long, "tab_b", used)
+    assert a != b
+    assert len(a) <= _MAX_FILE_STEM and len(b) <= _MAX_FILE_STEM
+    assert a.casefold() != b.casefold()
+
+    used2: set[str] = set()
+    c = _unique_file_stem("Full_Data", "k1", used2)
+    d = _unique_file_stem("full_data", "k2", used2)
+    assert c.casefold() != d.casefold()
