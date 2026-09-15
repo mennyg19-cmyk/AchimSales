@@ -705,9 +705,14 @@ def download_export(export_id: str):
     if found is None:
         abort(404, description="Export expired; please export again")
     filename, data = found
+    mime = (
+        "application/zip"
+        if filename.lower().endswith(".zip")
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
     return send_file(
         io.BytesIO(data),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimetype=mime,
         as_attachment=True, download_name=filename,
     )
 
