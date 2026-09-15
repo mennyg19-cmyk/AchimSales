@@ -142,6 +142,30 @@ def schedule_history(request: Request, schedule_id: int):
     )
 
 
+@router.get("/schedules/runs/{run_id}")
+def schedule_run_log(request: Request, run_id: int):
+    user = session_user(request)
+    if not user:
+        return login_redirect()
+    run = store.get_schedule_run(run_id)
+    if run is None:
+        flash(request, "Unknown schedule run.", "error")
+        return RedirectResponse("/schedules", status_code=302)
+    when = run["started_at"]
+    steps = [
+        {"time": when, "step": "Start", "detail": f"{run['view_name']} ({run['report_key']})"},
+        {"time": when, "step": "Build", "detail": "Mock workbook from the saved view. No office API."},
+        {"time": when, "step": "Deliver", "detail": run["message"] or run["status"]},
+    ]
+    return page(
+        request,
+        "schedule_run.html",
+        active_tab="schedules",
+        run=run,
+        steps=steps,
+    )
+
+
 @router.get("/settings/company-schedules")
 def company_schedules(request: Request):
     user = session_user(request)

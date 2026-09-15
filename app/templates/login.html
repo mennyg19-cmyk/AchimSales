@@ -21,16 +21,17 @@
             style="position:absolute; top:8px; right:12px; background:none; border:none; font-size:24px; color:var(--text-muted); cursor:pointer;">&times;</button>
     <h2 id="extLoginTitle" style="margin:0 0 8px;">External Rep Login</h2>
     <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">
-      Enter the email your account is registered with. We'll send you a
-      one-time sign-in link from <strong>reports@achimonline.com</strong>.
-      The link expires in 15 minutes.
+      On the live site this sends a 15-minute link from
+      <strong>reports@achimonline.com</strong>.
+      <strong>This preview does not send mail.</strong>
+      If your email is an active External People row, you will be signed in now.
     </p>
     <form method="POST" action="/login/magic-link">
       <input type="email" name="email" required autofocus placeholder="you@company.com"
              style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
       <div style="display:flex; gap:8px; margin-top:12px;">
         <button type="button" class="btn btn-outline" onclick="closeExternalLogin()" style="flex:1;">Cancel</button>
-        <button type="submit" class="btn btn-primary" style="flex:2;">Send sign-in link</button>
+        <button type="submit" class="btn btn-primary" style="flex:2;">Continue (no mail)</button>
       </div>
     </form>
   </div>

@@ -229,6 +229,19 @@ def list_schedule_runs() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_schedule_run(run_id: int) -> dict | None:
+    with db() as conn:
+        row = conn.execute(
+            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key
+               FROM schedule_runs r
+               JOIN schedules s ON s.id = r.schedule_id
+               JOIN views v ON v.id = s.view_id
+               WHERE r.id = ?""",
+            (run_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_user_by_id(user_id: int) -> dict | None:
     with db() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()

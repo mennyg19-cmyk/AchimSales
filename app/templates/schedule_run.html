@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Run log{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/schedules/{{ run.schedule_id }}/history"><i data-feather="arrow-left"></i> History</a>
+    <h1 class="page-title">{{ run.view_name }}</h1>
+    <p class="page-subtitle">{{ run.status }} · {{ run.started_at }}</p>
+</div>
+<section class="settings-card">
+    <table class="simple-table">
+        <thead><tr><th>Time</th><th>Step</th><th>Detail</th></tr></thead>
+        <tbody>
+        {% for s in steps %}
+        <tr>
+            <td>{{ s.time }}</td>
+            <td>{{ s.step }}</td>
+            <td>{{ s.detail }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -11,6 +11,8 @@
 | Duplicate People email | refused (no self-register) |
 | Visibility off | card gone from `/` |
 | Schedule Run now | sqlite outbox, not Graph |
+| `/schedules/runs/{id}` | Time / Step / Detail log |
+| External login copy | preview does not send mail; no “Send sign-in link” |
 | xlsx | zip magic `PK` |
 | `APP_ENV=production` | `/login/preview` 403 |
 | `REPORTING_API_BASE_URL=https://reports.achimonline.com` | boot refuse |

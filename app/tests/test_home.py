@@ -44,6 +44,8 @@ def test_login_looks_like_v3(client):
     assert "Achim User Login" in html
     assert "External Rep Login" in html
     assert "Sign in to continue" in html
+    assert "This preview does not send mail" in html
+    assert "Send sign-in link" not in html
 
 
 def test_invoiced_mock_requires_login(client):
@@ -166,6 +168,17 @@ def test_save_view_and_schedule_run_now(client):
     outbox = client.get("/dev/notif-diagnostic").text
     assert "[MOCK]" in outbox
     assert "preview@achimonline.com" in outbox
+    with db() as conn:
+        run = conn.execute("SELECT id FROM schedule_runs ORDER BY id DESC LIMIT 1").fetchone()
+        run_id = run["id"]
+    log = client.get(f"/schedules/runs/{run_id}")
+    assert log.status_code == 200
+    assert "Time" in log.text
+    assert "Step" in log.text
+    assert "Detail" in log.text
+    history = client.get(f"/schedules/{sid}/history")
+    assert history.status_code == 200
+    assert f"/schedules/runs/{run_id}" in history.text
 
 
 def test_xlsx_export(client):
