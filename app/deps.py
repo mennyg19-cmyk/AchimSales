@@ -60,7 +60,7 @@ def ctx(request: Request, **extra):
         "theme_class": THEME_BODY_CLASS[current],
         "theme_names": ",".join(THEME_BODY_CLASS),
         "theme_color": config.THEME_COLOR,
-        "asset_v": "home2",
+        "asset_v": "home3",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
@@ -136,6 +136,9 @@ def session_from_row(row: dict) -> dict:
         "sales_group": row.get("sales_group") or "",
         "is_external": bool(row.get("is_external")),
         "can_see_company_views": bool(row.get("can_see_company_views")),
+        "dashboard_enabled": bool(row.get("dashboard_enabled")),
+        "test_access": bool(row.get("test_access")),
+        "sharepoint_access": bool(row.get("sharepoint_access")),
     }
 
 
@@ -143,12 +146,17 @@ def can_see_report(user: dict, key: str) -> bool:
     spec = catalog.spec(key)
     if spec is None:
         return False
+    if spec["privileged_only"] and not is_privileged(user):
+        return False
+    override = store.report_access_map(user.get("id") or 0).get(key)
+    if override is not None:
+        return override
     vis = store.visibility_map()
     if key in vis and not vis[key]:
         return False
-    if spec["privileged_only"] and not is_privileged(user):
-        return False
-    return True
+    if is_privileged(user) or user.get("role") == "manager":
+        return True
+    return bool(spec.get("salesman_default", True))
 
 
 def visible_reports(user: dict) -> list[dict]:
@@ -161,12 +169,31 @@ def salesman_scope(user: dict) -> str:
     return user.get("sales_group") or ""
 
 
+def salesman_keys(user: dict) -> set[str] | None:
+    if is_privileged(user) or user.get("role") == "manager":
+        return None
+    keys: set[str] = set()
+    primary = user.get("sales_group") or ""
+    if primary:
+        keys.add(primary)
+    uid = user.get("id")
+    if uid:
+        keys.update(store.list_user_groups(int(uid)))
+    return keys
+
+
+def _schedule_is_company(row: dict) -> bool:
+    return (row.get("view_kind") or row.get("kind") or "") == "company"
+
+
 def can_read_schedule(user: dict, row: dict) -> bool:
     if is_privileged(user):
         return True
     if row.get("owner_email") == user.get("email"):
         return True
-    return user.get("role") == "manager"
+    if user.get("role") == "manager":
+        return _schedule_is_company(row)
+    return False
 
 
 def can_read_job(user: dict, job: dict) -> bool:

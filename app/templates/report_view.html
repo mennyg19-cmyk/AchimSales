@@ -181,6 +181,7 @@
       <p class="muted">Writes the mock outbox. Graph is not connected.</p>
       <label class="modal-field"><span>To</span><input type="text" id="emailTo" value="{{ user.email }}"></label>
       <label class="modal-field"><span>Subject</span><input type="text" id="emailSubject" value="[MOCK] {{ report_title }}"></label>
+      <label class="modal-field"><span>SharePoint folder</span><input type="text" id="emailSharepoint" placeholder="optional — Graph is not wired"></label>
       <div class="modal-foot">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('emailOverlay').hidden=true">Cancel</button>
         <button type="button" class="btn btn-primary" id="emailConfirm">Queue mock mail</button>

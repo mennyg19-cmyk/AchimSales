@@ -171,11 +171,17 @@ def users_page(request: Request):
     blocked = _guard_admin(request)
     if blocked:
         return blocked
+    people = []
+    for row in store.list_users():
+        person = dict(row)
+        person["extra_groups"] = store.list_user_groups(person["id"])
+        person["report_access"] = store.report_access_map(person["id"])
+        people.append(person)
     return page(
         request,
         "admin_users.html",
         active_tab="settings",
-        users=store.list_users(),
+        users=people,
         roles=config.ROLES,
         salesmen=catalog.SALESMEN,
         reports=catalog.REPORTS,
@@ -211,43 +217,61 @@ def users_add(
 
 
 @router.post("/admin/users/{user_id}/edit")
-def users_edit(
-    request: Request,
-    user_id: int,
-    display_name: str = Form(""),
-    role: str = Form("salesman"),
-    sales_group: str = Form(""),
-    is_active: str = Form(""),
-    is_external: str = Form(""),
-    can_see_company_views: str = Form(""),
-    sharepoint_access: str = Form(""),
-    csrf: str = Form(""),
-):
+async def users_edit(request: Request, user_id: int):
     blocked = _guard_admin(request)
     if blocked:
         return blocked
-    denied = require_csrf(request, csrf)
+    form = await request.form()
+    denied = require_csrf(request, str(form.get("csrf") or ""))
     if denied:
         return denied
+    role = str(form.get("role") or "salesman")
     if role not in config.ROLES:
         flash(request, "Unknown role.", "error")
         return RedirectResponse("/admin/users", status_code=303)
     store.update_user(
         user_id,
         {
-            "display_name": display_name,
+            "display_name": str(form.get("display_name") or ""),
             "role": role,
-            "sales_group": sales_group,
-            "is_active": 1 if is_active else 0,
-            "is_external": 1 if is_external else 0,
-            "can_see_company_views": 1 if can_see_company_views else 0,
-            "sharepoint_access": 1 if sharepoint_access else 0,
+            "sales_group": str(form.get("sales_group") or ""),
+            "is_active": 1 if form.get("is_active") else 0,
+            "is_external": 1 if form.get("is_external") else 0,
+            "can_see_company_views": 1 if form.get("can_see_company_views") else 0,
+            "sharepoint_access": 1 if form.get("sharepoint_access") else 0,
+            "dashboard_enabled": 1 if form.get("dashboard_enabled") else 0,
+            "test_access": 1 if form.get("test_access") else 0,
         },
     )
-    extra = request.query_params.get("groups") or ""
-    if extra:
-        store.set_user_groups(user_id, [part for part in extra.split(",") if part])
+    extra = [str(part) for part in form.getlist("extra_groups") if str(part)]
+    store.set_user_groups(user_id, extra)
+    for report in catalog.REPORTS:
+        mode = str(form.get(f"report_access_{report['key']}") or "inherit")
+        if mode not in {"inherit", "allow", "deny"}:
+            mode = "inherit"
+        store.set_report_access(user_id, report["key"], mode)
     flash(request, "User saved.")
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@router.post("/admin/users/{user_id}/delete")
+def users_delete(request: Request, user_id: int, csrf: str = Form("")):
+    blocked = _guard_admin(request)
+    if blocked:
+        return blocked
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
+    actor = session_user(request)
+    target = store.get_user_by_id(user_id)
+    if target is None:
+        flash(request, "Unknown user.", "error")
+        return RedirectResponse("/admin/users", status_code=303)
+    if actor and target["email"] == actor["email"]:
+        flash(request, "You cannot delete your own login.", "warn")
+        return RedirectResponse("/admin/users", status_code=303)
+    store.delete_user(user_id)
+    flash(request, f"Deleted {target['email']}.")
     return RedirectResponse("/admin/users", status_code=303)
 
 
@@ -395,6 +419,27 @@ def notif_diagnostic(request: Request):
         flash(request, "Developer only.", "warn")
         return RedirectResponse("/settings", status_code=302)
     return page(request, "notif_diagnostic.html", active_tab="settings", outbox=store.list_outbox())
+
+
+@router.get("/dev/diagnostics")
+def diagnostics(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    if not is_privileged(user):
+        flash(request, "Developer only.", "warn")
+        return RedirectResponse("/settings", status_code=302)
+    salesman = catalog.mock_report("salesman")
+    number4 = catalog.mock_report("number_4")
+    return page(
+        request,
+        "diagnostics.html",
+        active_tab="settings",
+        salesman_tabs=list((salesman["data"]["tabs"] or {}).keys()),
+        number4_tabs=list((number4["data"]["tabs"] or {}).keys()),
+        blocked="P4.I8 salesman vs SalesGroup is BLOCKED. Testers stay admin until Menny maps live rows.",
+    )
 
 
 @router.post("/api/dev/reporting/{report_id}/run")

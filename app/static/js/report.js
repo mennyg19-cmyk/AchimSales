@@ -196,6 +196,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const params = collectParams();
     params.recipients = document.getElementById("emailTo").value;
     params.subject = document.getElementById("emailSubject").value;
+    const folder = document.getElementById("emailSharepoint");
+    if (folder) params.sharepoint_folder = folder.value;
     const res = await fetch("/api/reports/" + params.report_key + "/email", {
       method: "POST",
       headers: csrfHeaders(),

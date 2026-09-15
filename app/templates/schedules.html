@@ -15,6 +15,9 @@
     <a href="/settings">Settings</a>
 </div>
 {% endif %}
+<div class="alert alert-warn hebcal-banner" role="status">
+    Calendar skip is off on this preview (no Hebcal file). Production would hold when the Brooklyn calendar does not cover now, skip Shabbos/Yom Tov, and catch up on the next weekday slot.
+</div>
 
 <section class="settings-card">
     <h2 class="section-title">Add a schedule</h2>
@@ -50,6 +53,21 @@
             <input name="run_time" type="time" value="08:00"></label>
         <label class="auth-field"><span class="auth-label">Where (email)</span>
             <input name="recipients" type="text" value="{{ user.email }}" placeholder="one@x.com, two@x.com"></label>
+        {% if is_privileged %}
+        <label class="auth-field"><span class="auth-label">CC</span>
+            <input name="cc" type="text" placeholder="optional"></label>
+        <label class="auth-field"><span class="auth-label">BCC</span>
+            <input name="bcc" type="text" placeholder="optional"></label>
+        {% endif %}
+        <label class="auth-field"><span class="auth-label">Subject</span>
+            <input name="subject" type="text" placeholder="{Schedule} {Period}"></label>
+        <p class="form-hint">Chips you can type: {Schedule} {Period} {SharePointUrl} {DownloadButton}</p>
+        <label class="auth-field"><span class="auth-label">Filename</span>
+            <input name="filename" type="text" placeholder="{Schedule}-{Period}.xlsx"></label>
+        {% if is_privileged or user.sharepoint_access %}
+        <label class="auth-field"><span class="auth-label">SharePoint folder</span>
+            <input name="sharepoint_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
+        {% endif %}
         <button type="submit" class="btn btn-primary">Save schedule</button>
     </form>
     {% else %}
@@ -106,7 +124,7 @@
     {% endif %}
     {% if recent_runs %}
     <table class="simple-table">
-        <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th></tr></thead>
+        <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th><th></th></tr></thead>
         <tbody>
         {% for r in recent_runs %}
         <tr>
@@ -114,6 +132,7 @@
             <td>{{ r.view_name }}</td>
             <td>{{ r.status }}</td>
             <td>{{ r.message }}</td>
+            <td><a class="btn btn-sm btn-outline" href="/schedules/runs/{{ r.id }}">Log</a></td>
         </tr>
         {% endfor %}
         </tbody>

@@ -61,7 +61,7 @@
     <summary>Reports</summary>
     <section class="settings-card">
         <h2 class="section-title">Global report visibility</h2>
-        <p class="flag-desc">Off hides the report from everyone on the home list.</p>
+        <p class="flag-desc">Off hides the report from everyone unless that person has an explicit Allow.</p>
         <ul class="flag-list">
             {% for r in reports %}
             <li class="flag-row">
@@ -147,7 +147,9 @@
         <div class="admin-links">
             <a class="btn btn-outline btn-sm" href="/dev/db-explorer">Database explorer</a>
             <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>
+            <a class="btn btn-outline btn-sm" href="/dev/diagnostics">Salesman / Number 4 diagnostics</a>
             <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
+            <a class="btn btn-outline btn-sm" href="/master-schedules">Master schedules</a>
         </div>
         <p class="flag-desc">OData vs SQL source picker is retired. This app only talks to the office Reporting API (mocked here). POST /api/dev/reporting/&lt;id&gt;/run returns 501 until REPORTING_API_KEY is set.</p>
     </section>

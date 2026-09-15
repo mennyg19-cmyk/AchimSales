@@ -48,6 +48,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("period", "status", "customers", "salesman"),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "invoiced",
@@ -55,6 +56,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("period", "customers", "salesman"),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "salesman",
@@ -62,6 +64,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("year", "salesman"),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "number_4",
@@ -69,6 +72,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("n4_mode",),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "customer_activity",
@@ -76,6 +80,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("salesman",),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "customer_last_order",
@@ -83,6 +88,7 @@ REPORTS = (
         "in_app": True,
         "filters": (),
         "privileged_only": False,
+        "salesman_default": True,
     },
     {
         "key": "item_averages",
@@ -90,6 +96,7 @@ REPORTS = (
         "in_app": False,
         "filters": (),
         "privileged_only": True,
+        "salesman_default": False,
     },
     {
         "key": "sales_by_state",
@@ -97,6 +104,7 @@ REPORTS = (
         "in_app": False,
         "filters": ("year",),
         "privileged_only": False,
+        "salesman_default": True,
     },
 )
 

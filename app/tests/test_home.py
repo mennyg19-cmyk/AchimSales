@@ -445,3 +445,262 @@ def test_salesman_cannot_schedule_others_personal_view(client):
             "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
         ).fetchone()["n"]
     assert after == before
+
+
+def test_pwa_icons_and_manifest(client):
+    manifest = client.get("/manifest.json").json()
+    assert manifest["theme_color"] == "#2563eb"
+    icon_192 = client.get("/static/icon-192.png")
+    icon_512 = client.get("/static/icon-512.png")
+    assert icon_192.status_code == 200
+    assert icon_512.status_code == 200
+    assert icon_192.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert icon_512.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_extra_sales_group_opens_last_order_customers(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("salesman@achimonline.com")
+    saved = client.post(
+        f"/admin/users/{row['id']}/edit",
+        data={
+            "csrf": client.csrf,
+            "display_name": "Preview Salesman",
+            "role": "salesman",
+            "sales_group": "HKaufman",
+            "is_active": "1",
+            "extra_groups": ["DDweck"],
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    become(client, "salesman@achimonline.com")
+    pick = client.get("/report/customer-last-order").text
+    assert "HD SUPPLY" in pick
+    visit = client.get("/report/customer-last-order/C-1001")
+    assert "SO-88021" in visit.text
+
+
+def test_report_allow_overrides_global_visibility(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("salesman@achimonline.com")
+    client.post(
+        "/api/settings/visibility",
+        json={"key": "ordered", "enabled": False},
+        headers=csrf_headers(client),
+    )
+    client.post(
+        f"/admin/users/{row['id']}/edit",
+        data={
+            "csrf": client.csrf,
+            "display_name": "Preview Salesman",
+            "role": "salesman",
+            "sales_group": "HKaufman",
+            "is_active": "1",
+            "report_access_ordered": "allow",
+        },
+        follow_redirects=False,
+    )
+    become(client, "salesman@achimonline.com")
+    html = client.get("/").text
+    assert "Ordered" in html
+    assert "/reports/ordered" in html
+
+
+def test_report_deny_hides_card(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("salesman@achimonline.com")
+    client.post(
+        f"/admin/users/{row['id']}/edit",
+        data={
+            "csrf": client.csrf,
+            "display_name": "Preview Salesman",
+            "role": "salesman",
+            "sales_group": "HKaufman",
+            "is_active": "1",
+            "report_access_invoiced": "deny",
+        },
+        follow_redirects=False,
+    )
+    become(client, "salesman@achimonline.com")
+    html = client.get("/").text
+    assert "/reports/invoiced" not in html
+
+
+def test_item_averages_allow_still_admin_only(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("salesman@achimonline.com")
+    client.post(
+        f"/admin/users/{row['id']}/edit",
+        data={
+            "csrf": client.csrf,
+            "display_name": "Preview Salesman",
+            "role": "salesman",
+            "sales_group": "HKaufman",
+            "is_active": "1",
+            "report_access_item_averages": "allow",
+        },
+        follow_redirects=False,
+    )
+    become(client, "salesman@achimonline.com")
+    assert client.get("/reports/item_averages", follow_redirects=False).status_code == 302
+    run = client.post("/api/reports/item_averages/run", json={}, headers=csrf_headers(client))
+    assert run.status_code == 404
+
+
+def test_manager_sees_company_schedules_not_others_personal(client):
+    login(client)
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Admin personal for manager test",
+            "report_key": "invoiced",
+            "kind": "personal",
+            "params": {"period": "mtd"},
+        },
+        headers=csrf_headers(client),
+    ).json()
+    client.post(
+        "/schedules/add",
+        data={
+            "view_id": created["id"],
+            "freq": "daily",
+            "run_time": "07:00",
+            "recipients": "preview@achimonline.com",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
+    become(client, "manager@achimonline.com")
+    html = client.get("/schedules").text
+    assert "Daily Ordered" in html
+    assert "Admin personal for manager test" not in html
+
+
+def test_schedule_delivery_fields_land_in_outbox(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        view_id = conn.execute(
+            "SELECT id FROM views WHERE name = 'Daily Ordered' AND kind = 'company'"
+        ).fetchone()["id"]
+    add = client.post(
+        "/schedules/add",
+        data={
+            "view_id": view_id,
+            "freq": "weekly",
+            "run_time": "09:15",
+            "weekdays": ["mon", "wed"],
+            "recipients": "preview@achimonline.com",
+            "cc": "cc@achimonline.com",
+            "bcc": "bcc@achimonline.com",
+            "subject": "[MOCK] weekly",
+            "filename": "{Schedule}.xlsx",
+            "sharepoint_folder": "/Reports/Dummy",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
+    assert add.status_code == 303
+    with db() as conn:
+        sid = conn.execute(
+            "SELECT id FROM schedules WHERE filename = '{Schedule}.xlsx' ORDER BY id DESC LIMIT 1"
+        ).fetchone()["id"]
+    client.post(f"/schedules/{sid}/run-now", data={"csrf": client.csrf}, follow_redirects=True)
+    diag = client.get("/dev/notif-diagnostic").text
+    assert "CC cc@achimonline.com" in diag
+    assert "file {Schedule}.xlsx" in diag
+    assert "SharePoint /Reports/Dummy" in diag
+    sched = client.get("/schedules").text
+    assert "Calendar skip is off" in sched
+    assert 'href="/schedules/runs/' in sched
+
+
+def test_master_schedule_history_and_diagnostics(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        sid = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()["id"]
+    hist = client.get(f"/master-schedules/{sid}/history")
+    assert hist.status_code == 200
+    assert "Daily Ordered" in hist.text or "when" in hist.text.lower()
+    diag = client.get("/dev/diagnostics")
+    assert diag.status_code == 200
+    assert "P4.I8" in diag.text
+
+
+def test_dashboard_flag_does_not_add_nav(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("preview@achimonline.com")
+    client.post(
+        f"/admin/users/{row['id']}/edit",
+        data={
+            "csrf": client.csrf,
+            "display_name": "Preview Admin",
+            "role": "admin",
+            "is_active": "1",
+            "dashboard_enabled": "1",
+            "test_access": "1",
+        },
+        follow_redirects=False,
+    )
+    users = client.get("/admin/users").text
+    assert "Dashboard" in users
+    assert "Test" in users
+    home = client.get("/").text
+    assert "bottom-nav-label\">Dashboard" not in home
+    assert "/dashboard" not in home
+
+
+def test_cannot_delete_own_login(client):
+    login(client)
+    import store as home_store
+    row = home_store.get_user("preview@achimonline.com")
+    res = client.post(
+        f"/admin/users/{row['id']}/delete",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert home_store.get_user("preview@achimonline.com") is not None
+    login(client)
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Admin only view",
+            "report_key": "invoiced",
+            "kind": "personal",
+            "params": {"period": "mtd"},
+            "include_period": True,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    view_id = created["id"]
+    from db import db
+    become(client, "salesman@achimonline.com")
+    with db() as conn:
+        before = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    add = client.post(
+        "/schedules/add",
+        data={
+            "view_id": view_id,
+            "freq": "daily",
+            "run_time": "09:00",
+            "recipients": "salesman@achimonline.com",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
+    assert add.status_code == 303
+    with db() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    assert after == before

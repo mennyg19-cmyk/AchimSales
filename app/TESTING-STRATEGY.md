@@ -22,6 +22,19 @@
 | Disabled External row | magic-link 403 |
 | Schedule Copy | extra row owned by signed-in user |
 | `POST /api/dev/reporting/<id>/run` without key | 501 mock |
+| Extra SalesGroup on a salesman | Last Order includes those customers |
+| Per-report Allow | card stays when global visibility is off |
+| Per-report Deny | card gone even when global is on |
+| Item Averages Allow on salesman | still 404 (privileged_only) |
+| Manager schedules list | company views only, not another user's personal |
+| Schedule CC/filename/SharePoint | mock outbox body |
+| `/master-schedules/{id}/history` | 200 for admin |
+| `/dev/diagnostics` | P4.I8 blocked copy |
+| PWA icons 192/512 | PNG magic |
+| Dashboard flag | badge on Users, no Dashboard bottom nav |
+| Delete own login | refused |
+
+Never set `REPORTING_API_KEY` in CI.
 
 | Hidden report | company-view card gone from `/` |
 | Salesman vs other user's job/schedule log | 404 / 302 |

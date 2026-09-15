@@ -19,12 +19,20 @@ CREATE TABLE IF NOT EXISTS users (
     is_external INTEGER NOT NULL DEFAULT 0,
     sales_group TEXT NOT NULL DEFAULT '',
     can_see_company_views INTEGER NOT NULL DEFAULT 0,
-    sharepoint_access INTEGER NOT NULL DEFAULT 0
+    sharepoint_access INTEGER NOT NULL DEFAULT 0,
+    dashboard_enabled INTEGER NOT NULL DEFAULT 0,
+    test_access INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS user_sales_groups (
     user_id INTEGER NOT NULL,
     sales_group TEXT NOT NULL,
     PRIMARY KEY (user_id, sales_group)
+);
+CREATE TABLE IF NOT EXISTS user_report_access (
+    user_id INTEGER NOT NULL,
+    report_key TEXT NOT NULL,
+    allowed INTEGER NOT NULL,
+    PRIMARY KEY (user_id, report_key)
 );
 CREATE TABLE IF NOT EXISTS report_visibility (
     report_key TEXT PRIMARY KEY,
@@ -48,6 +56,11 @@ CREATE TABLE IF NOT EXISTS schedules (
     weekdays TEXT NOT NULL DEFAULT '',
     monthday INTEGER,
     recipients TEXT NOT NULL DEFAULT '',
+    cc TEXT NOT NULL DEFAULT '',
+    bcc TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '',
+    filename TEXT NOT NULL DEFAULT '',
+    sharepoint_folder TEXT NOT NULL DEFAULT '',
     is_active INTEGER NOT NULL DEFAULT 1,
     last_run TEXT,
     last_status TEXT
@@ -117,9 +130,24 @@ def db():
 def init_db() -> None:
     with db() as conn:
         conn.executescript(SCHEMA)
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
-        if "owner_email" not in cols:
-            conn.execute("ALTER TABLE jobs ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''")
+        user_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "INTEGER" in user_cols:
+            # one bad ALTER named the column INTEGER; drop it before adding real flags
+            conn.execute('ALTER TABLE users DROP COLUMN "INTEGER"')
+
+        def ensure_column(table: str, name: str, ddl: str) -> None:
+            cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if name not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+        ensure_column("jobs", "owner_email", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("users", "dashboard_enabled", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column("users", "test_access", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column("schedules", "cc", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "bcc", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "subject", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "filename", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "sharepoint_folder", "TEXT NOT NULL DEFAULT ''")
         for row in SEED_USERS:
             conn.execute(
                 """INSERT OR IGNORE INTO users

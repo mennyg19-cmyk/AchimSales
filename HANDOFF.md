@@ -13,7 +13,7 @@ Last updated: 2026-09-15 (dummy home site)
 
 ## What's in the dummy site
 
-Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards on mock `data.tabs`, Last Order picker, Settings hub, Users & access, visibility, saved views (including Company Default), Keep/Recent, schedules + weekdays/monthday + Copy + Run now → sqlite outbox, xlsx export, CSRF on mutating POSTs. Azure `startup.sh` is gunicorn + UvicornWorker `main:app`.
+Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards on mock `data.tabs`, Last Order picker, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (including Company Default), Keep/Recent, schedules + weekdays/monthday + CC/BCC/filename/SharePoint + Copy + Run now → sqlite outbox, Hebcal honest banner, master schedule history, diagnostics, xlsx export, CSRF, PWA icons. Azure `startup.sh` is gunicorn + UvicornWorker `main:app`.
 
 ## Locked (do not reopen)
 

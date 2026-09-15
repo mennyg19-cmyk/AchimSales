@@ -15,6 +15,7 @@ from deps import (
     need_login,
     page,
     require_csrf,
+    salesman_keys,
     salesman_scope,
     session_user,
     visible_reports,
@@ -212,6 +213,9 @@ async def report_email(request: Request, report_key: str):
     recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
     subject = (body or {}).get("subject") or f"[MOCK] {spec['title']}"
     store.add_outbox(recipients, subject, "Dummy Excel attached. Graph mail is not wired yet.")
+    folder = ((body or {}).get("sharepoint_folder") or "").strip()
+    if folder:
+        store.add_outbox(recipients, subject + " [SharePoint]", f"Would upload to {folder}. Graph is not wired.")
     return {"ok": True, "recipients": recipients, "mock": True}
 
 
@@ -224,12 +228,12 @@ def last_order_pick(request: Request):
     if not can_see_report(user, "customer_last_order"):
         flash(request, "Customer's Last Order is hidden.", "warn")
         return RedirectResponse("/", status_code=302)
-    scope = salesman_scope(user)
+    scope = salesman_keys(user)
     excluded = set(store.exclusions_for(user["email"]))
     customers = [
         row
         for row in catalog.CUSTOMERS
-        if (not scope or row["salesman"] == scope) and row["account"] not in excluded
+        if (scope is None or row["salesman"] in scope) and row["account"] not in excluded
     ]
     return page(
         request,
@@ -237,7 +241,7 @@ def last_order_pick(request: Request):
         active_tab="reports",
         customers=customers,
         salesmen=catalog.SALESMEN,
-        show_salesman_picker=not scope,
+        show_salesman_picker=scope is None,
     )
 
 
@@ -257,8 +261,8 @@ def last_order_view(request: Request, account: str):
     if account in store.exclusions_for(user["email"]):
         flash(request, "That customer is on your exclusion list.", "warn")
         return RedirectResponse("/report/customer-last-order", status_code=302)
-    scope = salesman_scope(user)
-    if scope and found["customer"]["salesman"] != scope:
+    scope = salesman_keys(user)
+    if scope is not None and found["customer"]["salesman"] not in scope:
         flash(request, "That customer is outside your SalesGroup.", "warn")
         return RedirectResponse("/report/customer-last-order", status_code=302)
     return page(request, "last_order_view.html", active_tab="reports", view=found)

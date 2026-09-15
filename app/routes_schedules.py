@@ -30,10 +30,22 @@ def _deliver(schedule: dict, user: dict) -> str:
     payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
     store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
+    extra = []
+    if schedule.get("cc"):
+        extra.append(f"CC {schedule['cc']}")
+    if schedule.get("bcc"):
+        extra.append(f"BCC {schedule['bcc']}")
+    if schedule.get("filename"):
+        extra.append(f"file {schedule['filename']}")
+    if schedule.get("sharepoint_folder"):
+        extra.append(f"SharePoint {schedule['sharepoint_folder']}")
+    detail = "Scheduled dummy workbook. Graph is not wired on this preview."
+    if extra:
+        detail += " " + "; ".join(extra)
     store.add_outbox(
         recipients,
-        f"[MOCK] {schedule['view_name']}",
-        "Scheduled dummy workbook. Graph is not wired on this preview.",
+        schedule.get("subject") or f"[MOCK] {schedule['view_name']}",
+        detail,
     )
     store.mark_schedule_run(schedule["id"], "success", f"Mock mail queued to {recipients}")
     return "success"
@@ -51,8 +63,15 @@ def schedules_page(request: Request):
     rows = store.list_schedules()
     if not is_privileged(user):
         own = [row for row in rows if row["owner_email"] == user["email"]]
-        shared = [row for row in rows if row["owner_email"] != user["email"]]
-        rows = own + shared if user.get("role") == "manager" else own
+        if user.get("role") == "manager":
+            shared = [
+                row
+                for row in rows
+                if row["owner_email"] != user["email"] and row.get("view_kind") == "company"
+            ]
+            rows = own + shared
+        else:
+            rows = own
     recent = store.list_schedule_runs()[:20]
     if not is_privileged(user):
         recent = [run for run in recent if can_read_schedule(user, run)]
@@ -78,6 +97,11 @@ def schedules_add(
     recipients: str = Form(""),
     weekdays: list[str] = Form(default=[]),
     monthday: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    subject: str = Form(""),
+    filename: str = Form(""),
+    sharepoint_folder: str = Form(""),
     csrf: str = Form(""),
 ):
     denied = need_login(request)
@@ -106,6 +130,11 @@ def schedules_add(
         recipients or user["email"],
         weekdays=",".join(weekdays),
         monthday=day,
+        cc=cc if is_privileged(user) else "",
+        bcc=bcc if is_privileged(user) else "",
+        subject=subject,
+        filename=filename,
+        sharepoint_folder=sharepoint_folder if user.get("sharepoint_access") or is_privileged(user) else "",
     )
     flash(request, "Schedule saved. Run now sends mock mail to the outbox.")
     return RedirectResponse("/schedules", status_code=303)
@@ -249,6 +278,30 @@ def master_schedules(request: Request):
     )
 
 
+@router.get("/master-schedules/{schedule_id}/history")
+def master_schedule_history(request: Request, schedule_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    if not is_privileged(user):
+        flash(request, "Master schedules are admin-only on this preview.", "warn")
+        return RedirectResponse("/schedules", status_code=302)
+    row = store.get_schedule(schedule_id)
+    if row is None:
+        flash(request, "Unknown schedule.", "error")
+        return RedirectResponse("/master-schedules", status_code=302)
+    runs = [item for item in store.list_schedule_runs() if item["schedule_id"] == schedule_id]
+    return page(
+        request,
+        "schedule_history.html",
+        active_tab="settings",
+        schedule=row,
+        runs=runs,
+        master=True,
+    )
+
+
 @router.post("/schedules/{schedule_id}/copy")
 def schedules_copy(request: Request, schedule_id: int, csrf: str = Form("")):
     denied = need_login(request)
@@ -270,6 +323,11 @@ def schedules_copy(request: Request, schedule_id: int, csrf: str = Form("")):
         user["email"],
         weekdays=row.get("weekdays") or "",
         monthday=row.get("monthday"),
+        cc=row.get("cc") or "",
+        bcc=row.get("bcc") or "",
+        subject=row.get("subject") or "",
+        filename=row.get("filename") or "",
+        sharepoint_folder=row.get("sharepoint_folder") or "",
     )
     flash(request, "Copied. Recipients set to you — edit if needed.")
     return RedirectResponse("/schedules", status_code=303)

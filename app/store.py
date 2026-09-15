@@ -51,6 +51,7 @@ def update_user(user_id: int, fields: dict) -> None:
     allowed = {
         "display_name", "role", "is_active", "is_external", "sales_group",
         "can_see_company_views", "sharepoint_access",
+        "dashboard_enabled", "test_access",
     }
     sets = []
     values = []
@@ -67,6 +68,8 @@ def update_user(user_id: int, fields: dict) -> None:
 
 def delete_user(user_id: int) -> None:
     with db() as conn:
+        conn.execute("DELETE FROM user_sales_groups WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_report_access WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
 
@@ -187,19 +190,37 @@ def list_outbox() -> list[dict]:
 def list_schedules() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
-            """SELECT s.*, v.name AS view_name, v.report_key
+            """SELECT s.*, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedules s JOIN views v ON v.id = s.view_id
                ORDER BY s.id"""
         ).fetchall()
     return [dict(row) for row in rows]
 
 
-def add_schedule(view_id: int, owner_email: str, freq: str, run_time: str, recipients: str, weekdays: str = "", monthday: int | None = None) -> int:
+def add_schedule(
+    view_id: int,
+    owner_email: str,
+    freq: str,
+    run_time: str,
+    recipients: str,
+    weekdays: str = "",
+    monthday: int | None = None,
+    cc: str = "",
+    bcc: str = "",
+    subject: str = "",
+    filename: str = "",
+    sharepoint_folder: str = "",
+) -> int:
     with db() as conn:
         cur = conn.execute(
-            """INSERT INTO schedules (view_id, owner_email, freq, run_time, weekdays, monthday, recipients, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
-            (view_id, owner_email, freq, run_time, weekdays, monthday, recipients),
+            """INSERT INTO schedules (
+                   view_id, owner_email, freq, run_time, weekdays, monthday,
+                   recipients, cc, bcc, subject, filename, sharepoint_folder, is_active
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+            (
+                view_id, owner_email, freq, run_time, weekdays, monthday,
+                recipients, cc, bcc, subject, filename, sharepoint_folder,
+            ),
         )
         return int(cur.lastrowid)
 
@@ -232,7 +253,7 @@ def mark_schedule_run(schedule_id: int, status: str, message: str) -> None:
 def list_schedule_runs() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
-            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key
+            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedule_runs r
                JOIN schedules s ON s.id = r.schedule_id
                JOIN views v ON v.id = s.view_id
@@ -244,7 +265,7 @@ def list_schedule_runs() -> list[dict]:
 def get_schedule_run(run_id: int) -> dict | None:
     with db() as conn:
         row = conn.execute(
-            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key
+            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedule_runs r
                JOIN schedules s ON s.id = r.schedule_id
                JOIN views v ON v.id = s.view_id
@@ -269,6 +290,44 @@ def set_user_groups(user_id: int, groups: list[str]) -> None:
                     "INSERT OR IGNORE INTO user_sales_groups (user_id, sales_group) VALUES (?, ?)",
                     (user_id, group),
                 )
+
+
+def list_user_groups(user_id: int) -> list[str]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT sales_group FROM user_sales_groups WHERE user_id = ? ORDER BY sales_group",
+            (user_id,),
+        ).fetchall()
+    return [row["sales_group"] for row in rows]
+
+
+def report_access_map(user_id: int) -> dict[str, bool]:
+    if not user_id:
+        return {}
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT report_key, allowed FROM user_report_access WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    return {row["report_key"]: bool(row["allowed"]) for row in rows}
+
+
+def set_report_access(user_id: int, report_key: str, mode: str) -> None:
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM user_report_access WHERE user_id = ? AND report_key = ?",
+            (user_id, report_key),
+        )
+        if mode == "allow":
+            conn.execute(
+                "INSERT INTO user_report_access (user_id, report_key, allowed) VALUES (?, ?, 1)",
+                (user_id, report_key),
+            )
+        elif mode == "deny":
+            conn.execute(
+                "INSERT INTO user_report_access (user_id, report_key, allowed) VALUES (?, ?, 0)",
+                (user_id, report_key),
+            )
 
 
 def list_views_for_report(email: str, report_key: str, privileged: bool) -> list[dict]:
@@ -353,4 +412,9 @@ def abandon_orphan_runs() -> int:
                message = 'Worker recycled before the run finished'
                WHERE status IN ('running', 'queued')"""
         )
-        return cur.rowcount
+        jobs = conn.execute(
+            """UPDATE jobs SET status = 'abandoned'
+               WHERE status IN ('running', 'queued')
+               AND datetime(created_at) < datetime('now', '-45 minutes')"""
+        )
+        return cur.rowcount + jobs.rowcount

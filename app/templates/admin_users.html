@@ -40,7 +40,9 @@
         <td><span class="badge {% if u.role in ('admin', 'developer') %}badge-admin{% elif u.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">{{ u.role|title }}</span></td>
         <td class="cell-flags">
           {% if not u.is_active %}<span class="mini-flag mini-off">Disabled</span>{% endif %}
+          {% if u.dashboard_enabled %}<span class="mini-flag">Dashboard</span>{% endif %}
           {% if u.sharepoint_access %}<span class="mini-flag">SharePoint</span>{% endif %}
+          {% if u.test_access %}<span class="mini-flag">Test</span>{% endif %}
           {% if u.can_see_company_views %}<span class="mini-flag">Company views</span>{% endif %}
           {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
           {% if u.sales_group %}<span class="mini-flag">{{ u.sales_group }}</span>{% endif %}
@@ -60,11 +62,41 @@
                   {% for s in salesmen %}<option value="{{ s.key }}" {% if s.key == u.sales_group %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
                 </select></label>
               <label class="flag-row"><input type="checkbox" name="is_active" value="1" {% if u.is_active %}checked{% endif %}> Active</label>
+              <label class="flag-row"><input type="checkbox" name="dashboard_enabled" value="1" {% if u.dashboard_enabled %}checked{% endif %}> Dashboard access (not on home nav)</label>
+              <label class="flag-row"><input type="checkbox" name="test_access" value="1" {% if u.test_access %}checked{% endif %}> Test-site access (old /test mount is not rebuilt)</label>
               <label class="flag-row"><input type="checkbox" name="is_external" value="1" {% if u.is_external %}checked{% endif %}> External</label>
               <label class="flag-row"><input type="checkbox" name="can_see_company_views" value="1" {% if u.can_see_company_views %}checked{% endif %}> Company views</label>
               <label class="flag-row"><input type="checkbox" name="sharepoint_access" value="1" {% if u.sharepoint_access %}checked{% endif %}> SharePoint</label>
+              <h4 class="settings-subhead">Per-salesman access</h4>
+              <p class="form-hint">Primary SalesGroup is always included. Extra checks add Last Order customers from those groups.</p>
+              <div class="access-grid">
+                {% for s in salesmen %}
+                <label class="access-item"><input type="checkbox" name="extra_groups" value="{{ s.key }}" {% if s.key in u.extra_groups %}checked{% endif %}> {{ s.name }}</label>
+                {% endfor %}
+              </div>
+              <h4 class="settings-subhead">Per-report access</h4>
+              <p class="form-hint">Inherit uses role defaults. Allow wins even if global visibility is off. Deny hides even if global is on. Item Averages stays admin-only.</p>
+              <div class="report-overrides">
+                {% for r in reports %}
+                <div class="report-override-row">
+                  <span class="report-override-name">{{ r.title }}</span>
+                  {% set current = u.report_access.get(r.key) %}
+                  <select name="report_access_{{ r.key }}">
+                    <option value="inherit" {% if current is none %}selected{% endif %}>Inherit</option>
+                    <option value="allow" {% if current is sameas true %}selected{% endif %}>Allow</option>
+                    <option value="deny" {% if current is sameas false %}selected{% endif %}>Deny</option>
+                  </select>
+                </div>
+                {% endfor %}
+              </div>
               <button type="submit" class="btn btn-primary btn-sm">Save</button>
             </form>
+            {% if u.email != user.email %}
+            <form method="post" action="/admin/users/{{ u.id }}/delete" class="inline-form mt-8" onsubmit="return confirm('Delete this login?');">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-outline btn-sm">Delete user</button>
+            </form>
+            {% endif %}
           </details>
           {% if u.email != user.email %}
           <form method="post" action="/admin/users/{{ u.id }}/view-as" class="inline-form">
