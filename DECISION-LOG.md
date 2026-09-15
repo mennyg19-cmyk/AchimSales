@@ -1,8 +1,8 @@
 ## 2026-09-15 Companion OOM: spill + chunk + ungroup
 **What you asked for:** Companion build still dying; why rebuild for Excel after screen shape; brother's site works.
 **What I had to decide:** One-shot API→Excel rewrite vs keep shared tab builder and harden companion writes.
-**What I chose:** Keep shared builder (schedules reuse the same tabs as the viewer). Harden companions: spill huge tabs to temp pickle (largest first), write smallest spill first in ≤100k chunks, force `group=[]` on companions. Failures retrying the whole job is why logs look "twice."
-**Why:** B1 dies holding Full Data + By Order + group-key set. Brother's export likely had more free RAM or a smaller period/view. True stream-to-Excel is a separate delivery builder — not this hotfix.
+**What I chose:** Keep shared builder (schedules reuse the same tabs as the viewer). Harden companions: spill huge tabs to temp JSON (largest first), write smallest spill first in ≤100k chunks, force `group=[]` on companions. Failures retrying the whole job is why logs look "twice."
+**Why:** B1 dies holding Full Data + By Order + group-key set. Brother's export likely had more free RAM or a smaller period/view. True stream-to-Excel is a separate delivery builder — not this hotfix. (Pickle spill rejected by Semgrep; JSON spill instead.)
 **Status:** DECIDED
 
 
