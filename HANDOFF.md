@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-15 (Loop C craft on API hookup)
+Last updated: 2026-09-15 (dummy inventory clickable on Cloudflare)
 
-**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. No production cutover.
+**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Cheap chrome+API reviews green. No production cutover.
 
 ## Working tree
 
