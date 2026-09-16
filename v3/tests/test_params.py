@@ -196,4 +196,3 @@ def test_customer_transaction_detail_filters():
         "customers": ["9017", "9018"],
     })
     assert "AccountNum" not in multi
-
