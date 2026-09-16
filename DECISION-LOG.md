@@ -1,4 +1,11 @@
-## 2026-09-16 Hotfix: schedule_runs.message missing after Flask Litestream restore
+## 2026-09-16 Entra AD UPN maps to @achimonline.com People row
+**What I had to decide:** Upsert on Entra callback vs match `user@ad.achimonline.com` to `user@achimonline.com`.
+**What I chose:** No upsert. Login aliases AD UPN ↔ mailbox. Session uses the People email. 403 names the Microsoft email.
+**Why:** Flask seeded both addresses and upserted on callback. Menny's Achim User Login is the AD account; People has the mailbox. Exact match 403'd.
+**Status:** DECIDED
+
+
+
 **What I had to decide:** Crash on missing column vs migrate; keep replicating to Flask `precious.db` blob path.
 **What I chose:** `init_db` ADD COLUMN `schedule_runs.message`. Replica blob path is `home.sqlite`, not `${LITESTREAM_AZURE_PATH}` (still `precious.db` on live). Log at 12:07: gunicorn bound :8000 then lifespan died. BOOT_B64 still launched Oryx. Re-import after boot; that restore overwrote the Kudu import with an 86KB Flask snapshot.
 **Why:** `CREATE TABLE IF NOT EXISTS` does not add columns. Worker exit → 503.

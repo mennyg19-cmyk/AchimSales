@@ -63,7 +63,11 @@ def complete_login(request: Request) -> dict:
         return {"error": result.get("error_description") or result["error"]}
     claims = result.get("id_token_claims") or {}
     email = (
-        claims.get("preferred_username") or claims.get("email") or claims.get("upn") or ""
+        claims.get("preferred_username")
+        or claims.get("email")
+        or claims.get("upn")
+        or claims.get("unique_name")
+        or ""
     ).strip().lower()
     if not email:
         return {"error": "Microsoft did not return an email claim."}

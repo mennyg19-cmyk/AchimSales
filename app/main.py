@@ -107,10 +107,15 @@ def create_app() -> FastAPI:
         if "error" in result:
             flash(request, result["error"], "error")
             return RedirectResponse("/login", status_code=302)
-        row = store.get_user(result["email"])
+        row = store.get_user_for_login(result["email"])
         if row is None:
             return JSONResponse(
-                {"error": "No People row for that Microsoft account. An admin must add you first."},
+                {
+                    "error": (
+                        "No People row for that Microsoft account "
+                        f"({result['email']}). An admin must add you first."
+                    )
+                },
                 status_code=403,
             )
         if not row["is_active"]:

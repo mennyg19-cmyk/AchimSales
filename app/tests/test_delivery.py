@@ -210,6 +210,31 @@ def test_entra_callback_signs_in_existing_people_row(tmp_path, monkeypatch):
         assert "Preview Admin" in home
 
 
+def test_entra_callback_accepts_ad_achimonline_upn(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.setattr(
+        "entra.complete_login",
+        lambda request: {"email": "preview@ad.achimonline.com", "name": "Preview"},
+    )
+    with TestClient(create_app()) as client:
+        res = client.get("/auth/callback", follow_redirects=False)
+        assert res.status_code == 302
+        home = client.get("/").text
+        assert "Preview Admin" in home
+
+
+def test_entra_callback_names_missing_email(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.setattr(
+        "entra.complete_login",
+        lambda request: {"email": "nobody@achimonline.com", "name": "Nobody"},
+    )
+    with TestClient(create_app()) as client:
+        res = client.get("/auth/callback")
+        assert res.status_code == 403
+        assert "nobody@achimonline.com" in res.json()["error"]
+
+
 def test_magic_consume_expired_token(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
     with TestClient(create_app()) as client:

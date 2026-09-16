@@ -42,6 +42,35 @@ def get_user(email: str) -> dict | None:
     return dict(row) if row else None
 
 
+_ACHIM_MAIL = "@achimonline.com"
+_ACHIM_AD = "@ad.achimonline.com"
+
+
+def login_email_aliases(email: str) -> list[str]:
+    """Entra often returns the AD UPN (mennyg@ad.achimonline.com) while People has the mailbox."""
+    raw = (email or "").strip().lower()
+    if not raw:
+        return []
+    aliases = [raw]
+    if raw.endswith(_ACHIM_AD):
+        aliases.append(raw[: -len(_ACHIM_AD)] + _ACHIM_MAIL)
+    elif raw.endswith(_ACHIM_MAIL):
+        aliases.append(raw[: -len(_ACHIM_MAIL)] + _ACHIM_AD)
+    return aliases
+
+
+def get_user_for_login(email: str) -> dict | None:
+    seen: set[str] = set()
+    for candidate in login_email_aliases(email):
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        row = get_user(candidate)
+        if row:
+            return row
+    return None
+
+
 def preview_login_row() -> dict | None:
     row = get_user("preview@achimonline.com")
     if row and row.get("is_active"):
