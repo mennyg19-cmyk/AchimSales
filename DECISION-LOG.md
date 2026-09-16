@@ -1,3 +1,10 @@
+## 2026-09-16 Continuation handoff for a new agent (docs only)
+**What I had to decide:** Leave the 2026-09-15 “rebuild not started / do not push main” prompt in place vs rewrite it after PR #68 cutover.
+**Options I considered:** Keep the original greenfield prompt; tell a new agent to start a second FastAPI app; rewrite as finish-the-live-site.
+**What I chose:** Rewrite. Source of truth is `rebuild/NEW-AGENT-PROMPT.md` + `rebuild/BROTHER-STACK-REBUILD.md`. Do not start another rebuild. Remaining: precious import, Semgrep `entra.py`, companion xlsx, Litestream on `home.sqlite`, SQL tab math, P4.I8, Aging backlog.
+**Why:** Flask is gone from `main`. A greenfield prompt would fight production.
+**Status:** DECIDED
+
 ## 2026-09-16 Hotfix: schedule_runs.message missing after Flask Litestream restore
 **What I had to decide:** Crash on missing column vs migrate; keep replicating to Flask `precious.db` blob path.
 **What I chose:** `init_db` ADD COLUMN `schedule_runs.message`. Replica blob path is `home.sqlite`, not `${LITESTREAM_AZURE_PATH}` (still `precious.db` on live). Log at 12:07: gunicorn bound :8000 then lifespan died. BOOT_B64 still launched Oryx. Re-import after boot; that restore overwrote the Kudu import with an 86KB Flask snapshot.

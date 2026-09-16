@@ -1,16 +1,33 @@
-# Rebuild handoff — brother’s internals, our look, our features
+# Rebuild handoff — finish FastAPI (brother internals, our look)
 
 **Owner:** Menny (Achim sales reporting). Non-technical. Show a clickable preview after each slice.  
-**Status:** Plan only. Rebuild not started. Leftover PR #35 is **parked** (do not merge, do not use as the rebuild branch).  
-**Written:** 2026-09-15 from the “Branch merge strategy” cloud chat (`bc-47d9299b-a445-419d-b670-3f21d661551b`).
+**Status:** FastAPI **already live** on https://reports.achimonline.com (`main` @ `ed4e25c` and later). This file is for a **new agent** to finish remaining work — not to start another rebuild.  
+**Written:** 2026-09-16. Updates the 2026-09-15 plan after PR #68 cutover.  
+**Paste prompt:** `rebuild/NEW-AGENT-PROMPT.md`  
+**Tab math:** `rebuild/REPORT-TAB-HANDOFF.md`
 
-This file is the source of truth for a **new agent**. Do not reopen the old chat.
+Leftover Flask PR https://github.com/mennyg19-cmyk/AchimSales/pull/35 stays **parked**. Do not merge it. Do not use it as the working branch.
 
 ---
 
 ## One-sentence job
 
-Rebuild the **home site** as a new app: **FastAPI + one JSON payload per report + SQL does the math** (brother’s internals), **screens/CSS/Tabulator/themes copied from current v3** (our look), **every current home-site feature kept** unless Menny says DROP.
+Keep the **current FastAPI home site** (`app/`, Tabulator, v3 CSS). Finish brother’s internals: **one JSON payload per report, SQL does the math**, plus the Flask capabilities that never landed (companion Excel, salesman map, Semgrep, Litestream, precious import if login is still dead).
+
+Do **not** rebuild from Flask. Do **not** switch the look to AG Grid / brother’s React preview.
+
+---
+
+## Timeline (so you do not fight the last agent)
+
+| When | What |
+|---|---|
+| 2026-09-15 | Plan: new FastAPI app, v3 look, JSON `{data.raw, data.tabs}`, DNS last, do not push `main` until sign-off. Docs PR #67. |
+| 2026-09-16 | Another agent implemented `app/` and Menny ordered cutover. PR #68 merged as `331c9da`. Flask trees deleted from `main`. |
+| Same day | Azure 503 hotfixes: gunicorn via `python3 -m`, vendored `app/deps`, skip leftover Litestream, `schedule_runs.message` column, do not restore Flask `precious.db` over `home.sqlite`. Tip `ed4e25c`. |
+| Now | Azure deploy of those commits **succeeded**. Agent Guardrails **Semgrep failed** on `app/entra.py` format-string returns. Login needs Kudu import into `home.sqlite` if People are missing. |
+
+Flask last commit still on `main` history (parent of the merge): `063d9de`. Companion Excel work: `9ba286f` / `9c32964` under `v3/web/reporting/export.py`.
 
 ---
 
@@ -18,22 +35,21 @@ Rebuild the **home site** as a new app: **FastAPI + one JSON payload per report 
 
 | Topic | Lock |
 |---|---|
-| Look | Current live app at https://reports.achimonline.com (`v3/` Jinja + `main.css` + Tabulator + four themes). **Not** the brother’s beige/green React preview. |
-| Internals | Brother’s architecture: presentation app, Reporting API only, no OData in the web app, no Flask `report_engine` tab factory. |
-| Grid | **Keep Tabulator** (already themed). Do **not** switch to stock AG Grid (that would look like his site). |
-| Features | Keep every **home-site** (`v3/` at `/`) feature. Ask before DROP. Do **not** rebuild `/legacy`, `/test`, `/test-next` as mounts. |
-| Production | Do **not** deploy over `reports.achimonline.com` until Menny fully signs off. New Azure Web App first, DNS last. |
-| Auth | Real Microsoft Entra + existing People model. Demo-user picker is **dev only**, never production. |
-| Mail | Graph when secrets exist; mock outbox in local/dev. Not “mock forever.” |
-| Azure Automation | Retired as a go-live path. In-app schedules are the sender. |
-| Commission | SP rate is a **fraction** (`0.06` = 6%). Per-invoice rate; explicit 0 stays 0. Display uses `salesmen_master` percent when that is the locked Q3 source. |
-| Q8 | No self-register. Admin/dev add People. Magic link only for active `is_external` rows. |
-| Q9 | View-only managers may **Send now** on **shared** company schedules. Private masters stay owner/edit. |
-| Hebcal | Hold when no calendar covers now (Brooklyn). Skip Shabbos/Yom Tov as current home site does. |
+| Look | Live FastAPI `app/templates` + `app/static/css/main.css` + Tabulator + four themes. **Not** brother’s beige/green React preview. |
+| Internals | FastAPI, Reporting API only, no OData, no Flask `report_engine` god module. |
+| Grid | **Keep Tabulator.** Do not switch to stock AG Grid. |
+| Features | Keep every home-site ID in `app/FEATURE-INVENTORY.md`. Ask before DROP. Do not revive `/legacy` `/test` `/test-next`. |
+| Production | Already FastAPI on `achim-sales-reports`. Further deploys = normal `main` pushes. Still ask before DNS / domain / wiping data. |
+| Auth | Entra + People. Demo picker is **dev only**. No Live-cookie provisioning. No self-register (Q8). |
+| Mail | Graph when secrets exist; sqlite outbox in local/dev. |
+| Azure Automation | Retired. In-app one-minute clock is the sender. |
+| Commission | SP rate is a **fraction**. Per-invoice; explicit 0 stays 0. Display master percent (Q1–Q3). |
+| Q9 | View-only managers **Send now** on **shared** schedules only. |
+| Hebcal | Hold when no Brooklyn calendar covers now. Skip Shabbos/Yom Tov. |
 | Ordered Summary | Group by CustomerAccount. |
-| Databases | Live weeks of work are on **home `BETA_*` sqlite**. Do not delete `/test` files. Do not point `/test` at home data. |
+| Databases | FastAPI: `/tmp/homedata/home.sqlite`. Old Flask home: `BETA_PRECIOUS_DB_PATH` `/tmp/betadata/precious.db`. `/test` was `PRECIOUS_*` `/tmp/v3data`. Do not mix. Do not empty-disk B1. |
 
-### Q1–Q11 (already answered; copy into DECISION-LOG, do not ask again)
+### Q1–Q11 (copy into DECISION-LOG, do not ask again)
 
 1. Commission unit: SP `1` = 100% (fraction).  
 2. Commission rate: per invoice; SP zero stays zero.  
@@ -41,24 +57,26 @@ Rebuild the **home site** as a new app: **FastAPI + one JSON payload per report 
 4. Ordered Summary: CustomerAccount.  
 5. Hebcal down: hold unless a saved calendar still covers now.  
 6. In-app email distributions (legacy Live UI): stay retired.  
-7. `/beta` bookmarks: keep 302 through cutover.  
+7. `/beta` bookmarks: keep 302 through cutover (still keep).  
 8. External people: admin/dev provision only.  
 9. Company Send now: view-only managers may trigger shared.  
-10. Retention: keep current TTLs; prune jobs/legs/tokens at 90 days.  
+10. Retention: current TTLs; prune jobs/legs/tokens at 90 days.  
 11. Timeout: 45 min kill; Graph `unknown` is not auto-retried.
+
+Cookie leak `f286ce2` 2026-08-12; owner rotated ~31 Aug 2026. Do not print secrets.
 
 ---
 
 ## What his brother built (reference only)
 
-Preview (may be down): `https://complete-surgical-mounting-above.trycloudflare.com/`  
-Stack: FastAPI + React + AG Grid + aiosqlite. Dev bypass login. Mock mail. Live Reporting API.
+Old preview (may be down): `https://complete-surgical-mounting-above.trycloudflare.com/`  
+Stack: FastAPI + React + AG Grid + aiosqlite. Dev bypass. Mock mail. Live Reporting API.
 
-**Use from him:** one POST → JSON; SQL owns math; no OData; no four mounted Flask apps; reports as data not hardcoded forever.
+**Use:** one POST → JSON; SQL owns math; no OData; no four mounts.
 
-**Do not copy from him:** visual design, AG Grid as the look, demo picker as production auth, mock mail as production, dropping SharePoint/People/Keep/magic-link/company views.
+**Do not copy:** visual design, AG Grid look, demo picker as production auth, mock mail as production, dropping SharePoint/People/Keep/magic-link/company views.
 
-He stopped at live Invoiced (~5440 rows, ~26s — that wait is the stored proc). Salesman-role Invoiced is still broken on live (`salesman` vs `SalesGroup`) until owner/SQL maps it.
+He stopped at live Invoiced (~5440 rows, ~26s — that wait is the stored proc). Salesman-role Invoiced still needs `salesman` vs `SalesGroup` mapping (P4.I8).
 
 ---
 
@@ -66,128 +84,89 @@ He stopped at live Invoiced (~5440 rows, ~26s — that wait is the stored proc).
 
 | Resource | Role |
 |---|---|
-| `achim-sales-reports` (Canada Central, Basic B1) | **Current website** https://reports.achimonline.com. Only `main` auto-deploys. |
-| `achim-reporting-api-test` (West US 3) | **Office doorway** to `aic-inordera:8080`. Public: `https://achim-reporting-api-test-hpadbffpcwe0dnga.westus3-01.azurewebsites.net`. Header `X-API-Key`. Never commit the key. Ask Menny. |
-| Hybrid Connection | `reportingapi-8080` → office SQL host. |
+| `achim-sales-reports` | Website. Always On hits `/`. Startup: repo `startup.sh` → `app/startup.sh` → gunicorn + UvicornWorker `main:app`. Timeout 180s. |
+| `achim-reporting-api-test` | Doorway. `https://achim-reporting-api-test-hpadbffpcwe0dnga.westus3-01.azurewebsites.net`. Header `X-API-Key`. Hybrid Connection `reportingapi-8080` → `aic-inordera:8080`. |
 
-Live call: `POST {DOORWAY}/api/reports/{report_id}/run` with `X-API-Key`, JSON body using **catalog** names, omit empties, timeout 120s+.
+**Never** point `REPORTING_API_BASE_URL` at the website host.
 
-**Never** set `REPORTING_API_BASE_URL` to `reports.achimonline.com`. That is the website, not the SP API.
+Production boot (current): needs `SESSION_SECRET` (or `FLASK_SECRET`) and historically `LITESTREAM_AZURE_ACCOUNT_KEY`. Litestream **exec wrap is skipped** on recent hotfixes because leftover `/home/bin/litestream` broke gunicorn. Replica blob should be `home.sqlite`, not `precious.db`.
 
-Doorway must stay stdlib Python if redeployed (Azure zip extract does not pip-install). Do not SSH that app if it is crashed.
-
----
-
-## Current site (visual + feature source)
-
-**Repo:** `https://github.com/mennyg19-cmyk/AchimSales`  
-**Look/code:** `v3/web/templates/` (especially `base.html`, `report_view.html`, `settings.html`, `admin_users.html`, `login.html`, schedule templates), `v3/web/static_src/css/`, `v3/web/static_src/js/report.ts` (Tabulator).  
-**Tab math today:** `v3/report_engine/reports/*.py` + `v3/web/reporting/report_service.py` (extra SP pulls). **This layer is what we delete** after SQL/JSON can feed tabs.
-
-### Screens to inventory (minimum — not a substitute for FEATURE-INVENTORY)
-
-- Login (Entra + magic link for externals)
-- Report list + report viewer (tabs, filters, columns, saved views, company views, Keep, export, email, schedule)
-- Reports: Ordered, Invoiced/Shipped, Number 4, Salesman, Customer Activity, Customer’s Last Order, Item Averages, Sales by State. Customer Aging = BACKLOG unless still absent
-- Settings: You, People/Users & access, Reports, Delivery, History, developer tools
-- Company + personal schedules, history, run log, Recent Reports
-- Role picker / impersonate (developers)
-- Four themes: default, dark, monochrome, monochrome_dark
-- SharePoint/OneDrive delivery, Graph mail, filename/subject chips
-- Help overlay, phone tap targets, live status regions
-
-### Mounts — do not rebuild
-
-`/legacy` (`webapp/`), `/test` (second v3), `/test-next` (`rebuild/`). Home is `/` with `is_beta`. New app is a **single site**.
-
-### Live data
-
-Home sqlite: `BETA_PRECIOUS_DB_PATH` / `BETA_CACHE_DB_PATH`. `/test` uses `PRECIOUS_*`. Do not mix. Do not wipe Production sqlite for a restore drill on B1 with no slot.
+Website Python on Azure: no pip. CI vendors deps into `app/deps` (3.11). Do not assume `gunicorn` is on PATH — `python3 -m gunicorn`.
 
 ---
 
-## Target architecture
+## Current tree (work here)
 
 ```
-browser  →  FastAPI (session cookie, CSRF-equivalent, Entra)
-              →  SQLite repo (users, views, schedules, jobs, outbox)  [not sales facts]
-              →  ReportingApiClient POST doorway  [sales facts]
-              →  JSON { data: { raw, tabs } }  [SQL/app assembly; no Python commission engine]
-         →  same visual as v3 (HTML/CSS/Tabulator; React only if it is pixel-matched to v3)
+browser → FastAPI app/main.py (session, CSRF, Entra)
+            → SQLite home.sqlite (users, views, schedules, jobs, outbox)
+            → doorway.py POST office API  [sales facts]
+            → assemble.py thin tabs if API did not send data.tabs
+         → Jinja + Tabulator + main.css
 ```
 
-Fail-closed production boot: no `DEV_AUTH_BYPASS`, no default secret, Entra complete, live URL+key present, Graph sender if mail is live.
+| Path | Role |
+|---|---|
+| `app/reports.py` | Mock or live → `{data: {raw, tabs}}` |
+| `app/assemble.py` | Thin tabs from doorway rows |
+| `app/export_xlsx.py` | One-shot in-memory xlsx (**OOM risk**) |
+| `app/entra.py` | Entra URL builders (**Semgrep red**) |
+| `app/FEATURE-INVENTORY.md` | KEEP/FIX/DROP IDs (P13.2/P13.3 text is stale) |
+| `app/REBUILD-PLAN.md` | Original slices 1–10 — most **landed**; use for leftover IDs |
+| `import-precious.py` | Live Flask sqlite → `home.sqlite` |
 
-Tests always mock the doorway. CI must not need the office API.
+Fail-closed: no `DEV_AUTH_BYPASS` in prod. Tests mock doorway.
 
-### JSON shape (Invoiced dummy)
+### What the thin assembler does today (gap)
 
-See `rebuild/sample-invoiced-response.json`. Required shape:
+`_invoiced`: splits credits/invoices by flag; groups summary/totals; commissions tab **only if** rows already have `CommissionDollars` / `NetCommission` / `Commission`. No monthly/YTD cards math.
 
-```json
-{
-  "data": {
-    "report_key": "invoiced",
-    "from_date": "2026-08-31",
-    "to_date": "2026-09-06",
-    "raw": [ { } ],
-    "tabs": {
-      "full_details": { "name": "Full Details", "rows": [ { } ] },
-      "credits": { "name": "Credits", "rows": [ { } ] }
-    }
-  }
-}
-```
+`_ordered`: copies the same rows into Summary/By Customer/By Order/Full Data; groups salesman/item. **Does not** compute Open $ or Fulfillment %.
 
-The UI **displays `tabs.*.rows`**. It does not rebuild those rows. `raw` is the SP table for debugging/export-all.
+`_number_4_*`: YTD tab is the **same rows** as rolling-12.
 
-Until SQL returns finished tabs, the new app may assemble `tabs` in a **thin** adapter from `raw` — but the goal is SQL. Do **not** port `report_engine` as a god module.
+`_item_averages`: one tab, no ÷12/÷52 rollup.
 
-### What must move to SQL vs grid (from tab handoff)
-
-**SQL (or we keep slow Python):** Invoiced commission **dollars** + monthly/YTD; Ordered **Open $** and **Fulfillment %** (and stop month-chunking); Number 4 **YTD**; Item Averages per-item ÷12/÷52.
-
-**Grid/filter only:** Credits / Invoices / Summary by Customer / Totals by Salesman / Customer Activity per-salesman tabs.
-
-**Already SQL:** Customer Activity numbers; Sales by State (3 SPs); Salesman YoY dollars.
-
-Full tab table: if this repo has `REPORT-TAB-HANDOFF.md` on leftover branch `cursor/pr1-on-main-551b`, copy it. Otherwise treat this section + `report_engine` docstrings as the spec.
+That is why the original rebuild is not “done” even though FastAPI is live.
 
 ---
 
-## How to work (new agent)
+## What’s next (do in this order)
 
-1. **New git repo or new folder** in AchimSales, e.g. `app/` — do **not** stack on `cursor/pr1-on-main-551b` or leftover Flask cleanup. Do **not** merge PR #35 as this rebuild.
-2. Clone/read AchimSales `v3/` as **reference** (WHAT + LOOK). Keep that tree readable the whole rebuild.
-3. Skip grill. Locks above stand. Optional: confirm DROP list with Menny (Automation, mounts, OData UI, brother’s theme).
-4. **Inventory first** (rebuild protocol Phase 0–1): page-by-page FEATURE-INVENTORY from `v3/` + screenshots of live if you can log in. IDs KEEP/FIX/DROP. Visual snapshots in `rebuild-reference/` are **look** references, not brother’s site.
-5. Architecture is **already locked** (this file). Skip “all technical choices open” debate. Still write REBUILD-PLAN.md that maps every inventory ID to a slice.
-6. Build slices: skeleton (login look + one report JSON + Tabulator) → rest of reports → People/schedules/mail → Entra/Graph → preview URL. Preview after every slice.
-7. Follow repo rules: `workflow.mdc`, `ponytail.mdc`, `git-discipline.mdc`, `review-protocol.mdc` at phase gates. Production merge / go-live = Premier loops. Do not deploy this rebuild to Production until Menny says so.
+Production health first. Then SQL/math. Preview after each slice.
+
+1. **Precious import / Entra login** if People missing. SSH (not Kudu Bash) to see `/tmp`. Import from `/home/LogFiles/home-precious.db` into `/tmp/homedata/home.sqlite`. Wrong file = 9 views. Right file ≈ 97 / 58 / 592. README has the owner steps.
+2. **Semgrep** on `app/entra.py` (`directly-returned-format-string`). Build redirect URI without a Flask-rule hit (e.g. `urllib.parse.urlunsplit`, or exclude that one rule). Do not leave `main` Guardrails red.
+3. **Companion Excel** port from Flask `v3/web/reporting/export.py` @ `9ba286f`. Spill huge tabs to temp JSON, write ≤100k chunks, `group=[]` on companions, sibling workbooks, email lists companions. Fail closed if companion upload fails.
+4. **Litestream** re-enable against `home.sqlite` once `/healthz` stays up. Do not replicate/restore Flask `precious.db` onto the FastAPI file.
+5. **Tab math** with DBA/Menny: commission dollars + YTD; Ordered Open$ / Fulfillment%; Number 4 YTD; Item Averages per-item. Until SQL exists, implement a **correct** thin assembler (not a second `report_engine` god file). Spec: `rebuild/REPORT-TAB-HANDOFF.md`.
+6. **P4.I8** salesman vs SalesGroup — ask Menny before mapping. Testers stay admin.
+7. **Customer Aging** stays BACKLOG until he asks to build it.
+8. Walk `app/FEATURE-INVENTORY.md` IDs vs live screens. Any KEEP with no working control is unfinished.
+
+Rollback only if Menny asks: Azure Deployment Center last Flask deploy, or revert `main`, restore LogFiles copy to `/tmp/betadata/precious.db`.
+
+---
+
+## How to work
+
+1. Branch from **`origin/main`**: `cursor/<short>-551b`. Not leftover #35. Not a greenfield repo.
+2. Skip grill. Locks above stand.
+3. Do not spawn a stack debate. Architecture is FastAPI + JSON + Tabulator.
+4. Inventory already exists — **diff it against live `app/`**, do not rewrite from memory. Flask WHAT lives in git history `063d9de:v3/`.
+5. Review gates per `review-protocol.mdc`. Production-impacting slices: verify on the running site or a preview that uses the same sqlite/API pattern.
+6. Platform: a green local pytest is not enough. After push, check Azure **and** Agent Guardrails.
 
 ### Hard stops
 
-- Do not push to `main` / do not zip-deploy `achim-sales-reports` for this rebuild until sign-off.
-- Do not print/commit `REPORTING_API_KEY`, cookies, Graph secrets.
-- Do not edit applied Production migrations in the old app “while we’re here.”
-- Do not unmount or delete live sqlite from this rebuild.
-- Do not restore `beta_sources` / OData picker.
-- Do not rewrite git history.
-- PowerShell: no inline `$`; use `.scratch/agent-run.ps1`.
-
----
-
-## Suggested first slices
-
-1. FastAPI health + mock Invoiced JSON + **v3-looking** login + report page with Tabulator Full Details.  
-2. Live doorway Invoiced (admin), last-7-days, 5440-row smoke (numbers will drift).  
-3. Remaining reports using `data.tabs`.  
-4. People, roles, salesman scope (block on SQL map for live Invoiced salesman vs SalesGroup).  
-5. Saved/company views, Keep, schedules, Shabbos.  
-6. Graph + SharePoint.  
-7. Entra.  
-8. New Azure Web App + Menny click-through.  
-9. DNS.
+- No secrets (`REPORTING_API_KEY`, cookies, Graph) in git or chat dumps.
+- No PR #35 merge.
+- No restoring Flask as the app.
+- No AG Grid look.
+- No OData / `beta_sources`.
+- No empty-disk restore drill on B1.
+- No rewriting git history.
+- PowerShell: `.scratch/agent-run.ps1`, no inline `$`.
 
 ---
 
@@ -195,8 +174,9 @@ Full tab table: if this repo has `REPORT-TAB-HANDOFF.md` on leftover branch `cur
 
 | File | Use |
 |---|---|
+| `NEW-AGENT-PROMPT.md` | Paste into a **new** Cursor agent (this is the job) |
 | `BROTHER-STACK-REBUILD.md` | This handoff |
-| `NEW-AGENT-PROMPT.md` | Paste into a **new** Cursor agent |
-| `sample-invoiced-response.json` | Dummy JSON for the DBA / API |
+| `REPORT-TAB-HANDOFF.md` | Per-report SQL vs grid vs thin Python |
+| `sample-invoiced-response.json` | Dummy JSON shape |
 
-Old leftover docs (PR #35 branch `cursor/pr1-on-main-551b` only): `REPORT-TAB-HANDOFF.md`, root `sample-invoiced-response.json`.
+Stale copies: `app/BROTHER-STACK-REBUILD.md` is a pointer here. Ignore any file that still says “rebuild not started” or “do not push main until cutover.”

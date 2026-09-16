@@ -1,12 +1,14 @@
-# FEATURE-INVENTORY — home site (`v3/` at `/`)
+# FEATURE-INVENTORY — home site
 
-**Source of look + features:** live https://reports.achimonline.com and repo `v3/`.  
-**Not inventoried:** `/legacy` (`webapp/`), `/test`, `/test-next` (`rebuild/` Flask leftover). Do not rebuild those mounts.  
-**Visual snapshots:** `app/rebuild-reference/` (login captured from live; Settings/report pages need Entra — captured from slice 1 preview until Menny signs in).  
-**Status legend:** KEEP = rebuild it. FIX = keep the capability, change internals. DROP = only with Menny’s yes (locked drops listed).  
-**Old-code path:** `v3/` stays readable the whole rebuild (WHAT + LOOK). Do not port `v3/report_engine/` as a god module.
+**2026-09-16:** FastAPI `app/` is production. Flask `v3/` is git history only (`063d9de`). P13.2 / P13.3 (do not push `main` until cutover) are **done**. Use this file as KEEP/FIX IDs, not as a greenfield rebuild plan. Continuation: `rebuild/NEW-AGENT-PROMPT.md`.
 
-This inventory is page-by-page from `v3/web/templates/` + `v3/web/blueprints/` + `v3/report_engine/registry.py`. Architecture is already locked (FastAPI + JSON + Tabulator + v3 CSS). See `app/BROTHER-STACK-REBUILD.md`.
+**Source of look + features:** live https://reports.achimonline.com and current `app/` (old WHAT in `git show 063d9de:v3/`).  
+**Not inventoried / do not revive:** `/legacy`, `/test`, `/test-next`.  
+**Visual snapshots:** `app/rebuild-reference/`.  
+**Status legend:** KEEP = must exist. FIX = capability kept, internals still wrong. DROP = only with Menny’s yes.  
+**Do not port** `v3/report_engine/` as a god module.
+
+Page-by-page from the old `v3/` templates/blueprints/registry. Architecture locked (FastAPI + JSON + Tabulator + v3 CSS). See `rebuild/BROTHER-STACK-REBUILD.md`.
 
 ---
 
@@ -287,8 +289,8 @@ Roles: admin, developer, manager, salesman. View-only managers: Send now on **sh
 | ID | Control / behavior | Status |
 |---|---|---|
 | P13.1 | `/beta` 302 → `/` through cutover (Q7) | KEEP |
-| P13.2 | Do not deploy over reports.achimonline.com until Menny signs off | KEEP |
-| P13.3 | Only `main` auto-deploys the **old** site. This rebuild never pushes to that `main` until cutover. | KEEP |
+| P13.2 | Do not deploy over reports.achimonline.com until Menny signs off | **DONE** — FastAPI cut over 2026-09-16 (PR #68). Further deploys are normal `main` pushes; still ask before DNS/wipe. |
+| P13.3 | Only `main` auto-deploys. Rebuild was not to push `main` until cutover. | **DONE** — cutover was that push. |
 
 ---
 
@@ -345,7 +347,7 @@ Roles: admin, developer, manager, salesman. View-only managers: Send now on **sh
 | D5 | Dashboard on home nav | Live home hides it (`is_beta`) |
 | D6 | Brother’s React/AG Grid look | Prompt |
 | D7 | Self-register | Q8 |
-| D8 | Push this rebuild to AchimSales `main` before cutover | Prompt |
+| D8 | Push this rebuild to AchimSales `main` before cutover | **Superseded** — cutover 2026-09-16 |
 
 **Customer Aging** stays BACKLOG (P3.11), not a silent DROP of a working report.
 

@@ -10,8 +10,12 @@ The website lives in `app/`. Azure Startup Command is
 OData Automation CLI (`run.py`, `runbooks/`) are gone from this tree.
 GitHub history on `main` still has every old commit.
 
-**Production branch is `main`.** Cutover is this merge: FastAPI boots on
-`achim-sales-reports`. Leftover Flask PR #35 stays parked.
+**Production branch is `main`.** FastAPI boots on `achim-sales-reports`.
+Leftover Flask PR #35 stays parked.
+
+**Next agent (finish remaining work, do not rebuild):** paste
+[`rebuild/NEW-AGENT-PROMPT.md`](rebuild/NEW-AGENT-PROMPT.md). Details:
+[`rebuild/BROTHER-STACK-REBUILD.md`](rebuild/BROTHER-STACK-REBUILD.md).
 
 ## Copy live data (precious.db)
 
