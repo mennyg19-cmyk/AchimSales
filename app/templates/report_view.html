@@ -27,6 +27,7 @@
      data-report-key="{{ report_key }}"
      data-filters="{{ filters|join(',') }}"
      data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'
+     data-view-layout='{{ (loaded_view.layout if loaded_view else {}) | tojson }}'
      data-customers='{{ customers | tojson }}'>
     <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
         <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
@@ -131,6 +132,7 @@
         <span>Group by</span>
         <select id="groupBySelect"><option value="">None</option></select>
     </label>
+    <div id="groupPills" class="group-pills" hidden></div>
     <div class="toolbar-menu" id="moreMenuWrap">
         <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false">
             <i data-feather="more-horizontal"></i> <span>More</span>
@@ -273,5 +275,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/report-grid.js?v={{ asset_v }}"></script>
 <script src="/static/js/report.js?v={{ asset_v }}"></script>
 {% endblock %}

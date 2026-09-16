@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import cadence
+import views as view_tables
 from config import db_path
 from db import db
 
@@ -91,10 +92,22 @@ def set_visibility(report_key: str, enabled: bool) -> None:
         )
 
 
-def _parse_view(row) -> dict:
-    view = dict(row)
-    view["params"] = json.loads(view.pop("params_json") or "{}")
-    return view
+def _hydrate_view(row, conn) -> dict:
+    return view_tables.hydrate(row, conn)
+
+
+def _attach_view_to_schedule(row, conn) -> dict:
+    out = dict(row)
+    view_row = conn.execute("SELECT * FROM views WHERE id = ?", (out["view_id"],)).fetchone()
+    if view_row is None:
+        out["params"] = {}
+        out["layout"] = {}
+        return out
+    hydrated = _hydrate_view(view_row, conn)
+    out["params"] = hydrated["params"]
+    out["layout"] = hydrated["layout"]
+    out["include_period"] = hydrated.get("include_period")
+    return out
 
 
 def list_views(email: str, privileged: bool) -> list[dict]:
@@ -106,7 +119,7 @@ def list_views(email: str, privileged: bool) -> list[dict]:
                 "SELECT * FROM views WHERE owner_email = ? OR kind = 'company' ORDER BY name",
                 (email,),
             ).fetchall()
-    return [_parse_view(row) for row in rows]
+        return [_hydrate_view(row, conn) for row in rows]
 
 
 def validate_view_params(params: dict) -> str | None:
@@ -116,34 +129,48 @@ def validate_view_params(params: dict) -> str | None:
     return None
 
 
-def add_view(owner_email: str | None, report_key: str, name: str, kind: str, params: dict, include_period: int) -> int:
+def validate_layout(layout: dict | None) -> str | None:
+    if layout is None:
+        return None
+    if not isinstance(layout, dict):
+        return "layout must be a JSON object"
+    tabs = layout.get("views")
+    if tabs is None:
+        return None
+    if not isinstance(tabs, dict):
+        return "layout.views must be an object"
+    for spec in tabs.values():
+        if isinstance(spec, dict) and isinstance(spec.get("group"), str):
+            return "views.group must stay an array"
+    return None
+
+
+def add_view(
+    owner_email: str | None,
+    report_key: str,
+    name: str,
+    kind: str,
+    params: dict,
+    include_period: int,
+    layout: dict | None = None,
+) -> int:
     with db() as conn:
         cur = conn.execute(
-            """INSERT INTO views (owner_email, report_key, name, kind, params_json, include_period)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (owner_email, report_key, name, kind, json.dumps(params), include_period),
+            """INSERT INTO views (owner_email, report_key, name, kind, include_period)
+               VALUES (?, ?, ?, ?, ?)""",
+            (owner_email, report_key, name, kind, include_period),
         )
-        return int(cur.lastrowid)
+        view_id = int(cur.lastrowid)
+        view_tables.save_filters_and_layout(conn, view_id, params, layout, include_period)
+        return view_id
 
 
 def get_view(view_id: int) -> dict | None:
     with db() as conn:
         row = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
-    if row is None:
-        return None
-    return _parse_view(row)
-
-
-def update_view_params(view_id: int, params: dict) -> str | None:
-    err = validate_view_params(params)
-    if err:
-        return err
-    with db() as conn:
-        conn.execute(
-            "UPDATE views SET params_json = ? WHERE id = ?",
-            (json.dumps(params), view_id),
-        )
-    return None
+        if row is None:
+            return None
+        return _hydrate_view(row, conn)
 
 
 def delete_view(view_id: int) -> None:
@@ -237,12 +264,12 @@ def list_schedules() -> list[dict]:
 def list_active_schedules() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
-            """SELECT s.*, v.name AS view_name, v.report_key, v.params_json, v.kind AS view_kind
+            """SELECT s.*, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedules s JOIN views v ON v.id = s.view_id
                WHERE s.is_active = 1
                ORDER BY s.id"""
         ).fetchall()
-    return [_parse_view(row) for row in rows]
+        return [_attach_view_to_schedule(row, conn) for row in rows]
 
 
 def claim_today_slot(schedule_id: int, now: datetime | None = None) -> bool:
@@ -449,20 +476,20 @@ def list_views_for_report(email: str, report_key: str, privileged: bool) -> list
                    ORDER BY name""",
                 (report_key, email),
             ).fetchall()
-    return [_parse_view(row) for row in rows]
+        return [_hydrate_view(row, conn) for row in rows]
 
 
 def get_schedule(schedule_id: int) -> dict | None:
     with db() as conn:
         row = conn.execute(
-            """SELECT s.*, v.name AS view_name, v.report_key, v.params_json, v.kind AS view_kind
+            """SELECT s.*, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedules s JOIN views v ON v.id = s.view_id
                WHERE s.id = ?""",
             (schedule_id,),
         ).fetchone()
-    if row is None:
-        return None
-    return _parse_view(row)
+        if row is None:
+            return None
+        return _attach_view_to_schedule(row, conn)
 
 
 def test_emails() -> list[str]:

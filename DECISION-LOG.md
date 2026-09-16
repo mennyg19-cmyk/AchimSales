@@ -1,4 +1,12 @@
-## 2026-09-16 Graph mail, minute clock, Hebcal, Entra on the dummy
+## 2026-09-16 Views as columns; grid layout saved with the view
+**What I had to decide:** Persist Tabulator hide/freeze/order/sort/group/header filters as JSON on views vs the rebuilt column tables; keep explorer JSON editor; port tab clones / TEXT handles / dual-write Excel parity.
+**Options I considered:** Dual-write `params_json` plus columns; columns only; skip grid persist and only keep filter scalars.
+**What I chose:** Columns only (`views` scalars + `view_*` + `layout_*`). Save this view writes filters and layout. Schedules keep pointing at `view_id` and Excel/email apply that layout (hide/order/sort/header filters). Group/freeze stay viewer-side for the grid; Excel stays a flat sheet. Integer PKs (skip TEXT handles). Skip tab clones, dual-write JSON workbooks, and the Excel funnel popover (headerFilter input is saved as `contains`). Explorer JSON blob editor is gone.
+**Why:** Menny asked for the excel-feel tables saved on views the way they are today, without JSON blobs, and without every bolted-on extra that made the old app clunky.
+**Status:** DECIDED
+
+
+
 **What I had to decide:** Ship Graph/clock/Hebcal/Entra now vs keep honest stubs until secrets exist; Hebcal-down fail-open (live v3) vs hold (rebuild Q5); Entra upsert (live v3) vs People-row required (Q8).
 **Options I considered:** Stubs until cutover; code paths on, secrets optional; refuse to boot production without Graph/Entra.
 **What I chose:** Wire the real paths. No secrets → sqlite outbox, preview Achim login, External shortcut. Secrets set → Graph sendMail (stdlib urllib), Entra auth-code, magic-link email. Clock is a 60s daemon thread (off under pytest / `DISABLE_SCHEDULE_CLOCK`). Hebcal missing → hold, do not send, retry next minute (Q5). Shabbos/Yom Tov → skipped + last_run so due_now will not retry every minute. Entra callback never upserts. SharePoint/OneDrive upload stays unwired. Same PR, no cutover.

@@ -22,3 +22,6 @@
 .modal-overlay{display:flex}
 .modal-overlay[hidden],[hidden]{display:none!important}
 summary.settings-subhead{cursor:pointer}
+.group-pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.group-pill{display:inline-flex;align-items:center;gap:4px;background:var(--primary-light);color:var(--text);border-radius:999px;padding:2px 8px;font-size:12px}
+.group-pill-x{border:0;background:transparent;cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1}

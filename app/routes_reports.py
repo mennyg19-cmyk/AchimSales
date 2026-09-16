@@ -24,6 +24,7 @@ from deps import (
     visible_reports,
 )
 from export_xlsx import workbook_bytes
+from layout import apply_layout
 
 router = APIRouter()
 
@@ -197,6 +198,37 @@ async def report_xlsx(request: Request, report_key: str):
         payload = _build_payload(report_key, user, params)
     except doorway.DoorwayError as err:
         return JSONResponse({"error": str(err)}, status_code=502)
+    view_id = request.query_params.get("view")
+    loaded = store.get_view(int(view_id)) if view_id and view_id.isdigit() else None
+    if loaded:
+        payload = apply_layout(payload, loaded.get("layout"))
+    store.save_job(report_key, spec["title"] + " export", payload, owner_email=user["email"])
+    return Response(
+        workbook_bytes(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{report_key}.xlsx"'},
+    )
+
+
+@router.post("/api/reports/{report_key}/xlsx")
+async def report_xlsx_post(request: Request, report_key: str):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    spec = catalog.spec(report_key)
+    if spec is None or not can_see_report(user, report_key):
+        return JSONResponse({"error": "Unknown or hidden report"}, status_code=404)
+    body = await request.json()
+    params = _params_from_request(body or {}, spec)
+    try:
+        payload = _build_payload(report_key, user, params)
+    except doorway.DoorwayError as err:
+        return JSONResponse({"error": str(err)}, status_code=502)
+    payload = apply_layout(payload, (body or {}).get("layout"))
     store.save_job(report_key, spec["title"] + " export", payload, owner_email=user["email"])
     return Response(
         workbook_bytes(payload),
@@ -223,6 +255,7 @@ async def report_email(request: Request, report_key: str):
         payload = _build_payload(report_key, user, params)
     except doorway.DoorwayError as err:
         return JSONResponse({"error": str(err)}, status_code=502)
+    payload = apply_layout(payload, (body or {}).get("layout"))
     source = (payload.get("data") or {}).get("source") or "mock"
     live = source == "reporting_api"
     recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
@@ -426,11 +459,14 @@ async def views_save(request: Request):
     params = (body or {}).get("params") or {}
     if not isinstance(params, dict):
         return JSONResponse({"error": "params must be a JSON object"}, status_code=400)
-    bad_group = store.validate_view_params(params)
+    layout = (body or {}).get("layout") or {}
+    if layout and not isinstance(layout, dict):
+        return JSONResponse({"error": "layout must be a JSON object"}, status_code=400)
+    bad_group = store.validate_view_params(params) or store.validate_layout(layout or {})
     if bad_group:
         return JSONResponse({"error": bad_group}, status_code=400)
     include_period = 1 if (body or {}).get("include_period") else 0
-    view_id = store.add_view(owner, report_key, name, kind, params, include_period)
+    view_id = store.add_view(owner, report_key, name, kind, params, include_period, layout)
     return {"ok": True, "id": view_id}
 
 

@@ -55,12 +55,15 @@
 | Invoiced 2+ salesmen | Audit - Reversals + Totals by Salesman tabs |
 | Invoiced salesman/customers | every tab (Full Details, Invoices, Commissions) matches the filter |
 | Save view for another user | salesman sees the named view |
-| views.params.group | must be a JSON array or omitted |
+| views.params.group | must be an array or omitted; stored on `layout_tab_groups`, not a JSON blob |
 | Last Order store-visit | Recent invoiced helper + dedicated xlsx PK |
 | Cancel running job | 200; finished job 409 |
-| DB explorer write | Confirm required; DROP blocked; WITH+UPDATE needs confirm; group array |
+| DB explorer write | Confirm required; DROP blocked; WITH+UPDATE needs confirm; no params_json editor |
 | Schedule OneDrive folder | mock outbox body |
 | Report chrome | customer picker, Columns (show + freeze), status, More |
+| Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
+| POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
+| Legacy `params_json` sqlite | migrate copies into columns then drops the blob |
 
 Never set `REPORTING_API_KEY` in CI.
 

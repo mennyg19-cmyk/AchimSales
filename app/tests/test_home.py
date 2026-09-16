@@ -831,6 +831,8 @@ def test_save_view_for_other_user_and_group_array(client):
     views = client.get("/api/views?report=invoiced").json()["views"]
     names = {view["name"] for view in views}
     assert "Salesman copy" in names
+    copied = next(view for view in views if view["name"] == "Salesman copy")
+    assert copied["layout"]["views"]["_default"]["group"] == ["Salesman"]
 
 
 def test_last_order_recent_invoices_and_xlsx(client):
@@ -855,7 +857,7 @@ def test_cancel_running_job(client):
     assert again.status_code == 409
 
 
-def test_explorer_write_confirm_and_group_json(client):
+def test_explorer_write_confirm(client):
     login(client)
     drop = client.post(
         "/dev/db-explorer",
@@ -869,32 +871,15 @@ def test_explorer_write_confirm_and_group_json(client):
         follow_redirects=True,
     )
     assert "Confirm write" in write.text
-    with db() as conn:
-        view_id = conn.execute("SELECT id FROM views ORDER BY id LIMIT 1").fetchone()["id"]
-    bad_json = client.post(
-        "/dev/db-explorer/json",
-        data={
-            "view_id": view_id,
-            "params_json": '{"group": "Salesman"}',
-            "csrf": client.csrf,
-            "confirm_write": "1",
-        },
+    listed = client.post(
+        "/dev/db-explorer",
+        data={"sql": "SELECT id, name, period FROM views", "csrf": client.csrf},
         follow_redirects=True,
     )
-    assert "array" in bad_json.text
-    ok_json = client.post(
-        "/dev/db-explorer/json",
-        data={
-            "view_id": view_id,
-            "params_json": '{"group": ["Salesman"], "period": "mtd"}',
-            "csrf": client.csrf,
-            "confirm_write": "1",
-        },
-        follow_redirects=False,
-    )
-    assert ok_json.status_code == 303
-    view = home_store.get_view(view_id)
-    assert view["params"]["group"] == ["Salesman"]
+    assert listed.status_code == 200
+    assert "Daily Ordered" in listed.text
+    assert "params_json" not in listed.text
+    assert "JSON editor" not in listed.text
     cte = client.post(
         "/dev/db-explorer",
         data={

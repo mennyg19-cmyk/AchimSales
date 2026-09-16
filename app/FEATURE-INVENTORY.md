@@ -121,18 +121,20 @@ Shared controls (every grid report):
 | P4.16 | Status line + Cancel | KEEP |
 | P4.17 | Developer live job log | KEEP |
 | P4.18 | Tabs bind to **`data.tabs.*.rows`** (new contract). Today Flask rebuilds tabs in `report_engine`. | FIX |
-| P4.19 | Tabulator: sort, header filter, hide/show, reorder, freeze, group-by + totals, horizontal scroll | KEEP |
+| P4.19 | Tabulator: sort, header filter, hide/show, reorder, freeze, group-by + totals, horizontal scroll. Header menu Hide / Freeze / Group. Saved on the view in `layout_*` columns (not a JSON blob). | KEEP |
 | P4.20 | Commissions **card** layout (not a second math engine) | KEEP |
 | P4.21 | Refresh (keep layout) | KEEP |
 | P4.22 | Keep this run (30 days, max 5) + Recent Reports pill | KEEP |
 | P4.23 | Export Excel (background) + Recent exports | KEEP |
 | P4.24 | Email modal: recipients, subject, optional SharePoint folder | KEEP |
-| P4.25 | Save view modal: name; privileged Save for Me / Company / other user; company can store date window | KEEP |
+| P4.25 | Save view modal: name; privileged Save for Me / Company / other user; company can store date window. Saves filters + grid layout (columns/sort/group/header filters). | KEEP |
 | P4.26 | Company Default view | KEEP |
 | P4.27 | Salesman scope on cache key + result | KEEP |
 | P4.28 | Hide commissions tab for non-privileged | KEEP |
 | P4.29 | Theme cycle light / dark / monochrome / monochrome_dark (header sun/moon/aperture/disc) | KEEP |
 | P4.30 | Help overlay + phone tap targets | KEEP |
+
+Skipped as bolted-on (Menny: not every extra from the beginning of time): tab clones, TEXT view handles, silent dual-write JSON workbooks, Excel funnel popover (headerFilter input is saved as `contains`). Group/freeze are on the grid; scheduled Excel is a flat sheet with hide/order/sort/header filters applied.
 
 ### P4 Invoiced tabs (LOOK from live order in `invoiced.py`)
 
@@ -221,7 +223,7 @@ Roles: admin, developer, manager, salesman. View-only managers: Send now on **sh
 
 | ID | Control / behavior | Status |
 |---|---|---|
-| P8.1 | Add a schedule (needs a named view) | KEEP |
+| P8.1 | Add a schedule (needs a named view). Schedule points at `view_id` and does not copy layout. Delivery applies that view’s columns/sort/filters. | KEEP |
 | P8.2 | Wizard: View → When → Where | KEEP |
 | P8.3 | Freq daily/weekly/monthly, weekdays, month-day, time | KEEP |
 | P8.4 | Where: email, CC/BCC (privileged), subject/body chips `{Schedule}` `{Period}` `{SharePointUrl}` `{DownloadButton}` | KEEP |
@@ -264,7 +266,7 @@ Roles: admin, developer, manager, salesman. View-only managers: Send now on **sh
 
 | ID | Control / behavior | Status |
 |---|---|---|
-| P11.1 | Database explorer: one SELECT (or confirmed write), column filter, JSON editor; DROP/ALTER/ATTACH/CREATE blocked; views.group must stay an array | KEEP |
+| P11.1 | Database explorer: one SELECT (or confirmed write), column filter; DROP/ALTER/ATTACH/CREATE blocked. JSON blob editor **dropped** — views are columns (`layout_tabs` / `layout_columns`). `group` must stay an array on save. | KEEP / FIX |
 | P11.2 | Notification diagnostic | KEEP |
 | P11.3 | Raw Reporting API runner `/api/dev/reporting/<id>/run` | KEEP |
 | P11.4 | Diagnostics: salesman/number4 reconcile, precious-repair, claim-once | KEEP (dev) |

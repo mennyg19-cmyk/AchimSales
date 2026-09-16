@@ -1,10 +1,6 @@
-let table = null;
-let tabsByKey = {};
-let activeKey = "";
 let lastJobId = null;
 let selectedCustomers = [];
 let runAbort = null;
-let frozenFields = new Set();
 
 function customerCatalog() {
   const controls = document.getElementById("reportControls");
@@ -41,25 +37,6 @@ function collectParams() {
   return params;
 }
 
-function columnsFromRows(rows) {
-  const first = rows[0] || {};
-  return Object.keys(first).map((field, idx) => {
-    const sample = first[field];
-    const isNumber = typeof sample === "number";
-    const moneyName = /total|amount|invoice|commission|percent|charge|sales|price|qty|open|ordered|fulfill/i.test(field)
-      && !/count/i.test(field);
-    return {
-      title: field,
-      field,
-      frozen: frozenFields.size ? frozenFields.has(field) : idx === 0,
-      hozAlign: isNumber ? "right" : "left",
-      headerFilter: "input",
-      formatter: isNumber && moneyName ? "money" : "plaintext",
-      bottomCalc: isNumber ? "sum" : undefined,
-    };
-  });
-}
-
 function setStatus(text, canCancel) {
   const row = document.getElementById("reportStatus");
   const label = document.getElementById("reportStatusText");
@@ -80,89 +57,6 @@ function logJob(step) {
   list.appendChild(item);
 }
 
-function showCommissionCards(rows) {
-  const wrap = document.getElementById("commissionCards");
-  const grid = document.getElementById("reportTable");
-  wrap.hidden = false;
-  grid.hidden = true;
-  wrap.innerHTML = rows.map((row) => {
-    const name = row.SalesmanName || row.Salesman || "";
-    const pct = row.Percent != null ? Math.round(row.Percent * 1000) / 10 + "%" : "";
-    const dollars = row.CommissionDollars != null ? row.CommissionDollars : "";
-    return '<div class="settings-card"><h3>' + name + "</h3><p>" + pct + " · $" + dollars + "</p></div>";
-  }).join("");
-}
-
-function fillGroupBy(columns) {
-  const wrap = document.getElementById("groupByWrap");
-  const select = document.getElementById("groupBySelect");
-  if (!wrap || !select) return;
-  wrap.hidden = false;
-  const current = select.value;
-  select.innerHTML = '<option value="">None</option>';
-  columns.forEach((col) => {
-    const opt = document.createElement("option");
-    opt.value = col.field;
-    opt.textContent = col.title;
-    select.appendChild(opt);
-  });
-  if (current) select.value = current;
-}
-
-function showTab(key) {
-  activeKey = key;
-  const tab = tabsByKey[key];
-  document.querySelectorAll(".report-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.getAttribute("data-key") === key);
-  });
-  const rows = (tab && tab.rows) || [];
-  const wrap = document.getElementById("commissionCards");
-  const grid = document.getElementById("reportTable");
-  if (key === "commissions") {
-    showCommissionCards(rows);
-    return;
-  }
-  wrap.hidden = true;
-  grid.hidden = false;
-  if (table) table.destroy();
-  const columns = columnsFromRows(rows);
-  fillGroupBy(columns);
-  const groupField = (document.getElementById("groupBySelect") || {}).value || "";
-  table = new Tabulator("#reportTable", {
-    data: rows,
-    layout: "fitDataStretch",
-    placeholder: "No rows",
-    movableColumns: true,
-    groupBy: groupField || false,
-    columns,
-  });
-}
-
-function renderTabs(payload) {
-  const data = payload.data || {};
-  const tabs = data.tabs || {};
-  tabsByKey = tabs;
-  lastJobId = data.job_id || lastJobId;
-  const keys = Object.keys(tabs);
-  const bar = document.getElementById("reportTabs");
-  bar.innerHTML = "";
-  keys.forEach((key, idx) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "report-tab" + (idx === 0 ? " active" : "");
-    btn.setAttribute("data-key", key);
-    btn.textContent = tabs[key].name || key;
-    btn.addEventListener("click", () => showTab(key));
-    bar.appendChild(btn);
-  });
-  const meta = document.getElementById("reportMeta");
-  const from = data.from_date || "";
-  const to = data.to_date || "";
-  meta.textContent = (from && to ? from + " – " + to + " · " : "") + (data.source || "mock") + " data";
-  document.getElementById("reportSurface").hidden = false;
-  if (keys.length) showTab(keys[0]);
-}
-
 async function runReport(bodyOverride) {
   const params = bodyOverride || collectParams();
   const preview = document.getElementById("apiPreview");
@@ -180,8 +74,9 @@ async function runReport(bodyOverride) {
     });
     const payload = await res.json().catch(function () { return {}; });
     if (!res.ok) throw new Error(payload.error || ("Could not run report (HTTP " + res.status + ")"));
+    lastJobId = (payload.data || {}).job_id || lastJobId;
     logJob("Bound " + Object.keys((payload.data || {}).tabs || {}).length + " tabs");
-    renderTabs(payload);
+    ReportGrid.renderTabs(payload);
     setStatus("Loaded.", false);
     const summary = document.getElementById("controlsSummary");
     if (summary && params.period) summary.textContent = params.period.replace(/_/g, " ");
@@ -226,17 +121,25 @@ function toggleCustomDates() {
   if (toWrap) toWrap.hidden = !custom;
 }
 
-function exportHref() {
+async function exportExcel() {
   const params = collectParams();
-  const query = new URLSearchParams();
-  Object.keys(params).forEach((key) => {
-    if (key === "customers") {
-      if (params.customers && params.customers.length) query.set("customers", params.customers.join(","));
-    } else if (params[key]) {
-      query.set(key, params[key]);
-    }
+  const res = await fetch("/api/reports/" + params.report_key + "/xlsx", {
+    method: "POST",
+    headers: csrfHeaders(),
+    body: JSON.stringify(Object.assign({}, params, { layout: ReportGrid.serializeLayout() })),
   });
-  return "/api/reports/" + params.report_key + "/xlsx?" + query.toString();
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || ("Export failed (HTTP " + res.status + ")"));
+    return;
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = params.report_key + ".xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function renderPills() {
@@ -319,6 +222,14 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("reportMeta").textContent =
       "Saved view params could not be read (" + err.message + "). Expected JSON object.";
   }
+  const rawLayout = controls.getAttribute("data-view-layout") || "{}";
+  try {
+    ReportGrid.preloadLayout(JSON.parse(rawLayout));
+  } catch (err) {
+    document.getElementById("reportMeta").textContent =
+      "Saved view layout could not be read (" + err.message + "). Expected JSON object.";
+  }
+  ReportGrid.init();
   initCustomerPicker();
   document.getElementById("runBtn").addEventListener("click", () => {
     runReport().catch(() => {});
@@ -339,6 +250,7 @@ document.addEventListener("DOMContentLoaded", () => {
     params.subject = document.getElementById("emailSubject").value;
     const folder = document.getElementById("emailSharepoint");
     if (folder) params.sharepoint_folder = folder.value;
+    params.layout = ReportGrid.serializeLayout();
     const res = await fetch("/api/reports/" + params.report_key + "/email", {
       method: "POST",
       headers: csrfHeaders(),
@@ -350,7 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.getElementById("exportBtn").addEventListener("click", (evt) => {
     evt.preventDefault();
-    window.location.href = exportHref();
+    exportExcel().catch((err) => alert(err.message || "Export failed"));
   });
   const exportsBtn = document.getElementById("exportsBtn");
   if (exportsBtn) {
@@ -403,6 +315,7 @@ document.addEventListener("DOMContentLoaded", () => {
         report_key: params.report_key,
         kind,
         params,
+        layout: ReportGrid.serializeLayout(),
         include_period: include ? include.checked : true,
         for_email: forEmail,
       }),
@@ -486,26 +399,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const resetLayout = document.getElementById("resetLayoutBtn");
   if (resetLayout) {
-    resetLayout.addEventListener("click", () => {
-      if (activeKey) showTab(activeKey);
-    });
-  }
-  const groupBy = document.getElementById("groupBySelect");
-  if (groupBy) {
-    groupBy.addEventListener("change", () => {
-      if (activeKey) showTab(activeKey);
-    });
+    resetLayout.addEventListener("click", () => ReportGrid.resetLayout());
   }
   const columnsBtn = document.getElementById("columnsBtn");
   if (columnsBtn) {
     columnsBtn.addEventListener("click", () => {
-      if (!table) {
+      const grid = ReportGrid.getTable();
+      if (!grid) {
         alert("Run the report first.");
         return;
       }
       const list = document.getElementById("columnsList");
       list.innerHTML = "<table class=\"simple-table\"><thead><tr><th>Column</th><th>Show</th><th>Freeze</th></tr></thead><tbody>"
-        + table.getColumns().map((col) => {
+        + grid.getColumns().map((col) => {
           const field = col.getField();
           const title = col.getDefinition().title || field;
           const checked = col.isVisible() ? "checked" : "";
@@ -518,19 +424,12 @@ document.addEventListener("DOMContentLoaded", () => {
       openOverlay("columnsOverlay");
       list.querySelectorAll("input[data-field]").forEach((box) => {
         box.addEventListener("change", () => {
-          const col = table.getColumn(box.getAttribute("data-field"));
-          if (!col) return;
-          if (box.checked) col.show();
-          else col.hide();
+          ReportGrid.setColumnVisible(box.getAttribute("data-field"), box.checked);
         });
       });
       list.querySelectorAll("input[data-freeze]").forEach((box) => {
         box.addEventListener("change", () => {
-          frozenFields = new Set();
-          list.querySelectorAll("input[data-freeze]").forEach((pin) => {
-            if (pin.checked) frozenFields.add(pin.getAttribute("data-freeze"));
-          });
-          if (activeKey) showTab(activeKey);
+          ReportGrid.setFrozen(box.getAttribute("data-freeze"), box.checked);
         });
       });
     });

@@ -11,6 +11,7 @@ import config
 import store
 from doorway import DoorwayError
 from export_xlsx import workbook_bytes
+from layout import apply_layout
 from mail import GraphMailError, mailer, split_recipients
 from reports import build_payload
 
@@ -82,6 +83,7 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
     except DoorwayError as err:
         store.mark_schedule_run(schedule["id"], "failure", str(err), at=at)
         return "failure"
+    payload = apply_layout(payload, schedule.get("layout"))
     store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
     source = (payload.get("data") or {}).get("source") or "mock"

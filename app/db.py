@@ -44,8 +44,69 @@ CREATE TABLE IF NOT EXISTS views (
     report_key TEXT NOT NULL,
     name TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'personal',
-    params_json TEXT NOT NULL DEFAULT '{}',
-    include_period INTEGER NOT NULL DEFAULT 0
+    include_period INTEGER NOT NULL DEFAULT 0,
+    period TEXT,
+    start_date TEXT,
+    end_date TEXT,
+    year TEXT,
+    mode TEXT,
+    active_tab_key TEXT
+);
+CREATE TABLE IF NOT EXISTS view_salesmen (
+    view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
+    salesman TEXT NOT NULL,
+    PRIMARY KEY (view_id, salesman)
+);
+CREATE TABLE IF NOT EXISTS view_statuses (
+    view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    PRIMARY KEY (view_id, status)
+);
+CREATE TABLE IF NOT EXISTS view_customers (
+    view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
+    customer_account TEXT NOT NULL,
+    PRIMARY KEY (view_id, customer_account)
+);
+CREATE TABLE IF NOT EXISTS layout_tabs (
+    id INTEGER PRIMARY KEY,
+    view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
+    tab_key TEXT NOT NULL,
+    position INTEGER,
+    clone_of_tab_key TEXT,
+    tab_name TEXT,
+    has_view INTEGER NOT NULL DEFAULT 0,
+    groups_explicit INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (view_id, tab_key)
+);
+CREATE TABLE IF NOT EXISTS layout_tab_groups (
+    tab_id INTEGER NOT NULL REFERENCES layout_tabs(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    column_name TEXT NOT NULL,
+    PRIMARY KEY (tab_id, position)
+);
+CREATE TABLE IF NOT EXISTS layout_tab_sorters (
+    tab_id INTEGER NOT NULL REFERENCES layout_tabs(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    column_name TEXT NOT NULL,
+    dir TEXT NOT NULL CHECK (dir IN ('asc', 'desc')),
+    PRIMARY KEY (tab_id, position)
+);
+CREATE TABLE IF NOT EXISTS layout_columns (
+    tab_id INTEGER NOT NULL REFERENCES layout_tabs(id) ON DELETE CASCADE,
+    field TEXT NOT NULL,
+    position INTEGER,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    frozen INTEGER NOT NULL DEFAULT 0,
+    width REAL,
+    PRIMARY KEY (tab_id, field)
+);
+CREATE TABLE IF NOT EXISTS layout_column_filters (
+    tab_id INTEGER NOT NULL REFERENCES layout_tabs(id) ON DELETE CASCADE,
+    field TEXT NOT NULL,
+    op TEXT NOT NULL DEFAULT 'contains',
+    v TEXT,
+    v2 TEXT,
+    PRIMARY KEY (tab_id, field)
 );
 CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY,
@@ -163,17 +224,22 @@ def init_db() -> None:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 row,
             )
+        from views import migrate_params_json, save_filters_and_layout
+
+        migrate_params_json(conn)
         if conn.execute("SELECT COUNT(*) FROM views").fetchone()[0] == 0:
             conn.execute(
-                """INSERT INTO views (owner_email, report_key, name, kind, params_json, include_period)
-                   VALUES ('preview@achimonline.com', 'invoiced', 'Daily Invoiced', 'personal',
-                           '{"period":"last_7_days"}', 1)"""
+                """INSERT INTO views (owner_email, report_key, name, kind, include_period)
+                   VALUES ('preview@achimonline.com', 'invoiced', 'Daily Invoiced', 'personal', 1)"""
             )
+            invoiced_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            save_filters_and_layout(conn, invoiced_id, {"period": "last_7_days"}, None, 1)
             conn.execute(
-                """INSERT INTO views (owner_email, report_key, name, kind, params_json, include_period)
-                   VALUES (NULL, 'ordered', 'Daily Ordered', 'company',
-                           '{"period":"this_week"}', 1)"""
+                """INSERT INTO views (owner_email, report_key, name, kind, include_period)
+                   VALUES (NULL, 'ordered', 'Daily Ordered', 'company', 1)"""
             )
+            ordered_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            save_filters_and_layout(conn, ordered_id, {"period": "this_week"}, None, 1)
         for item in REPORTS:
             conn.execute(
                 "INSERT OR IGNORE INTO report_visibility (report_key, enabled) VALUES (?, 1)",

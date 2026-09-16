@@ -6,7 +6,7 @@ This folder is **not** the leftover Flask preview in `/rebuild` and **must not**
 
 ## Dummy preview (what this branch serves)
 
-Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and outbox. Reports call the office Reporting API when `REPORTING_API_KEY` is set; without it they stay on catalog JSON (banner on home and report pages). Graph mail, the one-minute clock, Hebcal skip, and Entra login turn on when `GRAPH_*` / `EMAIL_FROM` are set; without them mail stays in sqlite outbox and Achim User Login stays the preview admin.
+Every home card, Settings, People, saved views (filters **and** grid layout in columns, not JSON blobs), Keep/Recent, schedules, Excel export, and outbox. Reports call the office Reporting API when `REPORTING_API_KEY` is set; without it they stay on catalog JSON (banner on home and report pages). Graph mail, the one-minute clock, Hebcal skip, and Entra login turn on when `GRAPH_*` / `EMAIL_FROM` are set; without them mail stays in sqlite outbox and Achim User Login stays the preview admin.
 
 ```
 cd app

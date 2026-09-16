@@ -7,14 +7,14 @@ import re
 import sqlite3
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 
 import catalog
 import config
 import doorway
 import store
 from db import db
-from deps import flash, is_privileged, need_login, page, require_csrf, session_user
+from deps import is_privileged, need_login, page, require_csrf, session_user
 from routes_admin import _guard_developer
 
 router = APIRouter()
@@ -98,66 +98,6 @@ def db_explorer_run(
             error=str(err),
             sql=sql,
         )
-
-
-@router.post("/dev/db-explorer/json")
-def db_explorer_json(
-    request: Request,
-    view_id: int = Form(...),
-    params_json: str = Form(""),
-    csrf: str = Form(""),
-    confirm_write: str = Form(""),
-):
-    denied = need_login(request)
-    if denied:
-        return denied
-    denied = require_csrf(request, csrf)
-    if denied:
-        return denied
-    blocked = _guard_developer(request)
-    if blocked:
-        return blocked
-    if confirm_write != "1":
-        return page(
-            request,
-            "db_explorer.html",
-            active_tab="settings",
-            rows=None,
-            error="JSON edits need Confirm write checked.",
-            sql="SELECT id, name, params_json FROM views",
-        )
-    try:
-        parsed = json.loads(params_json)
-    except json.JSONDecodeError as err:
-        return page(
-            request,
-            "db_explorer.html",
-            active_tab="settings",
-            rows=None,
-            error=f"params_json is not valid JSON: {err}",
-            sql="SELECT id, name, params_json FROM views",
-        )
-    if not isinstance(parsed, dict):
-        return page(
-            request,
-            "db_explorer.html",
-            active_tab="settings",
-            rows=None,
-            error="views params_json must be a JSON object.",
-            sql="SELECT id, name, params_json FROM views",
-        )
-    bad = store.update_view_params(view_id, parsed)
-    if bad:
-        return page(
-            request,
-            "db_explorer.html",
-            active_tab="settings",
-            rows=None,
-            error=bad,
-            sql="SELECT id, name, params_json FROM views",
-        )
-    flash(request, f"Updated view {view_id} params_json.")
-    return RedirectResponse("/dev/db-explorer", status_code=303)
 
 
 @router.get("/dev/notif-diagnostic")
