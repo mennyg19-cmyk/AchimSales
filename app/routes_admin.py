@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import config
+import lookups
 import store
 from import_precious import import_precious, summarize
 from deps import (
@@ -76,7 +77,7 @@ def settings_page(request: Request):
         test_mode_on=store.setting("schedule_test_mode") == "1",
         test_emails=store.test_emails(),
         excluded=store.exclusions_for(user["email"]),
-        customers=catalog.CUSTOMERS,
+        customers=lookups.customers(),
     )
 
 

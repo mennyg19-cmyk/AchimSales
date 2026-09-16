@@ -284,3 +284,49 @@ def test_clock_disabled_under_pytest():
     import config
 
     assert config.clock_disabled() is True
+
+
+def test_test_mode_strips_cc_bcc(home_db, monkeypatch):
+    import catalog
+    import deliver
+
+    home_store.set_setting("schedule_test_mode", "1")
+    home_store.set_setting("test_emails", "qa@achimonline.com")
+    captured = {}
+
+    def fake_send(**kwargs):
+        captured.update(kwargs)
+        return "outbox"
+
+    monkeypatch.setattr(deliver, "send_or_outbox", fake_send)
+    monkeypatch.setattr(deliver, "build_payload", lambda *a, **k: catalog.mock_report("ordered"))
+    monkeypatch.setattr(deliver, "_upload_folders", lambda *a, **k: "")
+    with db() as conn:
+        sid = conn.execute("SELECT id FROM schedules LIMIT 1").fetchone()["id"]
+        conn.execute(
+            "UPDATE schedules SET cc = ?, bcc = ?, recipients = ? WHERE id = ?",
+            (
+                "boss@achimonline.com",
+                "hidden@achimonline.com",
+                "real@achimonline.com",
+                sid,
+            ),
+        )
+        conn.execute(
+            """INSERT INTO schedule_recipients (schedule_id, email, role)
+               VALUES (?, 'boss@achimonline.com', 'cc')""",
+            (sid,),
+        )
+        conn.execute(
+            """INSERT INTO schedule_recipients (schedule_id, email, role)
+               VALUES (?, 'hidden@achimonline.com', 'bcc')""",
+            (sid,),
+        )
+    sched = home_store.get_schedule(sid)
+    user = home_store.get_user("preview@achimonline.com")
+    assert deliver.deliver_schedule(sched, user) == "success"
+    assert captured["recipients"] == "qa@achimonline.com"
+    assert captured["cc"] == ""
+    assert captured["bcc"] == ""
+    assert "CC " not in captured["body"]
+    assert "BCC " not in captured["body"]

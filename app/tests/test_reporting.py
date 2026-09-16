@@ -185,7 +185,9 @@ def test_assemble_uses_existing_tabs():
         },
     )
     payload = assemble.from_result("invoiced", result)
-    assert payload["data"]["tabs"]["full_details"]["rows"][0]["InvoiceNumber"] == "X"
+    row = payload["data"]["tabs"]["full_details"]["rows"][0]
+    assert row["InvoiceNumber"] == "X"
+    assert row["CustomerName"] == ""
 
 
 def test_assemble_thin_invoiced_splits_credits():
@@ -217,6 +219,15 @@ def test_run_without_key_is_mock(client):
     assert "Dummy JSON" in html
     payload = client.post("/api/reports/invoiced/run", json={}, headers=csrf_headers(client)).json()
     assert payload["data"]["source"] == "mock"
+
+
+def test_exclusions_page_uses_customer_master(live_client):
+    login(live_client)
+    html = live_client.get("/settings").text
+    assert "C-1001" in html
+    assert "HD SUPPLY" in html
+    assert "C-1002" not in html
+    assert "MAZER WHOLESALE" not in html
 
 
 def test_live_invoiced_run_uses_doorway(live_client):
@@ -422,3 +433,56 @@ def test_doorway_parses_rows(monkeypatch):
     monkeypatch.setattr(urllib.request, "build_opener", lambda *a, **k: Opener())
     result = doorway.run_report("ordered_report", {"SalesGroup": "DDweck"})
     assert result.rows == [{"A": 1}]
+
+
+def test_doorway_parses_columns_and_odata(monkeypatch):
+    monkeypatch.setenv("REPORTING_API_KEY", "test-key-not-live")
+    monkeypatch.setenv("REPORTING_API_BASE_URL", "https://reporting.test.example")
+    bodies = [
+        {
+            "columns": ["CustomerAccount", "CustomerName", "SalesGroup"],
+            "rows": [["C-9001", "LIVE CO", "DDweck"], ["C-9002"]],
+        },
+        {"value": [{"CustomerAccount": "C-9003", "CustomerName": "ODATA CO"}]},
+        {"Table": [{"CustomerAccount": "C-9004"}]},
+    ]
+    index = {"n": 0}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(bodies[index["n"]]).encode()
+
+    class Opener:
+        def open(self, req, timeout=None):
+            return Resp()
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *a, **k: Opener())
+    first = doorway.run_report("customer_master", {})
+    assert first.rows[0]["CustomerAccount"] == "C-9001"
+    assert first.rows[1]["CustomerName"] == ""
+    index["n"] = 1
+    assert doorway.run_report("customer_master", {}).rows[0]["CustomerAccount"] == "C-9003"
+    index["n"] = 2
+    assert doorway.run_report("customer_master", {}).rows[0]["CustomerAccount"] == "C-9004"
+
+
+def test_assemble_converts_old_rows_and_pads_empty_fields():
+    result = _result(
+        "invoiced_report",
+        [{"InvoiceNumber": "IN-OLD", "CustomerAccount": "C-1"}],
+        {"rows": [{"InvoiceNumber": "IN-OLD", "CustomerAccount": "C-1"}]},
+    )
+    payload = assemble.from_result("invoiced", result)
+    row = payload["data"]["tabs"]["full_details"]["rows"][0]
+    assert row["InvoiceNumber"] == "IN-OLD"
+    assert row["CustomerAccount"] == "C-1"
+    assert row["CustomerName"] == ""
+    assert row["Total Invoice"] == ""
+    assert "full_details" in payload["data"]["tabs"]
+    assert "credits" in payload["data"]["tabs"]

@@ -1,4 +1,11 @@
-## 2026-09-16 Company schedules retired; user schedules only
+## 2026-09-16 Test mode drops CC/BCC; old API JSON converted; exclusions from customer_master
+**What I had to decide:** Pad missing fields from mock tab schemas vs only intra-row union; keep dummy catalog on Settings when the API is unset.
+**Options I considered:** Blank only sibling keys in the same payload; always include mock tab keys as empty; fail test-mode sends that still have CC.
+**What I chose:** Hotfix deviation (no Sol/Fable). Test mode To = test emails, CC/BCC empty. Doorway `rows_from_body` accepts `{rows}`, columns+values, OData `value`, and `Table`. Assemble converts that to `data.tabs` and fills unsent fields with `""` from mock keys plus keys seen on other rows. Settings exclusions use `lookups.customers()`. Customer filter card `overflow:visible`.
+**Why:** Menny: test mail must not leak CC/BCC; office API still returns old JSON; exclusion list was dummy `catalog.CUSTOMERS`; picker menu was clipped by `.report-controls{overflow:hidden}`.
+**Status:** DECIDED
+
+
 **What I had to decide:** Hide company schedules vs keep them running with the UI off (P9.1).
 **Options I considered:** Hide UI but keep clock (old P9.1); convert company rows to personal; drop company-kind from UI, clock, and import.
 **What I chose:** `schedules.kind = company` does not show, tick, import, or Run now. Company **views** stay. Existing imported company rows are paused on boot. Settings flag and Company schedules page are gone.

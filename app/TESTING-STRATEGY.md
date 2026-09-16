@@ -48,6 +48,10 @@
 | `/master-schedules/{id}/history` | 200 for admin |
 | `/dev/diagnostics` | P4.I8 blocked copy |
 | Settings `/settings` | People is Users & access only; Copy from live is under Developer; POST still privileged |
+| Test mode on | Schedule mail To = test_emails; CC/BCC ignored even if the schedule has them |
+| Old Reporting API JSON (`rows`, columns+values, `value`, `Table`) | Converted to `data.tabs.*.rows`; missing fields are `""` |
+| Settings customer exclusions | Lists `lookups.customers()` (customer_master), not dummy `catalog.CUSTOMERS` |
+| Report customer filter dropdown | `.report-controls` overflow visible so the menu is not clipped |
 | Dummy People | preview@ / loop / @example.com stripped on import; production never seeds them |
 | Chrome tables | schedules/users/history/Last Order are Tabulator; last run is Eastern `YYYY-MM-DD HH:MM` |
 | PWA icons 192/512 | PNG magic |

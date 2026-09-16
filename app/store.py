@@ -716,6 +716,12 @@ def mail_recipients(explicit: str) -> str:
     return explicit
 
 
+def mail_copy_lists(cc: str = "", bcc: str = "") -> tuple[str, str]:
+    if setting("schedule_test_mode") == "1":
+        return "", ""
+    return cc or "", bcc or ""
+
+
 def set_exclusions(email: str, accounts: list[str]) -> None:
     set_setting(f"exclusions:{email.lower()}", json.dumps(accounts))
 

@@ -175,9 +175,10 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
     payload = apply_layout(payload, schedule.get("layout"))
     store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
+    cc, bcc = store.mail_copy_lists(schedule.get("cc") or "", schedule.get("bcc") or "")
     source = (payload.get("data") or {}).get("source") or "mock"
     live = source == "reporting_api"
-    extra = _extras(schedule)
+    extra = _extras({**schedule, "cc": cc, "bcc": bcc})
     if config.graph_mail_configured():
         detail = (
             "Scheduled workbook from the office Reporting API."
@@ -257,8 +258,8 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
             body=body_text,
             filename=name,
             xlsx_bytes=xlsx,
-            cc=schedule.get("cc") or "",
-            bcc=schedule.get("bcc") or "",
+            cc=cc,
+            bcc=bcc,
             body_html=body_html,
         )
     except GraphMailError as err:

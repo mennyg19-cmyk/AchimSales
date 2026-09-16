@@ -25,6 +25,127 @@ class ReportResult:
     body: dict
 
 
+def _column_names(columns) -> list[str]:
+    names = []
+    for index, col in enumerate(columns or []):
+        if isinstance(col, str):
+            names.append(col)
+            continue
+        if isinstance(col, dict):
+            names.append(str(col.get("name") or col.get("Name") or col.get("field") or f"col_{index}"))
+            continue
+        names.append(str(col))
+    return names
+
+
+def _is_matrix(value) -> bool:
+    return isinstance(value, list) and bool(value) and isinstance(value[0], (list, tuple))
+
+
+def _records_from_columns(columns, matrix) -> list[dict]:
+    names = _column_names(columns)
+    if not names:
+        return []
+    rows = []
+    for raw in matrix or []:
+        if isinstance(raw, dict):
+            rec = {}
+            for name in names:
+                val = raw.get(name) if name in raw else None
+                rec[name] = "" if val is None else val
+            for key, value in raw.items():
+                if key not in rec:
+                    rec[key] = "" if value is None else value
+            rows.append(rec)
+            continue
+        if not isinstance(raw, (list, tuple)):
+            continue
+        rec = {}
+        for index, name in enumerate(names):
+            rec[name] = raw[index] if index < len(raw) and raw[index] is not None else ""
+        rows.append(rec)
+    return rows
+
+
+def _as_records(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    if _is_matrix(value):
+        return []
+    return [row for row in value if isinstance(row, dict)]
+
+
+def _flatten_tabs(tabs) -> list[dict]:
+    if isinstance(tabs, dict):
+        items = tabs.values()
+    elif isinstance(tabs, list):
+        items = tabs
+    else:
+        return []
+    out = []
+    for tab in items:
+        if isinstance(tab, dict):
+            rows = tab.get("rows")
+            if isinstance(rows, list):
+                if _is_matrix(rows) and isinstance(tab.get("columns"), list):
+                    out.extend(_records_from_columns(tab["columns"], rows))
+                else:
+                    out.extend(_as_records(rows))
+        elif isinstance(tab, list):
+            out.extend(_as_records(tab))
+    return out
+
+
+def rows_from_body(body) -> list[dict]:
+    """Turn old doorway JSON (rows, columns+values, OData value, Table) into dict rows."""
+    return _rows_from_value(body, 0)
+
+
+def _rows_from_value(value, depth: int) -> list[dict]:
+    if depth > 5:
+        return []
+    if isinstance(value, list):
+        records = _as_records(value)
+        return records
+    if not isinstance(value, dict):
+        return []
+    columns = value.get("columns") or value.get("Columns")
+    matrix = None
+    if _is_matrix(value.get("rows")):
+        matrix = value.get("rows")
+    elif _is_matrix(value.get("values")):
+        matrix = value.get("values")
+    elif _is_matrix(value.get("data")):
+        matrix = value.get("data")
+    if isinstance(columns, list) and matrix:
+        converted = _records_from_columns(columns, matrix)
+        if converted:
+            return converted
+    for key in ("rows", "raw", "value", "Table", "table", "result", "Results", "items"):
+        item = value.get(key)
+        if item is None:
+            continue
+        found = _rows_from_value(item, depth + 1)
+        if found:
+            return found
+    data = value.get("data")
+    if isinstance(data, list):
+        found = _as_records(data)
+        if found:
+            return found
+    if isinstance(data, dict):
+        found = _rows_from_value(data, depth + 1)
+        if found:
+            return found
+    tabs = value.get("tabs")
+    if isinstance(data, dict) and tabs is None:
+        tabs = data.get("tabs")
+    flat = _flatten_tabs(tabs)
+    if flat:
+        return flat
+    return []
+
+
 def configured() -> bool:
     return bool(config.reporting_api_base() and config.reporting_api_key())
 
@@ -76,11 +197,6 @@ def run_report(report_id: str, params: dict | None = None, timeout: float | None
             continue
         if not isinstance(body, dict):
             body = {}
-        data = body.get("data") if isinstance(body.get("data"), dict) else {}
-        rows = body.get("rows")
-        if not isinstance(rows, list):
-            rows = data.get("raw") if isinstance(data.get("raw"), list) else []
-        if not isinstance(rows, list):
-            rows = []
+        rows = rows_from_body(body)
         return ReportResult(report_id=body.get("report_id") or report_id, rows=rows, body=body)
     raise DoorwayError(f"Reporting API unreachable for {report_id}: {last_err}")

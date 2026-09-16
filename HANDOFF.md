@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16 (Litestream restore/replicate re-enabled)
 
-**Status:** FastAPI is live. Login works. Company schedules are retired (user schedules only).
+**Status:** FastAPI is live. Login works. Company schedules are retired. Next: test-mode CC/BCC, old JSON converter, customer picker overflow, exclusions from customer_master.
 
 ## Working tree
 
