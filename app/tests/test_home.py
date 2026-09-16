@@ -612,7 +612,7 @@ def test_schedule_delivery_fields_land_in_outbox(client):
     client.post(f"/schedules/{sid}/run-now", data={"csrf": client.csrf}, follow_redirects=True)
     diag = client.get("/dev/notif-diagnostic").text
     assert "CC cc@achimonline.com" in diag
-    assert "file {Schedule}.xlsx" in diag
+    assert "file Daily Ordered.xlsx" in diag
     assert "SharePoint /Reports/Dummy" in diag
     assert "OneDrive /OneDrive/Dummy" in diag
     sched = client.get("/schedules").text

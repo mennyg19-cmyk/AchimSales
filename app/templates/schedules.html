@@ -81,9 +81,9 @@
             </p>
             {% if is_privileged or user.sharepoint_access %}
             <label class="auth-field"><span class="auth-label">SharePoint folder</span>
-                <input name="sharepoint_folder" type="text" placeholder="path saved; Graph upload is not wired yet"></label>
+                <input name="sharepoint_folder" type="text" placeholder="folder under Direct Reports"></label>
             <label class="auth-field"><span class="auth-label">OneDrive folder</span>
-                <input name="onedrive_folder" type="text" placeholder="path saved; Graph upload is not wired yet"></label>
+                <input name="onedrive_folder" type="text" placeholder="folder in the owner's OneDrive"></label>
             {% endif %}
         </div>
         <div class="modal-foot">

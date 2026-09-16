@@ -41,6 +41,7 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     config.reporting_api_base()
+    config.validate_boot()
     application = FastAPI(
         title="Achim Sales Reports",
         docs_url=None,
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
         if not row["is_active"]:
             return JSONResponse({"error": "This account is disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
+        request.session["theme"] = row.get("theme") or "light"
         request.session.pop("impersonating", None)
         dest = request.session.pop("login_next", None) or "/"
         return RedirectResponse(safe_next(dest), status_code=302)
@@ -130,6 +132,7 @@ def create_app() -> FastAPI:
         if row is None or not row["is_active"]:
             return JSONResponse({"error": "Preview admin is missing or disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
+        request.session["theme"] = row.get("theme") or "light"
         request.session.pop("impersonating", None)
         return RedirectResponse(safe_next(next), status_code=303)
 
@@ -177,6 +180,7 @@ def create_app() -> FastAPI:
             )
             return RedirectResponse(dest, status_code=303)
         request.session["user"] = session_from_row(row)
+        request.session["theme"] = row.get("theme") or "light"
         flash(request, "Preview shortcut: signed in as the External People row. Live mail is not sent.")
         return RedirectResponse(safe_next(next), status_code=303)
 
@@ -195,6 +199,7 @@ def create_app() -> FastAPI:
         if not row["is_active"]:
             return JSONResponse({"error": "This account is disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
+        request.session["theme"] = row.get("theme") or "light"
         request.session.pop("impersonating", None)
         return RedirectResponse(safe_next(next), status_code=302)
 

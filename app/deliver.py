@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import html
 import logging
+from datetime import datetime, timezone
 
-from datetime import datetime
-
+import cadence
 import catalog
+import catchup
+import chips
 import config
+import drive
 import store
 from doorway import DoorwayError
 from export_xlsx import workbook_bytes
@@ -18,9 +22,15 @@ from reports import build_payload
 log = logging.getLogger(__name__)
 
 
-def _filename(template: str, view_name: str) -> str:
+def _filename(template: str, view_name: str, period: str = "", sharepoint_url: str = "") -> str:
     raw = (template or "").strip() or f"{view_name}.xlsx"
-    name = raw.replace("{Schedule}", view_name)
+    name = chips.expand(
+        raw,
+        schedule_name=view_name,
+        period=period,
+        sharepoint_url=sharepoint_url,
+        download_url=sharepoint_url,
+    )
     if not name.lower().endswith(".xlsx"):
         name += ".xlsx"
     return name[:180]
@@ -50,6 +60,7 @@ def send_or_outbox(
     xlsx_bytes: bytes | None = None,
     cc: str = "",
     bcc: str = "",
+    body_html: str = "",
 ) -> str:
     """Return 'graph' or 'outbox'. Graph failure is raised after the outbox row is written."""
     store.add_outbox(recipients, subject, body)
@@ -66,6 +77,7 @@ def send_or_outbox(
             xlsx_bytes=xlsx_bytes,
             cc=split_recipients(cc) or None,
             bcc=split_recipients(bcc) or None,
+            body_html=body_html or None,
         )
     except GraphMailError:
         log.warning("Graph send failed; outbox row already written", exc_info=True)
@@ -73,13 +85,41 @@ def send_or_outbox(
     return "graph"
 
 
+def _run_params(schedule: dict, at: datetime | None) -> dict:
+    params = dict(schedule.get("params") or {})
+    skipped = catchup.as_date(schedule.get("catch_up_for_date"))
+    if skipped is None:
+        return params
+    now = at or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    today = now.astimezone(cadence.EASTERN).date()
+    return catchup.overlay_params(
+        params, schedule["report_key"], skipped=skipped, today=today
+    )
+
+
+def _upload_folders(schedule: dict, filename: str, content: bytes, owner: dict) -> str:
+    url = ""
+    sp_folder = (schedule.get("sharepoint_folder") or "").strip()
+    od_folder = (schedule.get("onedrive_folder") or "").strip()
+    if sp_folder:
+        uploaded = drive.upload_sharepoint(sp_folder, filename, content)
+        url = str(uploaded.get("webUrl") or "")
+    if od_folder:
+        uploaded = drive.upload_onedrive(owner.get("email") or "", od_folder, filename, content)
+        url = url or str(uploaded.get("webUrl") or "")
+    return url
+
+
 def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> str:
     spec = catalog.spec(schedule["report_key"])
     if spec is None:
         store.mark_schedule_run(schedule["id"], "failure", "Unknown report on the saved view.", at=at)
         return "failure"
+    params = _run_params(schedule, at)
     try:
-        payload = build_payload(schedule["report_key"], user, schedule.get("params") or {})
+        payload = build_payload(schedule["report_key"], user, params)
     except DoorwayError as err:
         store.mark_schedule_run(schedule["id"], "failure", str(err), at=at)
         return "failure"
@@ -103,28 +143,60 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
         )
     if extra:
         detail += " " + extra
-    if schedule.get("sharepoint_folder") or schedule.get("onedrive_folder"):
-        detail += " SharePoint/OneDrive upload is not Graph-wired yet."
-    subject = schedule.get("subject") or (
+    period = chips.period_label(params)
+    xlsx = workbook_bytes(payload)
+    name = _filename(schedule.get("filename") or "", schedule["view_name"], period)
+    try:
+        file_url = _upload_folders(schedule, name, xlsx, user)
+    except drive.DriveError as err:
+        store.mark_schedule_run(schedule["id"], "failure", str(err), at=at)
+        return "failure"
+    subject_raw = schedule.get("subject") or (
         schedule["view_name"] if live else f"[MOCK] {schedule['view_name']}"
     )
-    xlsx = workbook_bytes(payload)
-    name = _filename(schedule.get("filename") or "", schedule["view_name"])
+    subject = chips.expand(
+        subject_raw,
+        schedule_name=schedule["view_name"],
+        period=period,
+        sharepoint_url=file_url,
+        download_url=file_url,
+        html_button=False,
+    )
+    body_text = chips.expand(
+        detail,
+        schedule_name=schedule["view_name"],
+        period=period,
+        sharepoint_url=file_url,
+        download_url=file_url,
+    )
+    if file_url:
+        body_text += f"\n{file_url}"
+    body_html = (
+        "<pre style='font-family:inherit;white-space:pre-wrap'>"
+        + html.escape(body_text)
+        + "</pre>"
+    )
+    if file_url:
+        body_html += chips.download_button_html(file_url, label=schedule["view_name"])
     try:
         channel = send_or_outbox(
             recipients=recipients,
             subject=subject,
-            body=detail,
+            body=body_text,
             filename=name,
             xlsx_bytes=xlsx,
             cc=schedule.get("cc") or "",
             bcc=schedule.get("bcc") or "",
+            body_html=body_html,
         )
     except GraphMailError as err:
         store.mark_schedule_run(schedule["id"], "failure", str(err), at=at)
         return "failure"
     dest = "Graph" if channel == "graph" else "the outbox"
-    store.mark_schedule_run(schedule["id"], "success", f"Mail queued to {recipients} via {dest}", at=at)
+    message = f"Mail queued to {recipients} via {dest}"
+    if file_url:
+        message += f"; uploaded {file_url}"
+    store.mark_schedule_run(schedule["id"], "success", message, at=at)
     return "success"
 
 
@@ -146,17 +218,34 @@ def deliver_report_email(
             if live
             else "Dummy Excel attached. Graph secrets are not set; queued to the outbox."
         )
-    if sharepoint_folder:
-        body += f" Would upload to {sharepoint_folder}. SharePoint upload is not Graph-wired yet."
     xlsx = workbook_bytes(payload)
+    filename = f"{report_key}.xlsx"
+    file_url = ""
+    if sharepoint_folder:
+        try:
+            uploaded = drive.upload_sharepoint(sharepoint_folder, filename, xlsx)
+            file_url = str(uploaded.get("webUrl") or "")
+            if file_url:
+                body += f" Uploaded to {file_url}."
+        except drive.DriveError as err:
+            return {"ok": False, "error": str(err), "recipients": recipients, "mock": not live}
+    body_html = ""
+    if file_url:
+        body_html = (
+            "<pre style='font-family:inherit;white-space:pre-wrap'>"
+            + html.escape(body)
+            + "</pre>"
+            + chips.download_button_html(file_url)
+        )
     try:
         channel = send_or_outbox(
             recipients=recipients,
             subject=subject,
             body=body,
-            filename=f"{report_key}.xlsx",
+            filename=filename,
             xlsx_bytes=xlsx,
+            body_html=body_html,
         )
     except GraphMailError as err:
         return {"ok": False, "error": str(err), "recipients": recipients, "mock": not live}
-    return {"ok": True, "recipients": recipients, "mock": not live, "channel": channel}
+    return {"ok": True, "recipients": recipients, "mock": not live, "channel": channel, "file_url": file_url}

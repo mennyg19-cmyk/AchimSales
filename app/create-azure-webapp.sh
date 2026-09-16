@@ -42,5 +42,5 @@ az webapp config appsettings set \
     WEBSITES_PORT=8000
 
 echo "Created ${NAME}. Next: from the app/ folder run:  ./deploy.ps1 -Name ${NAME}"
-echo "Then set SESSION_SECRET in Configuration if you switch APP_ENV to production."
+echo "Then set SESSION_SECRET (or FLASK_SECRET) and LITESTREAM_AZURE_ACCOUNT_KEY if you switch APP_ENV to production."
 echo "Do not bind reports.achimonline.com until Menny signs off."

@@ -75,9 +75,7 @@ dynamic urllib, SHA1 cache fingerprints).
 **Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
 it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New
 Azure Web App first (`app/startup.sh` + `app/deploy.ps1`), DNS last. Leftover
-Flask PR #35 stays parked. Graph mail, the in-app minute clock, Brooklyn Hebcal
-skip, and Entra login are in the code and turn on when `GRAPH_*` / `EMAIL_FROM`
-are set; without them the dummy stays clickable (outbox + preview login).
+Flask PR #35 stays parked. Graph mail, SharePoint/OneDrive upload, the in-app minute clock (Shabbos skip + weekday catch-up), Brooklyn Hebcal skip, and Entra login turn on when `GRAPH_*` / `EMAIL_FROM` / `SP_SITE_URL` are set; without them the dummy stays clickable (outbox, mock drive URLs, preview login). Production boot needs `SESSION_SECRET` (or live's `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Opt-in People copy: `python3 app/import_precious.py /path/to/precious.db`.
 
 **Git in one minute:** `main` is the official copy. A **branch** is a photocopy
 you can mess with. A **pull request** is “please copy this photocopy into

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     can_see_company_views INTEGER NOT NULL DEFAULT 0,
     sharepoint_access INTEGER NOT NULL DEFAULT 0,
     dashboard_enabled INTEGER NOT NULL DEFAULT 0,
-    test_access INTEGER NOT NULL DEFAULT 0
+    test_access INTEGER NOT NULL DEFAULT 0,
+    theme TEXT NOT NULL DEFAULT 'light'
 );
 CREATE TABLE IF NOT EXISTS user_sales_groups (
     user_id INTEGER NOT NULL,
@@ -125,7 +126,9 @@ CREATE TABLE IF NOT EXISTS schedules (
     onedrive_folder TEXT NOT NULL DEFAULT '',
     is_active INTEGER NOT NULL DEFAULT 1,
     last_run TEXT,
-    last_status TEXT
+    last_status TEXT,
+    catch_up_pending INTEGER NOT NULL DEFAULT 0,
+    catch_up_for_date TEXT
 );
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
@@ -135,6 +138,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TEXT NOT NULL,
     kept INTEGER NOT NULL DEFAULT 0,
     keep_name TEXT,
+    kept_until TEXT,
     payload_json TEXT NOT NULL,
     owner_email TEXT NOT NULL DEFAULT ''
 );
@@ -216,6 +220,10 @@ def init_db() -> None:
         ensure_column("schedules", "filename", "TEXT NOT NULL DEFAULT ''")
         ensure_column("schedules", "sharepoint_folder", "TEXT NOT NULL DEFAULT ''")
         ensure_column("schedules", "onedrive_folder", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "catch_up_pending", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column("schedules", "catch_up_for_date", "TEXT")
+        ensure_column("users", "theme", "TEXT NOT NULL DEFAULT 'light'")
+        ensure_column("jobs", "kept_until", "TEXT")
         for row in SEED_USERS:
             conn.execute(
                 """INSERT OR IGNORE INTO users

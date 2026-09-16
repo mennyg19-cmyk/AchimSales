@@ -20,15 +20,39 @@ PRIVILEGED_ROLES = {"admin", "developer"}
 
 
 def session_secret() -> str:
-    env_secret = os.environ.get("SESSION_SECRET", "").strip()
+    env_secret = (
+        os.environ.get("SESSION_SECRET")
+        or os.environ.get("FLASK_SECRET")
+        or os.environ.get("FLASK_SECRET_KEY")
+        or ""
+    ).strip()
     if PRODUCTION:
         if not env_secret or env_secret == "preview-only-not-for-production":
             raise RuntimeError(
-                "APP_ENV is production but SESSION_SECRET is missing. "
+                "APP_ENV is production but SESSION_SECRET is missing "
+                "(also accepts FLASK_SECRET / FLASK_SECRET_KEY). "
                 "Refusing to boot (no preview default in production)."
             )
         return env_secret
     return env_secret or "preview-only-not-for-production"
+
+
+def sp_site_url() -> str:
+    return (os.environ.get("SP_SITE_URL") or "").strip()
+
+
+def litestream_account_key() -> str:
+    return (os.environ.get("LITESTREAM_AZURE_ACCOUNT_KEY") or "").strip()
+
+
+def validate_boot() -> None:
+    """Fail closed in production: real session secret + Litestream key."""
+    session_secret()
+    if PRODUCTION and not litestream_account_key():
+        raise RuntimeError(
+            "APP_ENV is production but LITESTREAM_AZURE_ACCOUNT_KEY is missing. "
+            "Refusing to boot (sqlite durability)."
+        )
 
 
 DEFAULT_REPORTING_API_BASE = (

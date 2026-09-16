@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import cadence
 import views as view_tables
@@ -55,7 +55,7 @@ def update_user(user_id: int, fields: dict) -> None:
     allowed = {
         "display_name", "role", "is_active", "is_external", "sales_group",
         "can_see_company_views", "sharepoint_access",
-        "dashboard_enabled", "test_access",
+        "dashboard_enabled", "test_access", "theme",
     }
     sets = []
     values = []
@@ -196,9 +196,33 @@ def save_job(
         return int(cur.lastrowid)
 
 
-def keep_job(job_id: int, name: str) -> None:
+KEEP_CAP = 5
+KEEP_DAYS = 30
+
+
+def keep_job(job_id: int, name: str, *, cap: int = KEEP_CAP, days: int = KEEP_DAYS) -> None:
+    until = (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    label = (name or "").strip()[:80] or "Kept run"
     with db() as conn:
-        conn.execute("UPDATE jobs SET kept = 1, keep_name = ? WHERE id = ?", (name, job_id))
+        row = conn.execute("SELECT owner_email FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            return
+        conn.execute(
+            "UPDATE jobs SET kept = 1, keep_name = ?, kept_until = ? WHERE id = ?",
+            (label, until, job_id),
+        )
+        owner = row["owner_email"] or ""
+        kept = conn.execute(
+            """SELECT id FROM jobs WHERE kept = 1 AND owner_email = ?
+               ORDER BY kept_until DESC, id DESC""",
+            (owner,),
+        ).fetchall()
+        if len(kept) > cap:
+            drop_ids = [item["id"] for item in kept[cap:]]
+            conn.executemany(
+                "UPDATE jobs SET kept = 0, keep_name = '', kept_until = NULL WHERE id = ?",
+                [(item,) for item in drop_ids],
+            )
 
 
 def cancel_job(job_id: int) -> None:
@@ -527,7 +551,39 @@ def prune_old_jobs(days: int = 90) -> int:
                AND datetime(created_at) < datetime('now', ?)""",
             (f"-{days} days",),
         )
-        return cur.rowcount
+        expired = conn.execute(
+            """UPDATE jobs SET kept = 0, keep_name = '', kept_until = NULL
+               WHERE kept = 1 AND kept_until IS NOT NULL
+               AND datetime(kept_until) < datetime('now')"""
+        )
+        return cur.rowcount + expired.rowcount
+
+
+def set_catch_up(schedule_id: int, pending: bool, for_date: str | None = None) -> None:
+    with db() as conn:
+        if not pending:
+            conn.execute(
+                "UPDATE schedules SET catch_up_pending = 0, catch_up_for_date = NULL WHERE id = ?",
+                (schedule_id,),
+            )
+            return
+        row = conn.execute(
+            "SELECT catch_up_for_date FROM schedules WHERE id = ?",
+            (schedule_id,),
+        ).fetchone()
+        existing = row["catch_up_for_date"] if row else None
+        kept = existing
+        if for_date:
+            kept = min(x for x in (existing, for_date) if x) if existing else for_date
+        conn.execute(
+            "UPDATE schedules SET catch_up_pending = 1, catch_up_for_date = ? WHERE id = ?",
+            (kept, schedule_id),
+        )
+
+
+def set_user_theme(user_id: int, theme: str) -> None:
+    with db() as conn:
+        conn.execute("UPDATE users SET theme = ? WHERE id = ?", (theme, user_id))
 
 
 def abandon_orphan_runs() -> int:

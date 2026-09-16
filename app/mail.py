@@ -81,13 +81,17 @@ class GraphMailer:
         xlsx_bytes: bytes | None = None,
         cc: list[str] | None = None,
         bcc: list[str] | None = None,
+        body_html: str | None = None,
     ) -> None:
         if not to:
             raise GraphMailError("Microsoft Graph send needs at least one To address.")
-        safe_body = html.escape(body_text or "")
-        html_body = (
-            "<pre style='font-family:inherit;white-space:pre-wrap'>" + safe_body + "</pre>"
-        )
+        if body_html:
+            html_body = body_html
+        else:
+            safe_body = html.escape(body_text or "")
+            html_body = (
+                "<pre style='font-family:inherit;white-space:pre-wrap'>" + safe_body + "</pre>"
+            )
         message: dict = {
             "subject": subject,
             "body": {"contentType": "HTML", "content": html_body},

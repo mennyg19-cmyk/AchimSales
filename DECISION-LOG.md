@@ -1,3 +1,11 @@
+## 2026-09-16 Go-live slice: chips, Graph drive, catch-up, Litestream, People import
+**What I had to decide:** Which remaining cutover gaps to build in-app vs leave for Menny (Azure create, DNS, P4.I8, secrets); whether production Litestream is fail-open like live startup.sh or fail-closed at boot; whether People import copies views/schedules.
+**Options I considered:** Port every v3 overlay window and email HTML sanitizer; skip drive until Azure; require Graph at production boot; auto-import precious.db on startup.
+**What I chose:** Build chips, Graph SharePoint/OneDrive upload (stdlib, chunked >4MB, mock in preview, fail-closed in production), Shabbos catch-up (skip vs reschedule, Monday makeup, one overlay window), fcntl clock lock, Keep cap 5 / 30 days, theme on `users`, `FLASK_SECRET` alias, Litestream wrap in `app/startup.sh` plus production boot refuse without the Azure key (download/restore still fail-open), opt-in `import_precious.py` for People only. Skip Customer Aging, salesman map, Azure create, DNS, Fable/Sol.
+**Why:** Menny said finish everything that can be built in-app. Secrets, DNS, and P4.I8 still need him. Views/schedules stay behind on import because the schema is columns, not v3 JSON.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Views as columns; grid layout saved with the view
 **What I had to decide:** Persist Tabulator hide/freeze/order/sort/group/header filters as JSON on views vs the rebuilt column tables; keep explorer JSON editor; port tab clones / TEXT handles / dual-write Excel parity.
 **Options I considered:** Dual-write `params_json` plus columns; columns only; skip grid persist and only keep filter scalars.

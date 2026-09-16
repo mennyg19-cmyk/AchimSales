@@ -22,6 +22,8 @@ def test_startup_script_is_azure_shaped():
     assert "main:app" in text
     assert "achim-sales-reports" in text  # warning to never point live at this
     assert "GUNICORN_TIMEOUT:-180" in text
+    assert "litestream" in text
+    assert (ROOT / "litestream.yml").is_file()
 
 
 def test_gunicorn_worker_serves_healthz():

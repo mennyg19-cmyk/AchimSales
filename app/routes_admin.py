@@ -92,6 +92,9 @@ async def set_theme(request: Request):
     if value not in THEME_BODY_CLASS:
         return JSONResponse({"error": "Unknown theme"}, status_code=400)
     request.session["theme"] = value
+    user = session_user(request)
+    if user and user.get("id"):
+        store.set_user_theme(int(user["id"]), value)
     return {"ok": True, "theme": value}
 
 
