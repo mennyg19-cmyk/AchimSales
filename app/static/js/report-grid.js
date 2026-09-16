@@ -517,11 +517,12 @@ function formatterFor(col, colIndex) {
         formatter: function (cell) {
           const parts = percentParts(cell.getValue());
           const text = parts ? parts.text : "";
-          if (parts && isFulfillmentField(col.field)) {
-            try { cell.getElement().style.backgroundColor = fulfillmentFillCss(parts.score); } catch (err) { /* cell gone */ }
-          }
           const color = parts && parts.n < 0 ? "#FF0000" : bandColor;
-          return color && text ? '<span style="color:' + color + '">' + text + "</span>" : text;
+          const inner = color && text ? '<span style="color:' + color + '">' + text + "</span>" : text;
+          if (parts && isFulfillmentField(col.field)) {
+            return '<span style="display:block;background:' + fulfillmentFillCss(parts.score) + ';margin:-8px;padding:8px">' + inner + "</span>";
+          }
+          return inner;
         },
       };
     case "date":
@@ -607,7 +608,10 @@ function renderGroupPills(group, columns) {
   });
 }
 
+let tableBuilding = false;
+
 function showTab(key) {
+  if (tableBuilding) return;
   if (activeKey && activeKey !== key) captureActive();
   activeKey = key;
   const tab = tabsByKey[key];
@@ -618,6 +622,10 @@ function showTab(key) {
   const wrap = document.getElementById("commissionCards");
   const grid = document.getElementById("reportTable");
   if (key === "commissions") {
+    if (table) {
+      try { table.destroy(); } catch (err) { /* already gone */ }
+      table = null;
+    }
     wrap.hidden = false;
     grid.hidden = true;
     wrap.innerHTML = rows.map((row) => {
@@ -631,21 +639,34 @@ function showTab(key) {
   }
   wrap.hidden = true;
   grid.hidden = false;
-  if (table) table.destroy();
+  if (table) {
+    try { table.destroy(); } catch (err) { /* already gone */ }
+    table = null;
+  }
   closeColumnFilterPopover();
   const v = viewFor(key);
   const columns = typedColumns(rows, tab, v, key);
   renderGroupPills(v.group, columns);
-  table = new Tabulator("#reportTable", {
-    data: rows,
-    layout: "fitDataStretch",
-    placeholder: "No rows",
-    movableColumns: true,
-    groupBy: v.group.length ? v.group : false,
-    initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
-    columns,
-  });
-  table.on("tableBuilt", () => applyColumnFilters());
+  tableBuilding = true;
+  try {
+    table = new Tabulator("#reportTable", {
+      data: rows,
+      layout: "fitData",
+      placeholder: "No rows",
+      movableColumns: true,
+      renderHorizontal: "virtual",
+      groupBy: v.group.length ? v.group : false,
+      initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
+      columns,
+    });
+    table.on("tableBuilt", () => {
+      tableBuilding = false;
+      applyColumnFilters();
+    });
+  } catch (err) {
+    tableBuilding = false;
+    throw err;
+  }
 }
 
 function tabKeys(tabs) {

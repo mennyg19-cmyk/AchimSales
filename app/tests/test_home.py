@@ -127,7 +127,7 @@ def test_preview_login_then_invoiced_tabs(client):
     between = page[picker_at:pills_at]
     assert between.count("</div>") >= 2
     css = client.get("/static/css/main.css").text
-    assert ".filter-bar-row .filter-fields{flex:0 0 auto" in css
+    assert ".filter-bar-row{flex-wrap:nowrap" in css
     assert "body.dark-theme .customer-chip" in css
     assert 'id="columnsBtn"' in page
     assert "Freeze pins it" in page

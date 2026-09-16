@@ -1,3 +1,11 @@
+## 2026-09-16 Pills stay on the filter row; tab switches must not freeze
+**What I had to decide:** Wrap the whole filter bar vs keep one row and wrap chips inside the middle slot.
+**Options I considered:** `flex-wrap:wrap` + `margin-left:auto` on Run report (current — pills drop under the picker); absolute pills; nowrap with pills `flex:1 1 0`.
+**What I chose:** Hotfix deviation. Desktop filter row is nowrap. Pills take leftover space and wrap internally. Run report does not use `margin-left:auto`. Tabulator `fitData` + virtual horizontal render; fulfillment fill is returned HTML, not `cell.getElement()` during format (that redraw loop froze live tabs).
+**Why:** Menny: pills still under the customer dropdown; selecting another report tab freezes the site.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Report customer pills no longer sit on the selector
 **What I had to decide:** Keep nowrap + shrinking fields vs let the filter row wrap and stop shrinking the picker.
 **Options I considered:** Absolute-position pills; keep them inside the customers column; sibling flex with `flex:0 1 auto` on the fields (current, overlaps).
