@@ -8,12 +8,12 @@
 </div>
 <section class="settings-card">
     {% if outbox %}
-    <table class="simple-table js-site-table">
+    <table class="simple-table">
         <thead><tr><th>When</th><th>To</th><th>Subject</th><th>Body</th></tr></thead>
         <tbody>
         {% for m in outbox %}
         <tr>
-            <td>{{ m.created_at|stamp }}</td>
+            <td>{{ m.created_at }}</td>
             <td>{{ m.recipients }}</td>
             <td>{{ m.subject }}</td>
             <td>{{ m.body }}</td>

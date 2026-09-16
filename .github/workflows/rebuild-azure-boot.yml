@@ -7,12 +7,10 @@ on:
   pull_request:
     paths:
       - "app/**"
-      - "startup.sh"
       - ".github/workflows/rebuild-azure-boot.yml"
   push:
     paths:
       - "app/**"
-      - "startup.sh"
       - ".github/workflows/rebuild-azure-boot.yml"
   workflow_dispatch:
 

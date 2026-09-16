@@ -5,19 +5,15 @@ from __future__ import annotations
 from collections import defaultdict
 
 import catalog
-import column_types
-from doorway import ReportResult, rows_from_body
+from doorway import ReportResult
 
 
 def _slug(name: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_") or "tab"
 
 
-def _tab(name: str, rows: list, columns=None) -> dict:
-    out = {"name": name, "rows": list(rows)}
-    if columns:
-        out["columns"] = list(columns)
-    return out
+def _tab(name: str, rows: list) -> dict:
+    return {"name": name, "rows": list(rows)}
 
 
 def _is_credit(row: dict) -> bool:
@@ -63,40 +59,14 @@ def _group(rows: list[dict], *key_names: str, name_field: str = "") -> list[dict
     return list(buckets.values())
 
 
-def _tab_rows(tab) -> list:
-    if isinstance(tab, list):
-        return [row for row in tab if isinstance(row, dict)]
-    if isinstance(tab, dict):
-        found = rows_from_body(tab)
-        if found:
-            return found
-        rows = tab.get("rows")
-        if isinstance(rows, list):
-            return [row for row in rows if isinstance(row, dict)]
-    return []
-
-
-def _tab_columns(tab) -> list:
-    if not isinstance(tab, dict):
-        return []
-    columns = tab.get("columns")
-    if isinstance(columns, list):
-        return columns
-    return []
-
-
 def _tabs_dict(raw) -> dict:
     if isinstance(raw, dict):
         out = {}
         for key, tab in raw.items():
-            if isinstance(tab, dict):
-                rec = {"name": tab.get("name") or str(key), "rows": _tab_rows(tab)}
-                columns = _tab_columns(tab)
-                if columns:
-                    rec["columns"] = columns
-                out[str(key)] = rec
+            if isinstance(tab, dict) and isinstance(tab.get("rows"), list):
+                out[str(key)] = {"name": tab.get("name") or str(key), "rows": tab["rows"]}
             elif isinstance(tab, list):
-                out[str(key)] = {"name": str(key), "rows": _tab_rows(tab)}
+                out[str(key)] = {"name": str(key), "rows": tab}
         return out
     if isinstance(raw, list):
         out = {}
@@ -104,126 +74,24 @@ def _tabs_dict(raw) -> dict:
             if not isinstance(tab, dict):
                 continue
             key = str(tab.get("key") or _slug(tab.get("name") or f"tab_{index}"))
-            rec = {"name": tab.get("name") or key, "rows": _tab_rows(tab)}
-            columns = _tab_columns(tab)
-            if columns:
-                rec["columns"] = columns
-            out[key] = rec
+            rows = tab.get("rows") if isinstance(tab.get("rows"), list) else []
+            out[key] = {"name": tab.get("name") or key, "rows": rows}
         return out
     return {}
-
-
-def _mock_field_map(key: str) -> tuple[list[str], dict[str, list[str]]]:
-    builder = catalog._BUILDERS.get(key)
-    if builder is None:
-        return [], {}
-    payload = builder()
-    data = payload.get("data") if isinstance(payload, dict) else {}
-    raw_keys = _keys_in_order(data.get("raw") or [])
-    tab_keys = {}
-    for tab_key, tab in (data.get("tabs") or {}).items():
-        if isinstance(tab, dict):
-            tab_keys[str(tab_key)] = _keys_in_order(tab.get("rows") or [])
-    return raw_keys, tab_keys
-
-
-def _keys_in_order(rows, extra: list[str] | None = None) -> list[str]:
-    seen: list[str] = []
-    for key in extra or []:
-        if key not in seen:
-            seen.append(key)
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        for key in row:
-            if key not in seen:
-                seen.append(key)
-    return seen
-
-
-def _pad_row(row: dict, keys: list[str]) -> dict:
-    out = {}
-    for key in keys:
-        if key in row and row[key] is not None:
-            out[key] = row[key]
-        else:
-            out[key] = ""
-    return out
-
-
-def _pad_rows(rows, keys: list[str]) -> list[dict]:
-    return [_pad_row(row, keys) for row in rows or [] if isinstance(row, dict)]
-
-
-def _pad_tabs(key: str, tabs: dict, raw: list) -> tuple[dict, list]:
-    raw_schema, tab_schema = _mock_field_map(key)
-    padded_tabs = {}
-    for tab_key, tab in (tabs or {}).items():
-        rows = tab.get("rows") if isinstance(tab, dict) else []
-        if not isinstance(rows, list):
-            rows = []
-        keys = _keys_in_order(rows, extra=tab_schema.get(str(tab_key)) or [])
-        rec = {
-            "name": (tab.get("name") if isinstance(tab, dict) else None) or str(tab_key),
-            "rows": _pad_rows(rows, keys),
-        }
-        columns = _tab_columns(tab) if isinstance(tab, dict) else []
-        if columns:
-            rec["columns"] = columns
-        padded_tabs[str(tab_key)] = rec
-    raw_list = [row for row in raw or [] if isinstance(row, dict)]
-    if not raw_list:
-        for tab in padded_tabs.values():
-            raw_list.extend(tab.get("rows") or [])
-    raw_keys = _keys_in_order(raw_list, extra=raw_schema)
-    return padded_tabs, _pad_rows(raw_list, raw_keys)
-
-
-def stamp_columns(payload: dict) -> dict:
-    """Attach typed columns to each tab. Grid + Excel both read this."""
-    if not isinstance(payload, dict):
-        return payload
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        return payload
-    key = str(data.get("report_key") or "")
-    tabs = data.get("tabs")
-    if not isinstance(tabs, dict):
-        return payload
-    for tab in tabs.values():
-        if not isinstance(tab, dict):
-            continue
-        rows = tab.get("rows") if isinstance(tab.get("rows"), list) else []
-        incoming = tab.get("columns") if isinstance(tab.get("columns"), list) else []
-        fields = _keys_in_order(rows)
-        if not fields and incoming:
-            fields = [
-                str(col.get("field") or col.get("name") or col)
-                if isinstance(col, dict)
-                else str(col)
-                for col in incoming
-            ]
-        tab["columns"] = column_types.columns_for(
-            fields, incoming=incoming, rows=rows, report_key=key
-        )
-    return payload
 
 
 def wrap(key: str, tabs: dict, raw: list, *, source: str = "reporting_api") -> dict:
     spec = catalog.spec(key)
     title = spec["title"] if spec else key
-    tabs, raw = _pad_tabs(key, tabs, raw)
-    return stamp_columns(
-        {
-            "data": {
-                "report_key": key,
-                "title": title,
-                "raw": raw,
-                "tabs": tabs,
-                "source": source,
-            }
+    return {
+        "data": {
+            "report_key": key,
+            "title": title,
+            "raw": list(raw),
+            "tabs": tabs,
+            "source": source,
         }
-    )
+    }
 
 
 def from_result(key: str, result: ReportResult) -> dict:
@@ -231,11 +99,13 @@ def from_result(key: str, result: ReportResult) -> dict:
     data = body.get("data") if isinstance(body.get("data"), dict) else {}
     tabs = _tabs_dict(data.get("tabs") or body.get("tabs"))
     raw = result.rows if isinstance(result.rows, list) else []
-    if not raw:
-        raw = rows_from_body(body)
-    if not tabs:
-        tabs = thin_tabs(key, raw)
-    return wrap(key, tabs, raw)
+    if tabs:
+        if not raw:
+            raw = []
+            for tab in tabs.values():
+                raw.extend(tab.get("rows") or [])
+        return wrap(key, tabs, raw)
+    return wrap(key, thin_tabs(key, raw), raw)
 
 
 def thin_tabs(key: str, rows: list[dict]) -> dict:

@@ -49,12 +49,6 @@ def test_due_now_weekly_uses_mon_tue_names():
     assert cadence.due_now(cad, None, tuesday) is False
 
 
-def test_describe_schedule_cadence():
-    assert cadence.describe({"freq": "daily", "run_time": "08:00"}) == "Daily 08:00"
-    assert cadence.describe({"freq": "weekly", "run_time": "09:15", "weekdays": "mon,wed"}) == "Weekly Mon, Wed 09:15"
-    assert cadence.describe({"freq": "monthly", "run_time": "07:00", "monthday": 1}) == "Monthly day 1 07:00"
-
-
 def test_inside_a_shabbos_window_is_restricted():
     items = [
         {"category": "candles", "date": "2026-06-19T20:00:00-04:00", "memo": ""},
@@ -210,68 +204,6 @@ def test_entra_callback_signs_in_existing_people_row(tmp_path, monkeypatch):
         assert "Preview Admin" in home
 
 
-def test_entra_callback_accepts_ad_achimonline_upn(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
-    monkeypatch.setattr(
-        "entra.complete_login",
-        lambda request: {"email": "preview@ad.achimonline.com", "name": "Preview"},
-    )
-    with TestClient(create_app()) as client:
-        res = client.get("/auth/callback", follow_redirects=False)
-        assert res.status_code == 302
-        home = client.get("/").text
-        assert "Preview Admin" in home
-
-
-def test_get_user_matches_mixed_case_stored_email(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
-    init_db()
-    with db() as conn:
-        conn.execute(
-            """INSERT INTO users (email, display_name, role, is_active, is_external)
-               VALUES ('MennyG@AchimOnline.com', 'Menny', 'admin', 1, 0)"""
-        )
-    row = home_store.get_user("mennyg@achimonline.com")
-    assert row is not None
-    assert row["display_name"] == "Menny"
-    assert home_store.get_user_for_login("mennyg@ad.achimonline.com")["email"] == (
-        "MennyG@AchimOnline.com"
-    )
-
-
-def test_entra_callback_names_missing_email(tmp_path, monkeypatch):
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
-    monkeypatch.setattr(
-        "entra.complete_login",
-        lambda request: {"email": "nobody@achimonline.com", "name": "Nobody"},
-    )
-    with TestClient(create_app()) as client:
-        res = client.get("/auth/callback")
-        assert res.status_code == 403
-        assert "nobody@achimonline.com" in res.json()["error"]
-        assert "An admin must add you first" in res.json()["error"]
-
-
-def test_entra_callback_empty_db_says_import_path(tmp_path, monkeypatch):
-    monkeypatch.setattr("config.PRODUCTION", True)
-    monkeypatch.setattr("db.PRODUCTION", True)
-    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
-    monkeypatch.setenv("SESSION_SECRET", "a-real-production-secret")
-    monkeypatch.setenv("LITESTREAM_AZURE_ACCOUNT_KEY", "not-a-real-key")
-    monkeypatch.setattr(
-        "entra.complete_login",
-        lambda request: {"email": "mennyg@achimonline.com", "name": "Menny"},
-    )
-    with TestClient(create_app()) as client:
-        res = client.get("/auth/callback")
-        assert res.status_code == 403
-        body = res.json()["error"]
-        assert "mennyg@achimonline.com" in body
-        assert "database is empty" in body
-        assert "/tmp/homedata/home.sqlite" in body
-        assert "An admin must add you first" not in body
-
-
 def test_magic_consume_expired_token(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
     with TestClient(create_app()) as client:
@@ -284,49 +216,3 @@ def test_clock_disabled_under_pytest():
     import config
 
     assert config.clock_disabled() is True
-
-
-def test_test_mode_strips_cc_bcc(home_db, monkeypatch):
-    import catalog
-    import deliver
-
-    home_store.set_setting("schedule_test_mode", "1")
-    home_store.set_setting("test_emails", "qa@achimonline.com")
-    captured = {}
-
-    def fake_send(**kwargs):
-        captured.update(kwargs)
-        return "outbox"
-
-    monkeypatch.setattr(deliver, "send_or_outbox", fake_send)
-    monkeypatch.setattr(deliver, "build_payload", lambda *a, **k: catalog.mock_report("ordered"))
-    monkeypatch.setattr(deliver, "_upload_folders", lambda *a, **k: "")
-    with db() as conn:
-        sid = conn.execute("SELECT id FROM schedules LIMIT 1").fetchone()["id"]
-        conn.execute(
-            "UPDATE schedules SET cc = ?, bcc = ?, recipients = ? WHERE id = ?",
-            (
-                "boss@achimonline.com",
-                "hidden@achimonline.com",
-                "real@achimonline.com",
-                sid,
-            ),
-        )
-        conn.execute(
-            """INSERT INTO schedule_recipients (schedule_id, email, role)
-               VALUES (?, 'boss@achimonline.com', 'cc')""",
-            (sid,),
-        )
-        conn.execute(
-            """INSERT INTO schedule_recipients (schedule_id, email, role)
-               VALUES (?, 'hidden@achimonline.com', 'bcc')""",
-            (sid,),
-        )
-    sched = home_store.get_schedule(sid)
-    user = home_store.get_user("preview@achimonline.com")
-    assert deliver.deliver_schedule(sched, user) == "success"
-    assert captured["recipients"] == "qa@achimonline.com"
-    assert captured["cc"] == ""
-    assert captured["bcc"] == ""
-    assert "CC " not in captured["body"]
-    assert "BCC " not in captured["body"]

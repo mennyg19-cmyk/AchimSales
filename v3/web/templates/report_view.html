@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }}{% endblock %}
+
+{% block head %}
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="report-top">
+<div class="page-head">
+    <a class="back-link" href="{{ url_for('reports.reports_list') }}">
+        <i data-feather="arrow-left"></i> Reports
+    </a>
+    <h1 class="page-title">{{ report.title }}
+        <button type="button" class="help-btn" data-help="report-{{ report.key }}" data-no-guard aria-label="About this report">?</button>
+    </h1>
+</div>
+
+<div class="report-controls" id="reportControls">
+    <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
+        <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
+        <span class="controls-summary" id="controlsSummary"></span>
+        <i data-feather="chevron-up" class="controls-chevron"></i>
+    </button>
+    <div class="controls-body" id="controlsBody">
+<form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
+    <div class="filter-fields">
+    {% if 'period' in filters %}
+    <label class="filter-field">
+        <span>Period <button type="button" class="help-btn" data-help="param-period" data-no-guard aria-label="Help">?</button></span>
+        <select name="period" id="periodSelect">
+            {% for value, label in period_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="filter-field filter-custom" data-custom hidden>
+        <span>From</span>
+        <input type="date" name="start_date">
+    </label>
+    <label class="filter-field filter-custom" data-custom hidden>
+        <span>To</span>
+        <input type="date" name="end_date">
+    </label>
+    {% endif %}
+    {% if 'n4_mode' in filters %}
+    <label class="filter-field">
+        <span>View <button type="button" class="help-btn" data-help="param-n4-mode" data-no-guard aria-label="Help">?</button></span>
+        <select name="mode" id="n4ModeSelect">
+            {% for value, label in n4_mode_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if 'status' in filters %}
+    <label class="filter-field">
+        <span>Status <button type="button" class="help-btn" data-help="param-status" data-no-guard aria-label="Help">?</button></span>
+        <select name="status" id="statusSelect">
+            {% for value, label in status_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if 'year' in filters %}
+    <label class="filter-field">
+        <span>Year <button type="button" class="help-btn" data-help="param-year" data-no-guard aria-label="Help">?</button></span>
+        <select name="year" id="yearSelect">
+            {% for y in year_options %}
+            <option value="{{ y }}">{{ y }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
+    {% if 'salesman' in filters %}
+    <label class="filter-field">
+        <span>Salesman <button type="button" class="help-btn" data-help="param-salesman" data-no-guard aria-label="Help">?</button> <em id="salesmanStatus" class="lookup-status"></em></span>
+        <select name="salesman" id="salesmanSelect">
+            <option value="">All salesmen</option>
+        </select>
+    </label>
+    {% endif %}
+    {% if 'customers' in filters %}
+    <div class="filter-field filter-field-customers">
+        <span>Customers <button type="button" class="help-btn" data-help="param-customers" data-no-guard aria-label="Help">?</button> <em id="customerStatus" class="lookup-status"></em></span>
+        <div id="customerPicker" class="customer-picker" data-placeholder="All customers"></div>
+    </div>
+    <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
+    {% endif %}
+    </div>
+    <div class="filter-run-group">
+    <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
+    <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn" title="Run this report and email the Excel file to you">Email me</button>
+    </div>
+</form>
+
+{% if is_developer %}
+<textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="12" spellcheck="false"></textarea>
+<div id="apiRunWrap" class="api-run-wrap" hidden>
+    <button type="button" id="apiRunBtn" class="btn btn-primary btn-sm">Run with this body</button>
+    <span class="muted" style="font-size:12px;">Edit the JSON above, then hit Run to override the form filters.</span>
+</div>
+{% endif %}
+    </div>
+</div>
+</div>
+
+{# Layout tools stay visible even when Filters & options is collapsed. #}
+<div class="report-layout-toolbar" id="layoutToolbar">
+    <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
+    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
+    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    <span id="loadedViewLabel" class="loaded-view-label" hidden></span>
+    <div class="toolbar-menu" id="moreMenuWrap">
+        <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false" title="More actions">
+            <i data-feather="more-horizontal"></i> <span>More</span>
+        </button>
+        <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
+            <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
+                <i data-feather="calendar"></i> <span>Schedule</span>
+            </button>
+            <p id="scheduleHint" class="toolbar-dropdown-hint" hidden></p>
+            {% if is_developer %}
+            <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem" title="Show the body that would be sent to the Reporting API">
+                <i data-feather="code"></i> <span>API preview</span>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="report-status-row">
+    <div id="reportStatus" class="report-status" hidden>
+        <span id="reportStatusText" class="report-status-text"></span>
+        <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden title="Stop this run">Cancel</button>
+    </div>
+</div>
+{% if is_developer %}
+<details class="run-log-panel job-live-log-panel" id="jobLiveLogPanel" hidden>
+    <summary class="run-log-summary">Job log</summary>
+    <ol id="jobLiveLog" class="live-job-log"></ol>
+</details>
+{% endif %}
+
+<div id="exportsPanel" class="exports-panel" hidden>
+    <div class="exports-head">Recent exports</div>
+    <div id="exportsList" class="exports-list"></div>
+</div>
+
+<div id="reportSurface" class="report-surface" hidden>
+    <div class="report-tabbar">
+        <div id="reportTabs" class="report-tabs"></div>
+        <div class="report-tabbar-right">
+            <div id="reportMeta" class="report-meta"></div>
+            <div class="report-result-actions" aria-label="Actions for this result">
+                <button type="button" id="refreshBtn" class="btn btn-outline btn-sm" disabled title="Re-run, keeping your current layout"><i data-feather="refresh-cw"></i> <span>Refresh</span></button>
+                <button type="button" id="keepBtn" class="btn btn-outline btn-sm" disabled title="Keep this run available for 30 days (max 5)"><i data-feather="lock"></i> <span>Keep this run</span></button>
+                <div class="toolbar-menu" id="exportMenuWrap">
+                    <button type="button" id="exportMenuBtn" class="btn btn-outline btn-sm" disabled aria-haspopup="true" aria-expanded="false" title="Download Excel or open recent exports">
+                        <i data-feather="download"></i> <span>Export</span>
+                    </button>
+                    <div id="exportMenu" class="toolbar-dropdown" hidden role="menu">
+                        <button type="button" id="exportBtn" class="toolbar-dropdown-item" role="menuitem" title="Build an Excel file in the background, then download it">
+                            <i data-feather="file-text"></i> <span>Download Excel now</span>
+                        </button>
+                        <button type="button" id="exportsBtn" class="toolbar-dropdown-item" role="menuitem" title="Your recent background exports">
+                            <i data-feather="archive"></i> <span>Recent exports…</span>
+                        </button>
+                    </div>
+                </div>
+                <button type="button" id="emailBtn" class="btn btn-outline btn-sm" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
+            </div>
+        </div>
+    </div>
+    <div id="groupPills" class="group-pills" hidden></div>
+    <div class="report-table-scroll">
+        <div id="reportTable"></div>
+    </div>
+</div>
+
+<div id="reportRoot"
+     data-report-key="{{ report.key }}"
+     data-report-title="{{ report.title }}"
+     data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
+     data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+     data-active-url="{{ url_for('reports.active_report_runs') }}"
+     data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
+     data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
+     data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
+     data-export-download-url="{{ url_for('reports.download_export', export_id='__ID__') }}"
+     data-exports-url="{{ url_for('reports.list_exports') }}"
+     data-keep-url="{{ url_for('reports.keep_report_run', job_id='__ID__') }}"
+     data-salesmen-url="{{ url_for('reports.report_salesmen', report_key=report.key) }}"
+     data-customers-url="{{ url_for('reports.report_customers', report_key=report.key) }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
+     data-preview-url="{{ url_for('reports.preview_body', report_key=report.key) }}"
+     data-presets-url="{{ url_for('reports.report_presets', report_key=report.key) }}"
+     data-preset-url="{{ url_for('reports.get_preset', preset_id=0) }}"
+     data-default-url="{{ url_for('reports.get_default_view', report_key=report.key) }}"
+     data-company-view-url="{{ url_for('reports.get_company_view', report_key=report.key, view_id=0) }}"
+     data-company-views-url="{{ url_for('reports.put_company_view', report_key=report.key) }}"
+     data-can-edit-default="{{ '1' if can_edit_default else '' }}"
+     data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
+     data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
+     data-schedules-url="{{ url_for('schedules.create_schedule') }}"
+     data-schedules-page="{{ url_for('schedules.schedules_page') }}"
+     data-csrf="{{ csrf_token() }}"
+     data-user-email="{{ user_email }}"
+     data-user-name="{{ user_name }}"
+     data-is-privileged="{{ '1' if is_privileged else '' }}"
+     data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
+     data-hide-commissions="{{ '1' if hide_commissions else '' }}"
+     hidden></div>
+
+<div id="saveViewModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="saveViewTitle">
+        <div class="modal-head">
+            <h2 id="saveViewTitle">Save this view</h2>
+            <button type="button" id="saveViewClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="modal-field">
+                <span>Name</span>
+                <input type="text" id="saveViewName" maxlength="80" autocomplete="off">
+            </label>
+            {% if is_privileged %}
+            <label class="modal-field" for="viewOwner">
+                <span>Save for</span>
+                <select id="viewOwner">
+                    <option value="">Me</option>
+                    <option value="company">Company</option>
+                    {% for u in save_for_users|default([]) %}
+                    <option value="{{ u.user_id }}">{{ u.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="modal-field flag-row" id="saveViewPeriodRow" hidden>
+                <input type="checkbox" id="saveViewIncludePeriod">
+                <span>Save the date window (period) with this company view</span>
+            </label>
+            {% endif %}
+            <div id="saveViewMsg" class="modal-msg" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" id="saveViewCancel" class="btn btn-outline">Cancel</button>
+            <button type="button" id="saveViewConfirm" class="btn btn-primary">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="emailModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailTitle">
+        <div class="modal-head">
+            <h2 id="emailTitle">Email report</h2>
+            <button type="button" id="emailClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="modal-field">
+                <span>Recipients</span>
+                <input type="text" id="emailRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>Subject</span>
+                <input type="text" id="emailSubject">
+            </label>
+            <div class="modal-field" id="spSection" hidden>
+                <span>Also save to SharePoint <em id="spStatus" class="lookup-status"></em></span>
+                <div id="spBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="spPicker" class="sp-picker"></div>
+                <div id="spSelected" class="sp-selected"></div>
+            </div>
+            <div id="emailMsg" class="modal-msg" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" id="emailCancel" class="btn btn-outline">Cancel</button>
+            <button type="button" id="emailSend" class="btn btn-primary">Send</button>
+        </div>
+    </div>
+</div>
+
+<div id="scheduleModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
+        <div class="modal-head">
+            <h2 id="schedTitle">Schedule this view</h2>
+            <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="muted" style="font-size:13px;margin:0 0 10px;">Sends the named saved view that is loaded. Save any edits to the view first.</p>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedEmailOwner" checked>
+                <span>Email to {{ user_name }}</span>
+            </label>
+            {% if is_privileged %}
+            <label class="modal-field">
+                <span>Also email (optional)</span>
+                <input type="text" id="schedRecipients" placeholder="other@achimonline.com">
+            </label>
+            <div class="modal-field-row">
+                <label class="modal-field">
+                    <span>CC (optional)</span>
+                    <input type="text" id="schedCc" placeholder="cc@achimonline.com">
+                </label>
+                <label class="modal-field">
+                    <span>BCC (optional)</span>
+                    <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
+                </label>
+            </div>
+            {% else %}
+            <input type="hidden" id="schedRecipients" value="">
+            {% endif %}
+            <div class="modal-field-row">
+                <label class="modal-field">
+                    <span>Frequency</span>
+                    <select id="schedFreq">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </label>
+                <label class="modal-field">
+                    <span>Time</span>
+                    <input type="time" id="schedTime" value="08:00">
+                </label>
+            </div>
+            <div class="modal-field" id="schedWeekdays" hidden>
+                <span>Days of week</span>
+                <div class="sched-weekdays">
+                    {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                    <label class="sched-day"><input type="checkbox" value="{{ i }}"> {{ d }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <label class="modal-field" id="schedMonthdayField" hidden>
+                <span>Day of month</span>
+                <select id="schedMonthday">
+                    {% for d in range(1, 29) %}
+                    <option value="{{ d }}">{{ d }}</option>
+                    {% endfor %}
+                    <option value="-1">Last day of month</option>
+                </select>
+            </label>
+            <label class="modal-field">
+                <span>Filename template</span>
+                <input type="text" id="schedFilename" placeholder="{Schedule}_{MM}-{DD}-{YYYY}"
+                       value="{Schedule}_{MM}-{DD}-{YYYY}">
+                <span class="muted" style="font-size:12px;">Tokens:
+                    <button type="button" class="fn-token js-fn-token" data-token="{Report}">Report name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Schedule}">Schedule name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Weekday}">Weekday</button>
+                </span>
+                <span class="ms-filename-preview">Will save as <strong id="schedFilenamePreview"></strong></span>
+            </label>
+            <div class="modal-field" id="schedOdSection" hidden>
+                <span>Also save to my OneDrive <em id="schedOdStatus" class="lookup-status"></em></span>
+                <div id="schedOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedOdPicker" class="sp-picker"></div>
+                <div id="schedOdSelected" class="sp-selected"></div>
+            </div>
+            {% if has_sharepoint %}
+            <div class="modal-field" id="schedSpSection" hidden>
+                <span>Or save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>
+                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedSpPicker" class="sp-picker"></div>
+                <div id="schedSpSelected" class="sp-selected"></div>
+            </div>
+            {% endif %}
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataRecipients">
+                <span>Email me when there is no data</span>
+            </label>
+            {% if is_privileged %}
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataMeOnly">
+                <span>Email test addresses when there is no data</span>
+            </label>
+            {% endif %}
+            <div id="schedMsg" class="modal-msg" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" id="schedCancel" class="btn btn-outline">Cancel</button>
+            <button type="button" id="schedSave" class="btn btn-primary">Save schedule</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/report.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

@@ -107,13 +107,6 @@ def send_or_outbox(
 
 def _run_params(schedule: dict, at: datetime | None) -> dict:
     params = dict(schedule.get("params") or {})
-    # Live clock read window_* from report_schedules, not the shared view.
-    if schedule.get("window_period"):
-        params["period"] = schedule["window_period"]
-    if schedule.get("window_start"):
-        params["from_date"] = schedule["window_start"]
-    if schedule.get("window_end"):
-        params["to_date"] = schedule["window_end"]
     skipped = catchup.as_date(schedule.get("catch_up_for_date"))
     if skipped is None:
         return params
@@ -175,10 +168,9 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
     payload = apply_layout(payload, schedule.get("layout"))
     store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
     recipients = store.mail_recipients(schedule["recipients"])
-    cc, bcc = store.mail_copy_lists(schedule.get("cc") or "", schedule.get("bcc") or "")
     source = (payload.get("data") or {}).get("source") or "mock"
     live = source == "reporting_api"
-    extra = _extras({**schedule, "cc": cc, "bcc": bcc})
+    extra = _extras(schedule)
     if config.graph_mail_configured():
         detail = (
             "Scheduled workbook from the office Reporting API."
@@ -258,8 +250,8 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
             body=body_text,
             filename=name,
             xlsx_bytes=xlsx,
-            cc=cc,
-            bcc=bcc,
+            cc=schedule.get("cc") or "",
+            bcc=schedule.get("bcc") or "",
             body_html=body_html,
         )
     except GraphMailError as err:

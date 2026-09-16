@@ -90,7 +90,7 @@ def build_payload(key: str, user: dict, params_in: dict) -> dict:
     if not doorway.configured():
         payload = catalog.mock_report(key)
         payload["data"]["source"] = "mock"
-        return assemble.stamp_columns(_apply_filters(payload, key, user, scoped))
+        return _apply_filters(payload, key, user, scoped)
     payload = _live_payload(key, scoped)
     payload["data"]["source"] = "reporting_api"
     return _apply_filters(payload, key, user, scoped)

@@ -1,6 +1,5 @@
-# Zip-deploy the FastAPI home to Azure App Service.
-# Prefer merging this branch to main (GitHub Action). Use this script only
-# when that Action cannot run. Do not run it until Menny says cut over.
+# Deploy the webapp to Azure App Service via zip.
+# Prod setup: built-in Python 3.10 runtime, gunicorn app:app.
 #
 # Usage:
 #   .\deploy.ps1   # build zip, deploy, wait for site to restart
@@ -12,13 +11,14 @@ Set-Location $scriptDir
 $zipPath = Join-Path $scriptDir "app.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-# Files/dirs to keep out of the deployment zip.
+# Files/dirs to keep out of the deployment zip. Anything not in the prod
+# runtime path (runbooks/, tests/, local-only tooling, secrets).
 $exclude = @(
     ".env", ".env.example", "app.zip",
-    "deploy.ps1",
+    "deploy.ps1", "deploy-runbook.ps1",
     ".azure", ".pytest_cache", ".git", ".cursor", ".codegraph", ".scratch",
     ".dockerignore", "Dockerfile",
-    "logs",
+    "tests", "logs", "runbooks", "webapp-cache",
     "SETUP_INSTRUCTIONS.txt",
     "_history_backup", "_report_output", "__pycache__",
     "app.db", "AchimReportsApp.zip", "_server.log",
@@ -52,9 +52,9 @@ try {
     }
 
     # Oryx builder expects requirements.txt at the zip root.
-    $homeReq = Join-Path $scriptDir "app\requirements.txt"
-    if (Test-Path $homeReq) {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $homeReq, "requirements.txt") | Out-Null
+    $webappReq = Join-Path $scriptDir "webapp\requirements.txt"
+    if (Test-Path $webappReq) {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $webappReq, "requirements.txt") | Out-Null
     }
 } finally {
     $zip.Dispose()

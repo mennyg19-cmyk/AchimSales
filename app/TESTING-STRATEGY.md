@@ -45,15 +45,8 @@
 | Item Averages Allow on salesman | still 404 (privileged_only) |
 | Manager schedules list | company views only, not another user's personal |
 | Schedule CC/filename/SharePoint | mock outbox body |
-| `/master-schedules` and `/master-schedules/{id}/history` | 302 `/schedules` |
-| Settings exclusions | Search + scrolling checkbox dropdown (`exclPicker`); list from `lookups.customers()` |
-| Report customer pills | `#customerPills` sibling of `.filter-fields`, not under the selector |
+| `/master-schedules/{id}/history` | 200 for admin |
 | `/dev/diagnostics` | P4.I8 blocked copy |
-| Settings `/settings` | People is Users & access only; Copy from live is under Developer; POST still privileged |
-| Test mode on | Schedule mail To = test_emails; CC/BCC ignored even if the schedule has them |
-| Old Reporting API JSON (`rows`, columns+values, `value`, `Table`) | Converted to `data.tabs.*.rows`; missing fields are `""` |
-| Dummy People | preview@ / loop / @example.com stripped on import; production never seeds them |
-| Chrome tables | schedules/users/history/Last Order are Tabulator; last run is Eastern `YYYY-MM-DD HH:MM` |
 | PWA icons 192/512 | PNG magic |
 | Dashboard flag | badge on Users, no Dashboard bottom nav |
 | Delete own login | refused |
@@ -67,13 +60,10 @@
 | Cancel running job | 200; finished job 409 |
 | DB explorer write | Confirm required; DROP blocked; WITH+UPDATE needs confirm; no params_json editor |
 | Schedule OneDrive folder | mock outbox body |
-| Report chrome | customer picker, Columns (show + freeze), status, More; no toolbar Group by dropdown; no header search bars — Filter this column is in the column ⋮ menu |
+| Report chrome | customer picker, Columns (show + freeze), status, More |
 | Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
 | POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
 | Legacy `params_json` sqlite | migrate copies into columns then drops the blob |
-| precious import | copies every assemble table the old GUI/clock read (`views` + `view_*` + `layout_*` + `report_schedules` + weekday/monthday/recipient/salesman children); does not read JSON blob tables and drops them on dest; schedule `window_*` stays on the schedule (shared views keep distinct periods); live admin wins over seed `preview@`; flash lists live→here counts; two schedules on the same view+time both land; admins see owner group headings + compact `ps-sched-table` |
-| Admin `/schedules` | heading All schedules; rows grouped by owner (`ps-owner-row`); wizard stays behind Add a schedule |
-| Saved views popup | `/api/views` includes `owner_name`; JS renders `presets-fold` / `presets-open` grouped by user, not blue `<a>` links |
 
 Never set `REPORTING_API_KEY` in CI.
 

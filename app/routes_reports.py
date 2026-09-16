@@ -423,14 +423,8 @@ def views_list(request: Request):
     report_key = request.query_params.get("report") or ""
     privileged = is_privileged(user) or user.get("can_see_company_views")
     if report_key:
-        views = store.list_views_for_report(user["email"], report_key, privileged)
-    else:
-        views = store.list_views(user["email"], privileged)
-    names = {row["email"].lower(): (row["display_name"] or row["email"]) for row in store.list_users()}
-    for view in views:
-        email = (view.get("owner_email") or "").lower()
-        view["owner_name"] = names.get(email, view.get("owner_email") or "")
-    return {"views": views}
+        return {"views": store.list_views_for_report(user["email"], report_key, privileged)}
+    return {"views": store.list_views(user["email"], privileged)}
 
 
 @router.post("/api/views")

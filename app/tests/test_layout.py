@@ -99,29 +99,6 @@ def test_save_view_layout_lives_in_columns(client):
     html = client.get(f"/reports/invoiced?view={view_id}").text
     assert "data-view-layout" in html
     assert "CustomerName" in html
-    assert "groupBySelect" not in html
-
-
-def test_report_grid_filters_live_in_header_menu(client):
-    login(client)
-    html = client.get("/reports/invoiced").text
-    assert "groupBySelect" not in html
-    assert "groupByWrap" not in html
-    assert 'id="groupPills"' in html
-    js = client.get("/static/js/report-grid.js").text
-    assert 'headerFilter: "input"' not in js
-    assert "Filter this column" in js
-    assert "col-filter-popover" in js
-    assert "Group by this column" in js
-    assert 'layout: "fitDataTable"' in js
-    assert "nestedFieldSeparator: false" in js
-    assert "function tableHeight(" in js
-    assert "function defaultColWidth(" in js
-    assert "v.widths[field] || defaultColWidth(col)" in js
-    assert "rowHeight: 32" in js
-    assert 'renderHorizontal: "virtual"' not in js
-    assert "if (tableBuilding) return" not in js
-    assert "v.frozen.size ? v.frozen.has(field) : idx === 0" not in js
 
 
 def test_group_string_rejected_on_params_and_layout(client):

@@ -1,0 +1,93 @@
+"""Engine helpers preserve the audited originals' behaviour (parity foundation)."""
+
+from report_engine import lib
+
+
+def test_num_blanks_are_zero():
+    for blank in (None, "", "NULL"):
+        assert lib.num(blank) == 0.0
+
+
+def test_num_coerces_and_survives_junk():
+    assert lib.num("12.5") == 12.5
+    assert lib.num(3) == 3.0
+    assert lib.num("not-a-number") == 0.0
+
+
+def test_as_int_rounds():
+    assert lib.as_int("2.6") == 3
+    assert lib.as_int(None) == 0
+
+
+def test_text_blanks():
+    assert lib.text(None) == ""
+    assert lib.text("NULL") == ""
+    assert lib.text(5) == "5"
+
+
+def test_first_of_skips_blanks():
+    row = {"A": None, "B": "NULL", "C": "x", "D": "y"}
+    assert lib.first_of(row, "A", "B", "C", "D") == "x"
+    assert lib.first_of(row, "A", "B") is None
+
+
+def test_date_only_trims():
+    assert lib.date_only("2026-04-30T12:00:00") == "2026-04-30"
+    assert lib.date_only("2026-04-30") == "2026-04-30"
+
+
+def test_iso_date_parses_rfc_and_common_formats():
+    assert lib.iso_date("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
+    assert lib.iso_date("2026-04-30T12:00:00") == "2026-04-30"
+    assert lib.iso_date("04/30/2026") == "2026-04-30"
+    assert lib.iso_date("N/A") == "N/A"
+    assert lib.iso_date(None) == ""
+    # date_only is an alias — never the old [:10] RFC truncation.
+    assert lib.date_only("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
+
+
+def test_salesman_key_normalizes():
+    assert lib.salesman_key(" M Kolko ") == "mkolko"
+    assert lib.salesman_key("H-Kaufman") == "hkaufman"
+    assert lib.salesman_key(None) == ""
+
+
+def test_sales_group_value_drops_customer_account():
+    assert lib.sales_group_value("00011609", "00011609") == ""
+    assert lib.sales_group_value("REdwards", "00011609") == "REdwards"
+    assert lib.sales_group_value("029", "100") == "029"
+    assert lib.sales_group_value("", "100") == ""
+    assert lib.sales_group_value("REdwards", "") == "REdwards"
+    assert lib.sales_group_value("00011609", "00011609 ") == ""
+
+
+def test_sales_group_of_skips_account_in_salesman_field():
+    row = {
+        "CustomerAccount": "00011609",
+        "SalesGroup": "",
+        "Salesman": "00011609",
+    }
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == ""
+    row["SalesGroup"] = "REdwards"
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == "REdwards"
+    row["SalesGroup"] = ""
+    row["Salesman"] = "REdwards"
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == "REdwards"
+
+
+def test_map_release_converts_in_order():
+    rows = [1, 2, 3]
+    assert lib.map_release(rows, lambda n: n * 10) == [10, 20, 30]
+
+
+def test_map_release_frees_the_source_list():
+    # The memory win: each source slot is released as it's converted, so the raw
+    # rows and the converted facts never both sit in memory in full.
+    rows = [{"v": 1}, {"v": 2}]
+    lib.map_release(rows, lambda r: r["v"])
+    assert rows == [None, None]
+
+
+def test_map_release_handles_generators():
+    out = lib.map_release((n for n in range(3)), lambda n: n + 1)
+    assert out == [1, 2, 3]

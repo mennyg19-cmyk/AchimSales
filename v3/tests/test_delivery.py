@@ -1,0 +1,1033 @@
+"""Delivery subsystem: layout replay, email outbox, SharePoint mock, orchestration."""
+
+from __future__ import annotations
+
+import pytest
+
+from web.config import Config
+from web.data.connection import Database
+from web.data.migrate import migrate
+from web.data.repositories.outbox import OutboxRepository
+from web.delivery.email import MAX_GRAPH_ATTACH_BYTES, EmailService, split_recipients
+from web.delivery.graph_mail import GraphMailError
+from web.delivery.layout import apply_layout, expand_clones
+from web.delivery.service import DeliveryService
+from web.delivery.onedrive import onedrive_children_url
+from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
+
+
+def _cfg(tmp_path, **over) -> Config:
+    base = dict(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
+        litestream_blob_url="", new_app_marker=True, outbox_dir=tmp_path / "outbox",
+    )
+    base.update(over)
+    return Config(**base)
+
+
+# --- layout ----------------------------------------------------------------
+
+def _payload():
+    return {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [{"field": "a", "header": "A"}, {"field": "b", "header": "B"},
+                    {"field": "c", "header": "C"}],
+        "rows": [{"a": "x", "b": 3, "c": "keep"}, {"a": "y", "b": 1, "c": "drop"},
+                 {"a": "z", "b": 2, "c": "keep"}],
+    }]}
+
+
+def test_expand_clones_recreates_duplicate_tab_and_orders():
+    payload = _payload()
+    layout = {
+        "order": ["summary__copy", "summary"],
+        "clones": [{"key": "summary__copy", "baseKey": "summary", "name": "Summary (copy)"}],
+        "views": {},
+    }
+    out = expand_clones(payload, layout)
+    keys = [t["key"] for t in out["tabs"]]
+    assert keys == ["summary__copy", "summary"]          # clone created + on-screen order
+    clone = out["tabs"][0]
+    assert clone["name"] == "Summary (copy)"
+    assert clone["rows"] == payload["tabs"][0]["rows"]    # data copied from base
+    # Independence: mutating the clone must not touch the base tab.
+    clone["rows"].append({"a": "new"})
+    assert len(out["tabs"][1]["rows"]) == 3
+
+
+def test_expand_clones_noop_without_clones_or_order():
+    assert expand_clones(_payload(), None) == _payload()
+    assert expand_clones(_payload(), {"views": {}}) == _payload()
+
+
+def test_expand_clones_drops_tabs_not_in_order():
+    payload = {"tabs": [
+        {"key": "summary", "name": "Summary", "rows": [{"a": 1}]},
+        {"key": "commissions", "name": "Commissions", "rows": [{"a": 2}]},
+        {"key": "invoices", "name": "Invoices", "rows": [{"a": 3}]},
+    ]}
+    out = expand_clones(payload, {"order": ["summary", "invoices"], "views": {}})
+    assert [t["key"] for t in out["tabs"]] == ["summary", "invoices"]
+
+
+def test_expand_clones_empty_order_keeps_every_tab():
+    payload = _payload()
+    assert expand_clones(payload, {"order": []}) == payload
+
+
+def test_apply_layout_hides_reorders_sorts_and_filters():
+    layout = {"views": {"summary": {
+        "hidden": ["a"], "order": ["c", "b"],
+        "sorters": [{"column": "b", "dir": "asc"}],
+        "headerFilters": [{"field": "c", "value": "keep"}],
+    }}}
+    out = apply_layout(_payload(), layout)
+    tab = out["tabs"][0]
+    assert [c["field"] for c in tab["columns"]] == ["c", "b"]      # hidden a, reordered
+    assert [r["b"] for r in tab["rows"]] == [2, 3]                 # filtered to keep, sorted asc
+    assert all(r["c"] == "keep" for r in tab["rows"])
+
+
+def test_apply_layout_legacy_header_filters_still_work():
+    # Old presets stored a flat substring list under "headerFilters".
+    layout = {"views": {"summary": {"headerFilters": [{"field": "c", "value": "keep"}]}}}
+    out = apply_layout(_payload(), layout)
+    assert all(r["c"] == "keep" for r in out["tabs"][0]["rows"])
+
+
+def test_apply_layout_columnfilters_numeric_and_text_operators():
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [{"field": "a", "header": "A", "type": "text"},
+                    {"field": "b", "header": "B", "type": "int"}],
+        "rows": [{"a": "apple", "b": 3}, {"a": "banana", "b": 1}, {"a": "apricot", "b": 5}],
+    }]}
+    # numeric "greater than or equal" 3  +  text "starts with" ap
+    layout = {"views": {"summary": {"columnFilters": {
+        "b": {"op": "ge", "v": "3"},
+        "a": {"op": "starts", "v": "ap"},
+    }}}}
+    rows = apply_layout(payload, layout)["tabs"][0]["rows"]
+    assert [r["a"] for r in rows] == ["apple", "apricot"]
+
+
+def test_apply_layout_columnfilters_between():
+    payload = {"tabs": [{
+        "key": "s", "name": "S",
+        "columns": [{"field": "b", "header": "B", "type": "money"}],
+        "rows": [{"b": 1}, {"b": 2}, {"b": 3}, {"b": 4}],
+    }]}
+    layout = {"views": {"s": {"columnFilters": {"b": {"op": "between", "v": "2", "v2": "3"}}}}}
+    rows = apply_layout(payload, layout)["tabs"][0]["rows"]
+    assert [r["b"] for r in rows] == [2, 3]
+
+
+def test_apply_layout_puts_number4_prices_before_salesman():
+    payload = {"tabs": [{
+        "key": "by_customer", "name": "By Customer",
+        "columns": [
+            {"field": "Total $", "header": "Total $", "type": "money"},
+            {"field": "Avg Price", "header": "Avg Price", "type": "money"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Book Price", "header": "Book Price", "type": "money"},
+        ],
+        "rows": [{"Total $": 10, "Avg Price": 2, "Salesman": "S", "Book Price": 3}],
+    }]}
+    layout = {"views": {"by_customer": {
+        "order": ["Total $", "Avg Price", "Salesman", "Book Price"],
+    }}}
+    fields = [c["field"] for c in apply_layout(payload, layout)["tabs"][0]["columns"]]
+    assert fields == ["Total $", "Avg Price", "Book Price", "Salesman"]
+
+
+def test_apply_layout_moves_new_month_before_number4_trailing():
+    payload = {"tabs": [{
+        "key": "by_item", "name": "By Item",
+        "columns": [
+            {"field": "Item #", "header": "Item #", "type": "text"},
+            {"field": "Jul-25 Qty", "header": "Jul-25 Qty", "type": "int"},
+            {"field": "Total Qty", "header": "Total Qty", "type": "int"},
+            {"field": "Total $", "header": "Total $", "type": "money"},
+            {"field": "Avg Price", "header": "Avg Price", "type": "money"},
+            {"field": "Book Price", "header": "Book Price", "type": "money"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Sep-26 Qty", "header": "Sep-26 Qty", "type": "int"},
+            {"field": "Sep-26 $", "header": "Sep-26 $", "type": "money"},
+        ],
+        "rows": [{}],
+    }]}
+    layout = {"views": {"by_item": {
+        "order": ["Item #", "Jul-25 Qty", "Total Qty", "Total $", "Avg Price",
+                  "Book Price", "Salesman", "Sep-26 Qty", "Sep-26 $"],
+    }}}
+    fields = [c["field"] for c in apply_layout(payload, layout)["tabs"][0]["columns"]]
+    assert fields == [
+        "Item #", "Jul-25 Qty", "Sep-26 Qty", "Sep-26 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]
+
+
+def test_apply_layout_noop_without_views():
+    assert apply_layout(_payload(), None) == _payload()
+    assert apply_layout(_payload(), {"views": {}}) == _payload()
+
+
+# --- email outbox + sharepoint mock ----------------------------------------
+
+@pytest.fixture()
+def email(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    return EmailService(cfg, OutboxRepository(db), SharePointService(cfg)), cfg, db
+
+
+def test_split_recipients_filters_invalid():
+    assert split_recipients("a@x.com; bad, b@y.com") == ["a@x.com", "b@y.com"]
+    assert split_recipients("") == []
+
+
+def test_email_writes_eml_and_logs_outbox(email):
+    svc, cfg, db = email
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
+                      report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04")
+    assert res.ok and res.recipients == ["a@x.com"]
+    assert res.sent_via_smtp is False
+    assert (cfg.outbox_dir / res.eml_name).exists()
+    row = OutboxRepository(db).get(res.outbox_id)
+    assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
+
+
+def test_delivery_attachment_uses_schedule_filename_template(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frozen = datetime(2026, 9, 3, 8, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
+
+    monkeypatch.setattr("web.delivery.filename_template.datetime", FrozenDateTime)
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}],
+                         "rows": [{"a": 1}]}]}
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="invoiced", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={"period": "yesterday"}, layout={},
+        recipients="a@x.com", subject="S", report_name="Invoiced Report",
+        filename_template="{Schedule}_{Period}",
+        schedule_name="Yesterday invoiced",
+    )
+    assert outcome.result.ok
+    raw = (cfg.outbox_dir / outcome.result.eml_name).read_bytes()
+    assert b"Yesterday_invoiced_yesterday.xlsx" in raw
+    row = OutboxRepository(db).get(outcome.result.outbox_id)
+    assert row.attachment_meta["filename"] == "Yesterday_invoiced_yesterday.xlsx"
+
+
+def test_email_text_only_has_no_attachment(email):
+    svc, cfg, db = email
+    res = svc.deliver(subject="Ordered Report - No Data Found (yesterday)",
+                      recipients_raw="a@x.com",
+                      body_text="Your requested Ordered Report for period 'yesterday' returned no results.",
+                      report_name="Ordered Report", filename="", xlsx_bytes=None)
+    assert res.ok
+    raw = (cfg.outbox_dir / res.eml_name).read_bytes()
+    assert b"vnd.openxmlformats-officedocument" not in raw
+    assert b"No Data Found" in raw or b"returned no results" in raw
+
+
+def test_email_sends_via_graph_when_configured(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@x.com")
+
+    class FakeGraph:
+        def __init__(self):
+            self.calls = []
+
+        def send(self, **kwargs):
+            self.calls.append(kwargs)
+
+    graph = FakeGraph()
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg), graph=graph)  # type: ignore[arg-type]
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
+                      report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04")
+    assert res.ok and res.sent_via_smtp is True
+    assert res.send_channel == "graph"
+    assert len(graph.calls) == 1
+    assert graph.calls[0]["to"] == ["a@x.com"]
+    assert OutboxRepository(db).get(res.outbox_id).status == "sent"
+
+
+def test_email_requires_a_target(email):
+    svc, *_ = email
+    res = svc.deliver(subject="S", recipients_raw="nope", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x")
+    assert res.ok is False and "recipient" in res.error.lower()
+
+
+def test_email_uploads_to_sharepoint_mock(email):
+    svc, *_ = email
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+                      sharepoint_path="Ordered/Daily")
+    assert res.sharepoint_saved is True and res.sharepoint_url.startswith("mock://")
+
+
+class _FakeGraph:
+    def __init__(self):
+        self.calls = []
+
+    def send(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def _graph_svc(tmp_path, graph):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@x.com")
+    return EmailService(cfg, OutboxRepository(db), SharePointService(cfg), graph=graph)
+
+
+def test_graph_omits_attachment_when_workbook_too_large(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"mock://{folder}/{name}", "name": name, "id": "1",
+        }
+    )
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(subject="YTD Ordered", recipients_raw="a@x.com", body_text="",
+                      report_name="Ordered", filename="Ordered_Report_YTD.xlsx",
+                      xlsx_bytes=big, sharepoint_path="Ordered/YTD")
+    assert res.ok and res.send_channel == "graph"
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert graph.calls[0]["filename"] == ""
+    assert "too large" in graph.calls[0]["body_text"].lower()
+    assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in graph.calls[0]["body_text"]
+    html = graph.calls[0]["body_html"]
+    assert "Download workbook" in html
+    assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in html
+    assert "#2563eb" in html
+    assert res.sharepoint_saved is True
+
+
+def test_graph_custom_html_uses_sharepoint_url_token(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"mock://{folder}/{name}", "name": name, "id": "1",
+        }
+    )
+    res = svc.deliver(
+        subject="Scheduled: Daily Ordered (2026-09-03)",
+        recipients_raw="a@x.com", body_text="",
+        report_name="Ordered Report", filename="file.xlsx",
+        xlsx_bytes=b"PK\x03\x04small",
+        sharepoint_path="Ordered/Daily",
+        subject_template="{Schedule} {Period}",
+        body_html_template="<p>Hi {Schedule}</p>{DownloadButton}",
+        schedule_name="Daily Ordered",
+        params={"period": "yesterday"},
+    )
+    assert res.ok
+    call = graph.calls[0]
+    assert call["subject"] == "Daily Ordered yesterday"
+    assert "Download workbook" in (call["body_html"] or "")
+    assert "mock://Ordered/Daily/file.xlsx" in (call["body_html"] or "")
+    assert "Daily Ordered" in (call["body_html"] or "")
+
+
+def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    folders = []
+
+    def up(folder, name, content):
+        folders.append(folder)
+        return {"webUrl": f"https://achim.sharepoint.com/{folder}/{name}",
+                "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
+        report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
+        xlsx_bytes=big, sharepoint_path="",
+    )
+    assert res.ok and res.send_channel == "graph"
+    assert folders == [TEST_SHAREPOINT_FOLDER]
+    url = "https://achim.sharepoint.com/Test/Daily_5am_Number_4.xlsx"
+    assert url in graph.calls[0]["body_text"]
+    html = graph.calls[0]["body_html"]
+    assert "Download workbook" in html
+    assert url in html
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert res.sharepoint_saved is True
+    assert res.sharepoint_url == url
+
+
+def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def boom(*a, **k):
+        raise RuntimeError("graph 500")
+
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="",
+        report_name="Ordered", filename="big.xlsx", xlsx_bytes=big,
+    )
+    assert res.ok and res.send_channel == "graph"
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert "Download it from SharePoint" in graph.calls[0]["body_text"]
+    assert graph.calls[0]["body_html"] is None
+    assert res.sharepoint_saved is False
+
+
+def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
+    class RejectThenOk(_FakeGraph):
+        def send(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("xlsx_bytes"):
+                raise GraphMailError("Microsoft Graph rejected the send (HTTP 413).",
+                                     status_code=413)
+
+    graph = RejectThenOk()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"https://achim.sharepoint.com/{folder}/{name}",
+            "name": name, "id": "1",
+        }
+    )
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
+                      report_name="Ordered", filename="ordered.xlsx",
+                      xlsx_bytes=b"PK\x03\x04")
+    assert res.ok and res.send_channel == "graph"
+    assert len(graph.calls) == 2
+    assert graph.calls[0]["xlsx_bytes"] == b"PK\x03\x04"
+    assert graph.calls[1]["xlsx_bytes"] is None
+    url = "https://achim.sharepoint.com/Test/ordered.xlsx"
+    assert url in graph.calls[1]["body_text"]
+    assert "Download workbook" in graph.calls[1]["body_html"]
+    assert url in graph.calls[1]["body_html"]
+    assert res.sharepoint_url == url
+
+
+def test_sharepoint_mock_lists_folders(tmp_path):
+    sp = SharePointService(_cfg(tmp_path))
+    assert sp.is_configured() is False
+    names = [f["name"] for f in sp.list_folders("")]
+    assert "Ordered" in names and "Invoiced" in names
+
+
+def test_sharepoint_only_failure_fails_the_delivery(email):
+    svc, *_ = email
+    # Force the (mock) upload to fail: a SharePoint-only send must NOT report ok.
+    def boom(*a, **k):
+        raise RuntimeError("graph 500")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="S", recipients_raw="", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+                      sharepoint_path="Ordered/Daily")
+    assert res.ok is False
+    assert "graph 500" in (res.error or "") or "SharePoint" in (res.error or "")
+
+
+def test_email_sent_keeps_ok_when_sharepoint_fails(email):
+    svc, *_ = email
+    def boom(*a, **k):
+        raise RuntimeError("graph down")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+                      sharepoint_path="Ordered/Daily")
+    assert res.ok is True
+    assert res.sharepoint_saved is False
+    assert "graph down" in (res.sharepoint_error or "")
+
+
+def test_graph_send_then_sharepoint_fail_does_not_mark_failed(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def boom(*a, **k):
+        raise RuntimeError("Test folder 500")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="[TEST] Nightly", recipients_raw="menny@x.com",
+                      body_text="", report_name="Ordered", filename="r.xlsx",
+                      xlsx_bytes=b"x", sharepoint_path=TEST_SHAREPOINT_FOLDER)
+    assert res.ok is True
+    assert res.send_channel == "graph"
+    assert len(graph.calls) == 1
+    assert res.sharepoint_saved is False
+    assert "Test folder 500" in (res.sharepoint_error or "")
+
+
+def test_sharepoint_rejects_path_traversal(tmp_path):
+    from web.delivery.sharepoint import _validate_segments
+
+    with pytest.raises(ValueError):
+        _validate_segments("Ordered/../../etc")
+    with pytest.raises(ValueError):
+        _validate_segments("Ordered/Da:ily")
+    assert _validate_segments("Ordered/Daily") == ["Ordered", "Daily"]
+
+
+def test_strip_reports_home_drops_duplicated_prefix():
+    from web.delivery.sharepoint import strip_reports_home
+
+    assert strip_reports_home("Direct Reports/Salesman Report/Daily") == "Salesman Report/Daily"
+    assert strip_reports_home("Direct Reports/Direct Reports/Ordered") == "Ordered"
+    assert strip_reports_home("Direct Reports") == ""
+    assert strip_reports_home("Salesman Report/Customer Activity") == "Salesman Report/Customer Activity"
+
+
+def test_test_sharepoint_path_nests_live_tree():
+    from web.delivery.sharepoint import test_sharepoint_path
+
+    assert test_sharepoint_path("Direct Reports/Invoiced Report/Daily") == "Test/Invoiced Report/Daily"
+    assert test_sharepoint_path("Salesman Report/Daily") == "Test/Salesman Report/Daily"
+    assert test_sharepoint_path("Personal/Reports") == "Test/Personal/Reports"
+    assert test_sharepoint_path("Test/Invoiced Report/Daily") == "Test/Invoiced Report/Daily"
+    assert test_sharepoint_path("Direct Reports/Test/Ordered Report/Daily") == "Test/Ordered Report/Daily"
+    assert test_sharepoint_path("Direct Reports") == ""
+    assert test_sharepoint_path("") == ""
+
+
+def test_sharepoint_list_and_upload_strip_home_prefix(tmp_path):
+    sp = SharePointService(_cfg(tmp_path))
+    names = [f["name"] for f in sp.list_folders("Direct Reports")]
+    assert "Ordered" in names
+    res = sp.upload_file("Direct Reports/Salesman Report/Customer Activity", "f.xlsx", b"x")
+    assert res["webUrl"] == "mock://Salesman Report/Customer Activity/f.xlsx"
+
+
+def test_upload_drive_item_uses_session_over_4mb():
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    class _Resp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.puts = []
+            self.posts = []
+
+        def put(self, url, **kwargs):
+            self.puts.append((url, kwargs))
+            return _Resp(200, {"webUrl": "https://sp/file", "name": "f.xlsx", "id": "1"})
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs))
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+    req = _Req()
+    small = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"}, content=b"hello", put_timeout=10,
+    )
+    assert small["webUrl"] == "https://sp/file"
+    assert req.posts == []
+
+    req = _Req()
+    big = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * SIMPLE_UPLOAD_MAX, put_timeout=10,
+    )
+    assert big["webUrl"] == "https://sp/file"
+    assert req.posts[0][0] == "https://graph/session"
+    assert req.puts[0][0] == "https://upload/session"
+
+
+def test_resolve_web_url_from_body_get_then_create_link():
+    from web.delivery.graph_upload import resolve_web_url, web_url_from_item
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self, get_payload=None, post_payload=None, get_ok=True):
+            self.get_payload = get_payload or {}
+            self.post_payload = post_payload or {}
+            self.get_ok = get_ok
+            self.gets = []
+            self.posts = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            return _Resp(self.get_payload, ok=self.get_ok)
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs.get("json")))
+            return _Resp(self.post_payload)
+
+    assert web_url_from_item({"link": {"webUrl": "https://from-link"}}) == "https://from-link"
+    assert resolve_web_url(
+        _Req(), headers={}, body={"webUrl": "https://from-body"},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-body"
+
+    req = _Req(get_payload={"webUrl": "https://from-get", "id": "x"})
+    assert resolve_web_url(
+        req, headers={}, body={"id": "x"},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-get"
+    assert req.gets == ["https://i/x"]
+    assert req.posts == []
+
+    req = _Req(get_payload={"id": "x"}, post_payload={"link": {"webUrl": "https://from-link"}})
+    assert resolve_web_url(
+        req, headers={}, body={},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-link"
+    assert req.posts == [("https://i/x/createLink",
+                          {"type": "view", "scope": "organization"})]
+
+
+def test_resolve_web_url_gets_item_by_id_when_path_get_fails():
+    from web.delivery.graph_upload import resolve_web_url
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self):
+            self.gets = []
+            self.posts = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            if url.endswith("/item1"):
+                return _Resp({"id": "item1", "webUrl": "https://sp/n4.xlsx"})
+            return _Resp({}, ok=False)
+
+        def post(self, url, **kwargs):
+            self.posts.append(url)
+            return _Resp({}, ok=False)
+
+    req = _Req()
+    assert resolve_web_url(
+        req, headers={}, body={"id": "item1"},
+        get_url="https://graph/root:/Test/n4.xlsx",
+        items_base="https://graph/items", timeout=1,
+    ) == "https://sp/n4.xlsx"
+    assert req.gets == ["https://graph/items/item1"]
+    assert req.posts == []
+
+
+def test_resolve_web_url_retries_path_get_with_trailing_colon():
+    from web.delivery.graph_upload import resolve_web_url
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self):
+            self.gets = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            if url.endswith(":"):
+                return _Resp({"webUrl": "https://from-colon-path", "id": "z"})
+            return _Resp({}, ok=False)
+
+        def post(self, url, **kwargs):
+            raise AssertionError("createLink should not run")
+
+    req = _Req()
+    body = {"expirationDateTime": "2026-09-02T12:00:00Z", "nextExpectedRanges": []}
+    assert resolve_web_url(
+        req, headers={}, body=body,
+        get_url="https://graph/root:/Direct%20Reports/Test/n4.xlsx",
+        items_base="https://graph/items", timeout=1,
+    ) == "https://from-colon-path"
+    assert "https://graph/root:/Direct%20Reports/Test/n4.xlsx:" in req.gets
+
+
+def test_graph_oversize_upload_without_weburl_names_the_folder(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {"webUrl": None, "name": name, "id": "1"}
+    )
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
+        report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
+        xlsx_bytes=big, sharepoint_path="",
+    )
+    assert res.ok and res.send_channel == "graph"
+    body = graph.calls[0]["body_text"]
+    assert "too large" in body.lower()
+    assert "Direct Reports/Test/Daily_5am_Number_4.xlsx" in body
+    assert graph.calls[0]["body_html"] is None
+    assert res.sharepoint_saved is True
+    assert res.sharepoint_url is None
+
+
+def test_sharepoint_prod_without_creds_raises(tmp_path):
+    sp = SharePointService(_cfg(tmp_path, app_env="prod",
+                                tenant_id="", client_id="", client_secret=""))
+    assert sp.is_configured() is False
+    with pytest.raises(RuntimeError):
+        sp.upload_file("Ordered", "r.xlsx", b"x")
+
+
+def test_onedrive_children_url_root_is_not_double_colon():
+    url = onedrive_children_url("mennyg@achimonline.com", "")
+    assert url.endswith("/drive/root/children")
+    assert "root::" not in url
+
+
+def test_onedrive_children_url_nested_uses_colon_path():
+    url = onedrive_children_url("mennyg@achimonline.com", "Reports/2026")
+    assert "/drive/root:/Reports/2026:/children" in url
+
+
+# --- orchestration ---------------------------------------------------------
+
+def test_delivery_service_builds_applies_layout_and_delivers(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}, {"field": "b"}],
+                         "rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}]}
+    runner = ReportRunner(ReportCache(db))
+    svc = DeliveryService(runner, lambda key: (lambda params, vk: payload), email)
+    outcome = svc.run_and_deliver(
+        report_key="ordered", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={}, layout={"views": {"t": {"hidden": ["a"]}}},
+        recipients="a@x.com", subject="S", report_name="Ordered", sharepoint_path="",
+    )
+    assert outcome.result.ok and outcome.row_count == 2
+    assert OutboxRepository(db).get(outcome.result.outbox_id) is not None
+
+
+def test_delivery_stamps_skip_commissions_when_layout_drops_that_tab(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    seen = {}
+    payload = {"tabs": [
+        {"key": "summary_by_customer", "name": "Summary", "columns": [{"field": "a"}], "rows": [{"a": 1}]},
+        {"key": "commissions", "name": "Commissions", "columns": [{"field": "a"}], "rows": [{"a": 2}]},
+        {"key": "invoices", "name": "Invoices", "columns": [{"field": "a"}], "rows": [{"a": 3}]},
+    ]}
+
+    def builder(params, vk):
+        seen["params"] = params
+        return payload
+
+    runner = ReportRunner(ReportCache(db))
+    svc = DeliveryService(runner, lambda key: builder, email)
+    layout = {"order": ["summary_by_customer", "invoices"]}
+    outcome = svc.run_and_deliver(
+        report_key="invoiced", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={"period": "yesterday"}, layout=layout,
+        recipients="a@x.com", subject="S", report_name="Invoiced", sharepoint_path="",
+    )
+    assert seen["params"].get("_skip_commissions") is True
+    assert outcome.result.ok
+
+
+def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frozen = datetime(2026, 8, 19, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
+
+    monkeypatch.setattr("web.delivery.filename_template.datetime", FrozenDateTime)
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    seen = {}
+    orig = email.deliver
+
+    def wrap(**kwargs):
+        seen["sharepoint_path"] = kwargs.get("sharepoint_path")
+        return orig(**kwargs)
+
+    email.deliver = wrap  # type: ignore[method-assign]
+
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}],
+                         "rows": [{"a": 1}]}]}
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="customer_activity", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={}, layout={},
+        recipients="a@x.com", subject="S", report_name="Customer Activity",
+        sharepoint_path="Direct Reports/Salesman Report/Customer Activity/{Month} {YYYY}",
+    )
+    assert outcome.result.ok
+    assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
+
+
+class _FakeGraphResp:
+    def __init__(self, status, payload=None):
+        self.status_code = status
+        self.ok = 200 <= status < 400
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            err = RuntimeError(f"http {self.status_code}")
+            err.response = self
+            raise err
+
+
+class _SiteUrlHttp:
+    def __init__(self):
+        self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        if "/sites?search=" in url:
+            raise AssertionError("must not search the tenant when SP_SITE_URL is set")
+        return _FakeGraphResp(404, {})
+
+    def post(self, url, **kwargs):
+        self.urls.append(url)
+        if "oauth2" in url:
+            return _FakeGraphResp(200, {"access_token": "tok"})
+        return _FakeGraphResp(200, {})
+
+
+def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path):
+    http = _SiteUrlHttp()
+    cfg = _cfg(
+        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://achimonline.sharepoint.com/sites/DoesNotExist",
+    )
+    sp = SharePointService(cfg)
+    sp._requests = lambda: http  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        sp.upload_file("Invoiced/Daily", "a.xlsx", b"x")
+    assert any("/sites/" in u for u in http.urls)
+    assert not any("search=" in u for u in http.urls)
+
+
+class _StaleTokenHttp:
+    """First folder create 401s; a new token then 409s and the PUT succeeds."""
+
+    def __init__(self):
+        self.token_posts = 0
+        self.children_posts = 0
+        self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        if "/sites/" in url and "/drive" not in url:
+            return _FakeGraphResp(200, {"id": "site-1"})
+        if url.endswith("/drive"):
+            return _FakeGraphResp(200, {"id": "drive-1"})
+        return _FakeGraphResp(200, {"webUrl": "https://achim.sharepoint.com/Test/n.xlsx"})
+
+    def post(self, url, **kwargs):
+        self.urls.append(url)
+        if "oauth2" in url:
+            self.token_posts += 1
+            return _FakeGraphResp(200, {"access_token": f"tok-{self.token_posts}", "expires_in": 3600})
+        if url.endswith("/children"):
+            self.children_posts += 1
+            if self.children_posts == 1:
+                return _FakeGraphResp(401, {})
+            return _FakeGraphResp(409, {})
+        return _FakeGraphResp(200, {})
+
+    def put(self, url, **kwargs):
+        self.urls.append(url)
+        return _FakeGraphResp(200, {
+            "id": "item-1", "name": "n.xlsx",
+            "webUrl": "https://achim.sharepoint.com/Test/n.xlsx",
+        })
+
+
+def test_sharepoint_retries_folder_create_after_401(tmp_path):
+    http = _StaleTokenHttp()
+    cfg = _cfg(
+        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://achimonline.sharepoint.com",
+    )
+    sp = SharePointService(cfg)
+    sp._requests = lambda: http  # type: ignore[method-assign]
+    sp._drive_id = "drive-1"
+    sp._tokens._token = "stale"
+    sp._tokens._valid_until = 10 ** 12
+    res = sp.upload_file("Test", "n.xlsx", b"x")
+    assert res["webUrl"] == "https://achim.sharepoint.com/Test/n.xlsx"
+    assert http.token_posts == 1
+    assert http.children_posts >= 2
+    assert not any("search=" in u for u in http.urls)
+
+
+def test_graph_app_token_skips_fetch_until_expiry():
+    from web.delivery.graph_token import GraphAppToken
+
+    class _TokHttp:
+        def __init__(self):
+            self.posts = 0
+
+        def post(self, url, **kwargs):
+            self.posts += 1
+            return _FakeGraphResp(200, {"access_token": f"t{self.posts}", "expires_in": 3600})
+
+    http = _TokHttp()
+    tok = GraphAppToken("t", "c", "s")
+    assert tok.get(http) == "t1"
+    assert tok.get(http) == "t1"
+    assert http.posts == 1
+    tok._valid_until = 0
+    assert tok.get(http) == "t2"
+    assert http.posts == 2
+
+
+def test_deliver_uploads_companion_files_next_to_main(tmp_path):
+    """Oversized-tab companions land in the same SharePoint folder as the main file."""
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    uploaded = []
+
+    def up(folder, name, content):
+        uploaded.append((folder, name, len(content)))
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    companions = [("Ordered_YTD__Full_Data.xlsx", b"PKCOMPANION")]
+    res = svc.deliver(
+        subject="YTD Ordered", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="Ordered_YTD.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=companions,
+    )
+    assert res.ok
+    assert uploaded == [
+        ("Ordered/YTD", "Ordered_YTD.xlsx", 6),
+        ("Ordered/YTD", "Ordered_YTD__Full_Data.xlsx", 11),
+    ]
+    # Companions are never Graph attachments — folder only.
+    assert graph.calls[0]["xlsx_bytes"] == b"PKMAIN"
+    assert graph.calls[0]["filename"] == "Ordered_YTD.xlsx"
+
+
+def test_deliver_companion_failure_marks_folder_incomplete(tmp_path):
+    """If a companion fails, SharePoint-only delivery fails (main alone is incomplete)."""
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+
+    def up(folder, name, content):
+        if "Full_Data" in name:
+            raise RuntimeError("companion boom")
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="YTD", recipients_raw="", body_text="",
+        report_name="Ordered", filename="Ordered.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=[("Ordered__Full_Data.xlsx", b"PKBIG")],
+    )
+    assert res.ok is False
+    blob = f"{res.error} {res.sharepoint_error}".lower()
+    assert "boom" in blob or "full_data" in blob
+
+
+def test_deliver_companion_failure_does_not_email(tmp_path):
+    """Incomplete companion upload must fail the job — do not Graph-send a lie."""
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def up(folder, name, content):
+        if "Full_Data" in name:
+            raise RuntimeError("companion boom")
+        return {"webUrl": f"mock://{folder}/{name}", "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="YTD Ordered", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="Ordered_YTD.xlsx",
+        xlsx_bytes=b"PKMAIN",
+        sharepoint_path="Ordered/YTD",
+        companion_files=[("Ordered_YTD__Full_Data.xlsx", b"PKBIG")],
+    )
+    assert res.ok is False
+    assert graph.calls == []
+    assert "boom" in (res.error or "").lower()

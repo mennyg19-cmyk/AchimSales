@@ -107,23 +107,12 @@ def create_app() -> FastAPI:
         if "error" in result:
             flash(request, result["error"], "error")
             return RedirectResponse("/login", status_code=302)
-        row = store.get_user_for_login(result["email"])
+        row = store.get_user(result["email"])
         if row is None:
-            if store.user_count() == 0:
-                detail = (
-                    "No People row for that Microsoft account "
-                    f"({result['email']}). This site's database is empty "
-                    "(Azure /tmp was wiped). Import into the file the website "
-                    "reads: python3 import-precious.py "
-                    "/home/LogFiles/home-precious.db "
-                    "--dest /tmp/homedata/home.sqlite"
-                )
-            else:
-                detail = (
-                    "No People row for that Microsoft account "
-                    f"({result['email']}). An admin must add you first."
-                )
-            return JSONResponse({"error": detail}, status_code=403)
+            return JSONResponse(
+                {"error": "No People row for that Microsoft account. An admin must add you first."},
+                status_code=403,
+            )
         if not row["is_active"]:
             return JSONResponse({"error": "This account is disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
@@ -139,8 +128,8 @@ def create_app() -> FastAPI:
                 {"error": "Preview login is disabled when APP_ENV is production."},
                 status_code=403,
             )
-        row = store.preview_login_row()
-        if row is None:
+        row = store.get_user("preview@achimonline.com")
+        if row is None or not row["is_active"]:
             return JSONResponse({"error": "Preview admin is missing or disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
         request.session["theme"] = row.get("theme") or "light"

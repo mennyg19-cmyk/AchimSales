@@ -1,0 +1,13 @@
+{% if entries %}
+<li class="live-job-head" aria-hidden="true">
+    <span>Time</span><span>Step</span><span>Detail</span><span>ms</span>
+</li>
+{% for e in entries %}
+<li class="live-job-entry">
+    <span class="live-job-t">{{ e.get('t') or '' }}</span>
+    <span class="live-job-step">{{ e.get('step') or '' }}</span>
+    <span class="live-job-detail">{{ e.get('detail') or '' }}</span>
+    <span class="live-job-ms">{% if e.get('ms') is not none %}{{ e.get('ms') }} ms{% endif %}{% if e.get('elapsed_ms') is not none %} +{{ e.get('elapsed_ms') }}ms{% endif %}</span>
+</li>
+{% endfor %}
+{% endif %}

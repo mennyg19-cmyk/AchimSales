@@ -38,7 +38,7 @@
             <span class="cust-metric-value">{{ view.primary.salesman }}</span>
         </div>
     </div>
-    <table class="simple-table js-site-table" style="margin-top:16px;">
+    <table class="simple-table" style="margin-top:16px;">
         <thead><tr><th>Item #</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead>
         <tbody>
             {% for line in view.lines %}
@@ -57,7 +57,7 @@
 <div class="settings-card">
     <h3>Recent invoiced</h3>
     <p class="flag-desc">Dummy helper{% if view.source == "reporting_api" %} from Invoiced (last 7 days){% else %} from the Invoiced mock{% endif %} for this account.</p>
-    <table class="simple-table js-site-table">
+    <table class="simple-table">
         <thead><tr><th>Invoice</th><th>Date</th><th>Total</th></tr></thead>
         <tbody>
         {% for inv in view.recent_invoices %}

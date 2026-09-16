@@ -34,6 +34,7 @@ tests/output/
 Dockerfile
 .dockerignore
 deploy.ps1
+deploy-runbook.ps1
 SETUP_INSTRUCTIONS.txt
 
 *.md

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Company schedules{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Company schedules</h1>
+        <p class="page-subtitle">
+            Shared automatic reports.
+            {% if company_schedule_setup %}
+            The 5-step setup (report, when, options, where, review).
+            <a href="{{ url_for('schedules.schedules_page') }}">Personal schedules</a>
+            {% endif %}
+        </p>
+    </div>
+    {% if company_schedule_setup %}
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-primary" id="msStartBtn">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Add a schedule
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Schedule mail (company and personal) goes to {{ test_emails|join(', ') }}. Live folders are not written. Salesman splits still run, to this list.
+    <a href="{{ url_for('settings.settings_page') }}">Settings</a>
+</div>
+{% endif %}
+
+<details class="run-log-panel" id="runLogPanel"
+         data-recent-url="{{ url_for('schedules.recent_runs') }}?kind=company"
+         data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+         data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
+         data-cancel-run-url="{{ url_for('schedules.cancel_schedule_run', run_id=999999) | replace('999999', '__ID__') }}"
+         data-clear-stuck-url="{{ url_for('schedules.clear_stuck_schedule_runs') }}"
+         {% if is_developer %}data-job-log="1"{% endif %}>
+    <summary class="run-log-summary">
+        Recent run log
+        <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
+    </summary>
+    <div class="run-log-actions" style="padding:0.5rem 0.75rem 0;">
+      <button type="button" class="btn btn-sm btn-outline" id="clearStuckRunsBtn" hidden>Clear stuck runs</button>
+    </div>
+    <div id="activeJobs" class="active-jobs" hidden></div>
+    <ol id="liveJobLog" class="live-job-log" hidden></ol>
+    <div id="runLogBody">
+    {% if recent_runs %}
+    <div class="table-wrap run-log-table-wrap">
+        <table class="data-table run-log-table">
+            <thead>
+                <tr>
+                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th>{% if is_developer %}<th></th>{% endif %}
+                </tr>
+            </thead>
+            <tbody id="runLogRows">
+                {% for r in recent_runs %}
+                <tr>
+                    <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
+                    <td>
+                        <span class="mini-flag">{{ r.kind }}</span>
+                        {{ r.title }}
+                    </td>
+                    <td>
+                        <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                            {{ r.status|title }}
+                        </span>
+                    </td>
+                    <td>{{ r.rows if r.rows is not none else '—' }}</td>
+                    <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    {% if is_developer %}
+                    <td><a class="btn btn-sm btn-outline" href="{{ r.log_url }}">Log</a></td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="run-log-empty">No company schedule runs yet. Use Run now or wait for the next cadence.</p>
+    {% endif %}
+    </div>
+</details>
+
+{% include "master_schedules.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/schedules.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

@@ -1,12 +1,10 @@
-"""User schedules. Graph mail when secrets exist; clock ticks every minute."""
+"""Personal and company schedules. Graph mail when secrets exist; clock ticks every minute."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
-import cadence
-import catalog
 import config
 import store
 from deliver import deliver_schedule
@@ -24,47 +22,6 @@ from deps import (
 router = APIRouter()
 
 
-def _owner_label(email: str, users: dict[str, dict]) -> tuple[str, str]:
-    key = (email or "").lower()
-    row = users.get(key)
-    if row:
-        return (row.get("display_name") or row["email"], row["email"])
-    return (email or "Unknown", email or "")
-
-
-def _decorate_schedule(row: dict, users: dict[str, dict]) -> dict:
-    out = dict(row)
-    spec = catalog.spec(out.get("report_key") or "")
-    out["report_title"] = spec["title"] if spec else (out.get("report_key") or "")
-    out["owner_name"], out["owner_email"] = _owner_label(out.get("owner_email") or "", users)
-    out["cadence"] = cadence.describe(out)
-    out["folder"] = out.get("sharepoint_folder") or out.get("onedrive_folder") or ""
-    out["last_run"] = cadence.format_stamp(out.get("last_run"))
-    return out
-
-
-def _group_schedule_rows(items: list[dict], privileged: bool) -> list[dict]:
-    if not privileged:
-        return [{"owner_name": "", "owner_email": "", "schedules": items}]
-    groups: list[dict] = []
-    by_owner: dict[str, list] = {}
-    order: list[str] = []
-    for row in items:
-        oid = (row.get("owner_email") or "").lower()
-        if oid not in by_owner:
-            by_owner[oid] = []
-            order.append(oid)
-        by_owner[oid].append(row)
-    for oid in order:
-        rows = by_owner[oid]
-        groups.append({
-            "owner_name": rows[0]["owner_name"],
-            "owner_email": rows[0]["owner_email"],
-            "schedules": rows,
-        })
-    return groups
-
-
 @router.get("/schedules")
 def schedules_page(request: Request):
     denied = need_login(request)
@@ -74,17 +31,7 @@ def schedules_page(request: Request):
     views = store.list_views(user["email"], is_privileged(user) or user.get("can_see_company_views"))
     named = [view for view in views if view["name"] and view["name"] != "Default"]
     named = [view for view in named if can_use_view_for_schedule(user, view)]
-    users = {row["email"].lower(): row for row in store.list_users()}
-    rows = [
-        _decorate_schedule(row, users)
-        for row in store.list_schedules()
-        if can_read_schedule(user, row)
-    ]
-    rows.sort(key=lambda row: (
-        (row.get("owner_name") or "").lower(),
-        (row.get("report_title") or "").lower(),
-        (row.get("view_name") or "").lower(),
-    ))
+    rows = [row for row in store.list_schedules() if can_read_schedule(user, row)]
     recent = store.list_schedule_runs()[:20]
     if not is_privileged(user):
         recent = [run for run in recent if can_read_schedule(user, run)]
@@ -93,7 +40,6 @@ def schedules_page(request: Request):
         "schedules.html",
         active_tab="schedules",
         schedules=rows,
-        schedule_groups=_group_schedule_rows(rows, is_privileged(user)),
         views=named,
         test_mode_on=store.setting("schedule_test_mode") == "1",
         test_emails=store.test_emails(),
@@ -271,8 +217,12 @@ def company_schedules(request: Request):
     denied = need_login(request)
     if denied:
         return denied
-    flash(request, "Company schedules are retired. Use user schedules.", "warn")
-    return RedirectResponse("/schedules", status_code=302)
+    user = session_user(request)
+    if store.setting("show_company_schedule_setup", "0") != "1" and not is_privileged(user):
+        flash(request, "Company schedule setup is hidden.", "warn")
+        return RedirectResponse("/settings", status_code=302)
+    rows = [row for row in store.list_schedules() if row.get("view_name")]
+    return page(request, "company_schedules.html", active_tab="settings", schedules=rows)
 
 
 @router.get("/master-schedules")
@@ -280,8 +230,17 @@ def master_schedules(request: Request):
     denied = need_login(request)
     if denied:
         return denied
-    flash(request, "Master schedules are retired. Use user schedules.", "warn")
-    return RedirectResponse("/schedules", status_code=302)
+    user = session_user(request)
+    if not is_privileged(user):
+        flash(request, "Master schedules are admin-only on this preview.", "warn")
+        return RedirectResponse("/schedules", status_code=302)
+    return page(
+        request,
+        "company_schedules.html",
+        active_tab="settings",
+        schedules=store.list_schedules(),
+        master=True,
+    )
 
 
 @router.get("/master-schedules/{schedule_id}/history")
@@ -289,8 +248,23 @@ def master_schedule_history(request: Request, schedule_id: int):
     denied = need_login(request)
     if denied:
         return denied
-    flash(request, "Master schedules are retired. Use user schedules.", "warn")
-    return RedirectResponse("/schedules", status_code=302)
+    user = session_user(request)
+    if not is_privileged(user):
+        flash(request, "Master schedules are admin-only on this preview.", "warn")
+        return RedirectResponse("/schedules", status_code=302)
+    row = store.get_schedule(schedule_id)
+    if row is None:
+        flash(request, "Unknown schedule.", "error")
+        return RedirectResponse("/master-schedules", status_code=302)
+    runs = store.list_schedule_runs_for(schedule_id)
+    return page(
+        request,
+        "schedule_history.html",
+        active_tab="settings",
+        schedule=row,
+        runs=runs,
+        master=True,
+    )
 
 
 @router.post("/schedules/{schedule_id}/copy")

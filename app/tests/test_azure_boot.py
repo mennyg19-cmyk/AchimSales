@@ -17,28 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_startup_script_is_azure_shaped():
     text = (ROOT / "startup.sh").read_text(encoding="utf-8")
     assert "uvicorn.workers.UvicornWorker" in text
-    assert "-m gunicorn" in text
-    assert "PYTHONPATH" in text
-    assert "${ROOT}/deps" in text
-    assert "${ROOT}/.venv" in text
     assert "0.0.0.0" in text
     assert "${PORT" in text
     assert "main:app" in text
+    assert "achim-sales-reports" in text  # warning to never point live at this
     assert "GUNICORN_TIMEOUT:-180" in text
-    assert "restore -config" in text
-    assert "-if-replica-exists" in text
-    assert "-if-db-not-exists" in text
-    assert "replicate -config" in text
-    assert "-exec" in text
-    assert "/home/bin/litestream" in text
+    assert "litestream" in text
     assert (ROOT / "litestream.yml").is_file()
-    yml = (ROOT / "litestream.yml").read_text(encoding="utf-8")
-    assert "path: home.sqlite" in yml
-    assert "path: ${LITESTREAM_AZURE_PATH}" not in yml
-    root_boot = (ROOT.parent / "startup.sh").read_text(encoding="utf-8")
-    assert "app/startup.sh" in root_boot
-    assert "exec bash" in root_boot
-    assert "wsgi:application" not in root_boot
 
 
 def test_gunicorn_worker_serves_healthz():

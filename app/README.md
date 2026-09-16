@@ -1,10 +1,8 @@
-# Home site (`app/`)
+# Home site rebuild (`app/`)
 
-Achim sales-report website. Looks like the old Flask home. Runs on FastAPI.
+New Achim sales-report website. **Looks like** current https://reports.achimonline.com (`v3/` CSS + Tabulator). **Runs on** FastAPI and one JSON object per report.
 
-`v3/`, `webapp/`, `rebuild/`, and Azure Automation (`run.py` / `runbooks/`)
-are not in this repo anymore. Nightly work is the in-app schedules. Repo-root
-`startup.sh` execs `app/startup.sh`. Production is this FastAPI tree on `main`.
+This folder is **not** the leftover Flask preview in `/rebuild` and **must not** be pushed to AchimSales `main` until Menny says cut over. Production today stays on `achim-sales-reports`.
 
 ## Dummy preview (what this branch serves)
 
@@ -20,27 +18,31 @@ Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` i
 
 `pytest` from this folder uses a temp sqlite file. It never calls the live Reporting API (doorway is mocked).
 
-## Copy live precious.db
+## Azure Web Apps — will it run?
 
-Exact Azure download + import steps are in the repo-root README
-(“Copy live data”). Short version: SSH on `achim-sales-reports`, copy
-`BETA_PRECIOUS_DB_PATH` (`/tmp/betadata/precious.db`, about 97 views) — not
-`/tmp/v3data` (`/test`, about 9 views) — then Settings → Developer upload.
-After production cutover, run `import-precious.py` on the box with
-`--dest /tmp/homedata/home.sqlite`.
+**On the live site (`achim-sales-reports`): no.** That app still starts the old Flask `wsgi:application`. This rebuild must not be pointed there until cutover.
 
-## Azure
+**On a new Azure Web App: yes.** This folder is packed the way Linux App Service expects:
 
-Merging to `main` deploys FastAPI onto `achim-sales-reports`
-because root `startup.sh` starts this folder.
+- `requirements.txt` at the zip root (Oryx pip install)
+- `runtime.txt` → Python 3.12
+- `startup.sh` → gunicorn + UvicornWorker on `0.0.0.0:$PORT` (Azure sets `PORT`)
+- `/healthz` for Always On (the `AlwaysOn` ping on `/` already returns 200)
 
-`app/deploy.ps1` still refuses the live app name. Repo-root `deploy.ps1` is the
-manual zip fallback if the GitHub Action cannot run.
+Create a **second** Web App (same resource group is fine), then zip-deploy **this folder only**:
 
-App settings: `APP_ENV=preview` on a preview app; production needs `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM` or `EMAIL_FROM_ADDRESS`.
+```
+bash create-azure-webapp.sh achim-sales-home-preview
+.\deploy.ps1 -Name achim-sales-home-preview
+```
+
+App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM`. Do not bind `reports.achimonline.com` yet.
+
+`deploy.ps1` refuses the live app name.
 
 ## Do not
 
 - Commit `REPORTING_API_KEY` or cookies
 - Point `REPORTING_API_BASE_URL` at reports.achimonline.com
 - Merge leftover PR https://github.com/mennyg19-cmyk/AchimSales/pull/35
+- Deploy over the live Azure Web App until sign-off

@@ -53,31 +53,6 @@ def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
-def test_init_db_adds_schedule_runs_message(tmp_path, monkeypatch):
-    import sqlite3
-
-    from db import init_db
-    from store import abandon_orphan_runs
-
-    path = tmp_path / "legacy.sqlite"
-    monkeypatch.setenv("APP_DB_PATH", str(path))
-    conn = sqlite3.connect(path)
-    conn.execute(
-        """CREATE TABLE schedule_runs (
-            id INTEGER PRIMARY KEY,
-            schedule_id INTEGER NOT NULL,
-            started_at TEXT NOT NULL,
-            status TEXT NOT NULL
-        )"""
-    )
-    conn.commit()
-    conn.close()
-    init_db()
-    cols = {row[1] for row in sqlite3.connect(path).execute("PRAGMA table_info(schedule_runs)")}
-    assert "message" in cols
-    assert abandon_orphan_runs() >= 0
-
-
 def test_beta_redirects_home(client):
     res = client.get("/beta", follow_redirects=False)
     assert res.status_code == 302
@@ -119,16 +94,6 @@ def test_preview_login_then_invoiced_tabs(client):
     assert "Run report" in page
     assert 'id="reportTable"' in page
     assert 'id="customerPicker"' in page
-    assert 'id="customerPills"' in page
-    picker_at = page.index('id="customerPicker"')
-    pills_at = page.index('id="customerPills"')
-    run_at = page.index("filter-run-group")
-    assert picker_at < pills_at < run_at
-    between = page[picker_at:pills_at]
-    assert between.count("</div>") >= 2
-    css = client.get("/static/css/main.css").text
-    assert ".filter-bar-row{flex-wrap:nowrap" in css
-    assert "body.dark-theme .customer-chip" in css
     assert 'id="columnsBtn"' in page
     assert "Freeze pins it" in page
     assert 'id="reportStatus"' in page
@@ -185,11 +150,6 @@ def test_settings_hub_admin_sections(client):
     assert "Schedule test mode" in html
     assert "Report run log" in html
     assert "Monochrome Dark" in html
-    people = html.index("<summary>People</summary>")
-    developer = html.index("<summary>Developer</summary>")
-    upload = html.index('action="/settings/import-precious"')
-    assert people < developer < upload
-    assert "Copy from live precious.db" in html
 
 
 def test_add_user_no_self_register(client):
@@ -293,21 +253,6 @@ def test_production_preview_login_blocked(client, monkeypatch):
     monkeypatch.setattr("config.PRODUCTION", True)
     res = client.post("/login/preview")
     assert res.status_code == 403
-
-
-def test_preview_login_falls_back_to_live_admin(client):
-    home_store.add_user("avig@achimonline.com", "Avi", "admin", 0, "")
-    from db import db, purge_dummy_people
-
-    with db() as conn:
-        purge_dummy_people(conn)
-    assert home_store.get_user("preview@achimonline.com") is None
-    res = client.post("/login/preview", follow_redirects=False)
-    assert res.status_code == 303
-    html = client.get("/").text
-    assert "Avi" in html
-    match = re.search(r'data-csrf="([^"]+)"', html)
-    assert match
 
 
 def test_reporting_api_refuses_website_host(monkeypatch):
@@ -631,7 +576,7 @@ def test_manager_sees_company_schedules_not_others_personal(client):
     )
     become(client, "manager@achimonline.com")
     html = client.get("/schedules").text
-    assert "Daily Ordered" not in html
+    assert "Daily Ordered" in html
     assert "Admin personal for manager test" not in html
 
 
@@ -685,9 +630,9 @@ def test_master_schedule_history_and_diagnostics(client):
     login(client)
     with db() as conn:
         sid = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()["id"]
-    hist = client.get(f"/master-schedules/{sid}/history", follow_redirects=False)
-    assert hist.status_code == 302
-    assert hist.headers["location"] == "/schedules"
+    hist = client.get(f"/master-schedules/{sid}/history")
+    assert hist.status_code == 200
+    assert "Daily Ordered" in hist.text or "when" in hist.text.lower()
     diag = client.get("/dev/diagnostics")
     assert diag.status_code == 200
     assert "P4.I8" in diag.text
@@ -756,17 +701,13 @@ def test_manager_cannot_run_others_personal_schedule(client):
             "SELECT id FROM schedules WHERE view_id = ? ORDER BY id DESC LIMIT 1",
             (created["id"],),
         ).fetchone()["id"]
-        leftover = conn.execute(
+        company = conn.execute(
             "SELECT s.id FROM schedules s JOIN views v ON v.id = s.view_id "
             "WHERE v.kind = 'company' LIMIT 1"
         ).fetchone()["id"]
         before = conn.execute(
             "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
             (sid,),
-        ).fetchone()["n"]
-        leftover_before = conn.execute(
-            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
-            (leftover,),
         ).fetchone()["n"]
     become(client, "manager@achimonline.com")
     blocked = client.post(
@@ -781,18 +722,18 @@ def test_manager_cannot_run_others_personal_schedule(client):
             (sid,),
         ).fetchone()["n"]
     assert after == before
-    leftover_run = client.post(
-        f"/schedules/{leftover}/run-now",
+    company_run = client.post(
+        f"/schedules/{company}/run-now",
         data={"csrf": client.csrf},
         follow_redirects=False,
     )
-    assert leftover_run.status_code == 303
+    assert company_run.status_code == 303
     with db() as conn:
-        leftover_runs = conn.execute(
+        company_runs = conn.execute(
             "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
-            (leftover,),
+            (company,),
         ).fetchone()["n"]
-    assert leftover_runs == leftover_before
+    assert company_runs >= 1
 
 
 def test_salesman_cannot_schedule_company_view(client):
@@ -825,43 +766,6 @@ def test_salesman_cannot_schedule_company_view(client):
     assert after == before
     html = client.get("/schedules").text
     assert "Daily Ordered" not in html
-
-
-def test_company_schedule_pages_are_gone(client):
-    login(client)
-    settings = client.get("/settings").text
-    assert "Company schedules" not in settings
-    assert "Master schedules" not in settings
-    assert "Feature flags" not in settings
-    assert 'id="exclPicker"' in settings
-    assert 'id="exclSearch"' in settings
-    assert "customer-search" in settings
-    res = client.get("/settings/company-schedules", follow_redirects=False)
-    assert res.status_code == 302
-    assert res.headers["location"] == "/schedules"
-    master = client.get("/master-schedules", follow_redirects=False)
-    assert master.status_code == 302
-    assert master.headers["location"] == "/schedules"
-
-
-def test_clock_skips_company_kind_schedules(client):
-    login(client)
-    with db() as conn:
-        conn.execute("UPDATE schedules SET kind = 'company', is_active = 1")
-        sid = conn.execute("SELECT id FROM schedules LIMIT 1").fetchone()["id"]
-    assert home_store.list_active_schedules() == []
-    res = client.post(
-        f"/schedules/{sid}/run-now",
-        data={"csrf": client.csrf},
-        follow_redirects=False,
-    )
-    assert res.status_code == 303
-    with db() as conn:
-        runs = conn.execute(
-            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
-            (sid,),
-        ).fetchone()["n"]
-    assert runs == 0
 
 
 def test_invoiced_hides_totals_for_one_salesman(client):
@@ -989,69 +893,6 @@ def test_explorer_write_confirm(client):
         follow_redirects=True,
     )
     assert "Confirm write" in cte.text
-
-
-def test_schedules_page_groups_by_owner(client):
-    login(client)
-    html = client.get("/schedules").text
-    assert "ps-sched-table" in html
-    assert "js-site-table" in html
-    assert "ps-owner-row" in html
-    assert "Preview Admin" in html
-    assert "Add a schedule" in html
-    created = client.post(
-        "/api/views",
-        json={
-            "name": "Salesman grouped",
-            "report_key": "invoiced",
-            "kind": "personal",
-            "for_email": "salesman@achimonline.com",
-            "params": {"period": "mtd"},
-        },
-        headers=csrf_headers(client),
-    ).json()
-    become(client, "salesman@achimonline.com")
-    client.post(
-        "/schedules/add",
-        data={
-            "view_id": created["id"],
-            "freq": "weekly",
-            "run_time": "07:30",
-            "weekdays": ["mon"],
-            "recipients": "salesman@achimonline.com",
-            "csrf": client.csrf,
-        },
-        follow_redirects=False,
-    )
-    salesman_page = client.get("/schedules").text
-    assert "ps-owner-row" not in salesman_page
-    client.post("/impersonate/stop", data={"csrf": client.csrf}, follow_redirects=False)
-    html = client.get("/").text
-    match = re.search(r'data-csrf="([^"]+)"', html)
-    assert match
-    client.csrf = match.group(1)
-    grouped = client.get("/schedules").text
-    assert grouped.count("ps-owner-row") >= 2
-    assert "Preview Admin" in grouped
-    assert "Preview Salesman" in grouped
-    assert "Weekly Mon 07:30" in grouped
-    admin_at = grouped.index("Preview Admin")
-    salesman_at = grouped.index("Preview Salesman")
-    assert admin_at < salesman_at
-    assert "Daily Ordered" in grouped[admin_at:salesman_at]
-    assert "Salesman grouped" in grouped[salesman_at:]
-
-
-def test_views_api_includes_owner_name(client):
-    login(client)
-    invoiced = client.get("/api/views?report=invoiced").json()["views"]
-    daily = next(view for view in invoiced if view["name"] == "Daily Invoiced")
-    assert daily["owner_email"] == "preview@achimonline.com"
-    assert daily["owner_name"] == "Preview Admin"
-    page = client.get("/reports/invoiced").text
-    assert 'data-user-email="preview@achimonline.com"' in page
-    assert "presets-list" in page
-    assert "presets-open" in client.get("/static/js/report.js").text
 
 
 def test_delete_named_view(client):

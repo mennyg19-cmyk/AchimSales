@@ -7,12 +7,12 @@
 </div>
 <section class="settings-card">
     {% if jobs %}
-    <table class="simple-table js-site-table">
+    <table class="simple-table">
         <thead><tr><th>When</th><th>Report</th><th>Status</th><th>Kept</th></tr></thead>
         <tbody>
         {% for j in jobs %}
         <tr>
-            <td>{{ j.created_at|stamp }}</td>
+            <td>{{ j.created_at }}</td>
             <td>{{ j.title }} ({{ j.report_key }})</td>
             <td>{{ j.status }}</td>
             <td>{% if j.kept %}{{ j.keep_name }}{% else %}—{% endif %}</td>

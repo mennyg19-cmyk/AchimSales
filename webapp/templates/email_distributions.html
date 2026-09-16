@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+{% block title %}Email Distributions - Sales Reports{% endblock %}
+
+{% block head %}
+<style>
+.chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: var(--primary-bg, #dbeafe);
+    color: var(--primary, #2563eb);
+}
+.chip-remove {
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.6;
+}
+.chip-remove:hover { opacity: 1; }
+.report-check-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.report-check-item label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.report-path-input {
+    margin: 4px 0 0 26px;
+}
+.report-path-input input {
+    width: 100%;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 4px 8px;
+}
+.email-input-row {
+    display: flex;
+    gap: 6px;
+}
+.email-input-row input {
+    flex: 1;
+    min-width: 0;
+}
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.status-sent { background: #d1fae5; color: #065f46; }
+.status-failed { background: #fee2e2; color: #991b1b; }
+.status-skipped { background: #fef3c7; color: #92400e; }
+[data-theme="dark"] .status-sent { background: #064e3b; color: #6ee7b7; }
+[data-theme="dark"] .status-failed { background: #7f1d1d; color: #fca5a5; }
+[data-theme="dark"] .status-skipped { background: #78350f; color: #fcd34d; }
+[data-theme="dark"] .chip { background: #1e3a5f; color: #93c5fd; }
+
+.trigger-section { margin-bottom: 12px; }
+.trigger-section .form-label { margin-bottom: 6px; }
+.trigger-radios { display: flex; gap: 16px; margin-bottom: 8px; }
+.trigger-radios label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.freq-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.freq-row select { max-width: 160px; }
+.dow-grid { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.dow-label { display: inline-flex; cursor: pointer; }
+.dow-label input { display: none; }
+.dow-box {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 30px; border-radius: 6px;
+    border: 1.5px solid var(--border, #334155);
+    font-size: 11px; font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+    transition: all 0.12s; user-select: none;
+}
+.dow-label input:checked + .dow-box {
+    background: var(--primary, #2563eb);
+    border-color: var(--primary, #2563eb);
+    color: #fff;
+}
+.dom-grid { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
+.dom-label { display: inline-flex; cursor: pointer; }
+.dom-label input { display: none; }
+.dom-box {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 1.5px solid var(--border, #334155);
+    font-size: 11px; font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+    transition: all 0.12s; user-select: none;
+}
+.dom-label input:checked + .dom-box {
+    background: var(--primary, #2563eb);
+    border-color: var(--primary, #2563eb);
+    color: #fff;
+}
+#statusBanner {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm, 6px);
+    margin-bottom: 16px;
+    font-size: 13px;
+    display: none;
+}
+#statusBanner.banner-info { background: #dbeafe; color: #1e40af; display: block; }
+#statusBanner.banner-success { background: #d1fae5; color: #065f46; display: block; }
+#statusBanner.banner-error { background: #fee2e2; color: #991b1b; display: block; }
+[data-theme="dark"] #statusBanner.banner-info { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] #statusBanner.banner-success { background: #064e3b; color: #6ee7b7; }
+[data-theme="dark"] #statusBanner.banner-error { background: #7f1d1d; color: #fca5a5; }
+.sched-summary {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('settings.settings_page') }}" class="back-link">
+        <i data-feather="arrow-left"></i> Back to Settings
+    </a>
+    <h1>Email Distributions</h1>
+    <p class="page-subtitle">Automatically email report files to recipients on a schedule or when reports complete</p>
+</div>
+
+<div id="statusBanner"></div>
+
+<div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
+    <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+        <i data-feather="plus" style="width:14px;height:14px;vertical-align:-2px;"></i>
+        Add Distribution
+    </button>
+</div>
+
+{% if distributions %}
+<div class="table-wrapper">
+    <table class="data-table" id="distTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Reports</th>
+                <th>Recipients</th>
+                <th>Schedule</th>
+                <th>Enabled</th>
+                <th>Last Sent</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in distributions %}
+            <tr data-id="{{ d.id }}">
+                <td>
+                    <strong>{{ d.name }}</strong>
+                    {% if d.subject_template and d.subject_template != 'Daily Reports - {date}' %}
+                    <br><span style="font-size:11px; color:var(--text-muted);">{{ d.subject_template }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% for rk in d.report_keys %}
+                    <span class="chip">{{ report_options.get(rk.report_key, rk.report_key) }}</span>
+                    {% endfor %}
+                </td>
+                <td>
+                    <span title="{{ d.recipients|join(', ') }}">
+                        {{ d.recipients|length }} recipient{{ 's' if d.recipients|length != 1 else '' }}
+                    </span>
+                    {% if d.cc %}
+                    <br><span style="font-size:11px; color:var(--text-muted);">+{{ d.cc|length }} CC</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="sched-summary">
+                        {% if d.trigger_mode == 'scheduled' %}
+                            Scheduled {{ d.frequency }}{% if d.send_time %} at {{ d.send_time }}{% endif %}
+                        {% else %}
+                            After reports
+                            {% if d.frequency != 'daily' %} ({{ d.frequency }}){% endif %}
+                        {% endif %}
+                    </span>
+                </td>
+                <td>
+                    <label class="toggle-switch">
+                        <input type="checkbox" {% if d.enabled %}checked{% endif %}
+                               onchange="toggleDist({{ d.id }}, this)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </td>
+                <td>
+                    {% if d.last_send %}
+                        <span class="status-badge status-{{ d.last_send.status }}">{{ d.last_send.status }}</span>
+                        <br><span style="font-size:11px; color:var(--text-muted);">{{ d.last_send.sent_date }}</span>
+                    {% else %}
+                        <span style="color:var(--text-muted); font-style:italic;">Never</span>
+                    {% endif %}
+                </td>
+                <td class="cell-nowrap">
+                    <button class="btn btn-sm btn-outline" onclick="sendNow({{ d.id }}, this)" title="Send Now">
+                        <i data-feather="send" style="width:13px;height:13px;"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline" onclick="openEditModal({{ d.id }})" title="Edit">
+                        <i data-feather="edit-2" style="width:13px;height:13px;"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline" style="color:var(--error);" onclick="deleteDist({{ d.id }})" title="Delete">
+                        <i data-feather="trash-2" style="width:13px;height:13px;"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <i data-feather="mail" width="48" height="48"></i>
+    <h3>No distributions configured</h3>
+    <p>Click "Add Distribution" to create an automated email that sends report files to your team.</p>
+</div>
+{% endif %}
+
+<!-- Send Log (expanded by default) -->
+<div style="border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; margin-top:24px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h4 style="margin:0; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
+            <i data-feather="list" style="width:15px;height:15px;"></i>
+            Recent Send Log
+        </h4>
+        <button class="btn btn-sm btn-outline" onclick="refreshLog()" title="Refresh">
+            <i data-feather="refresh-cw" style="width:13px;height:13px;"></i> Refresh
+        </button>
+    </div>
+    <div id="logTableContainer">
+        {% if recent_log %}
+        <div class="table-wrapper" style="max-height:300px; overflow-y:auto;">
+            <table class="data-table" style="font-size:12px;">
+                <thead>
+                    <tr>
+                        <th>Distribution</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Reports</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in recent_log %}
+                    <tr>
+                        <td>{{ entry.distribution_name }}</td>
+                        <td style="white-space:nowrap;">{{ entry.sent_date }}</td>
+                        <td><span class="status-badge status-{{ entry.status }}">{{ entry.status }}</span></td>
+                        <td>
+                            {% for rk in entry.reports_included %}
+                            <span class="chip">{{ rk }}</span>
+                            {% endfor %}
+                        </td>
+                        <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="{{ entry.error or '' }}">{{ entry.error or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:13px; margin:0;">No emails sent yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div id="distModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" style="max-width:560px; max-height:90vh; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h3 style="margin:0;" id="distModalTitle">Add Distribution</h3>
+            <button class="btn btn-sm btn-outline" onclick="closeDistModal()" style="padding:4px 8px;">
+                <i data-feather="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+
+        <input type="hidden" id="editDistId" value="">
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Name</label>
+            <input type="text" id="distName" class="form-input" placeholder="e.g. CEO Daily Reports">
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Reports to Include</label>
+            <div class="report-check-list" id="reportCheckList">
+                {% for rk, rname in report_options.items() %}
+                <div class="report-check-item" data-key="{{ rk }}">
+                    <label>
+                        <input type="checkbox" class="dist-report-check" value="{{ rk }}"
+                               onchange="onReportCheckChange(this)">
+                        {{ rname }}
+                    </label>
+                    <div class="report-path-input" style="display:none;">
+                        <input type="text" class="form-input report-path-field"
+                               data-key="{{ rk }}"
+                               placeholder="SharePoint path template">
+                        <p style="font-size:10px; color:var(--text-muted); margin:2px 0 0;">
+                            Variables: <code>{yesterday}</code>, <code>{today}</code>, <code>{month_folder}</code> (e.g. 2026-03 Mar), <code>{year}</code>, <code>{month}</code>
+                        </p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Trigger & Schedule -->
+        <div class="trigger-section">
+            <label class="form-label">Trigger</label>
+            <div class="trigger-radios">
+                <label>
+                    <input type="radio" name="triggerMode" value="after_reports" checked
+                           onchange="onTriggerChange()">
+                    After reports complete
+                </label>
+                <label>
+                    <input type="radio" name="triggerMode" value="scheduled"
+                           onchange="onTriggerChange()">
+                    On a schedule
+                </label>
+            </div>
+            <div id="sendTimeRow" style="display:none; margin-bottom:8px;">
+                <label class="form-label" style="font-size:12px;">Send Time</label>
+                <input type="time" id="distSendTime" class="form-input" style="max-width:140px;" value="09:00">
+            </div>
+            <div class="freq-row">
+                <label class="form-label" style="margin:0; font-size:12px;">Frequency:</label>
+                <select id="distFrequency" class="form-input" onchange="onFrequencyChange()">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </div>
+            <div id="dowSection" style="display:none;">
+                <label class="form-label" style="font-size:12px;">Days of Week</label>
+                <div class="dow-grid">
+                    {% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday'] %}
+                    <label class="dow-label">
+                        <input type="checkbox" class="dow-check" value="{{ day }}">
+                        <span class="dow-box">{{ day[:3] }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div id="domSection" style="display:none;">
+                <label class="form-label" style="font-size:12px;">Days of Month</label>
+                <div class="dom-grid">
+                    {% for d in range(1, 32) %}
+                    <label class="dom-label">
+                        <input type="checkbox" class="dom-check" value="{{ d }}">
+                        <span class="dom-box">{{ d }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Recipients (To)</label>
+            <div class="email-input-row">
+                <input type="email" id="distRecipientInput" class="form-input" placeholder="email@example.com"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addRecipient();}">
+                <button class="btn btn-sm btn-outline" onclick="addRecipient()">Add</button>
+            </div>
+            <div class="chip-list" id="recipientChips"></div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">CC <span style="font-size:11px; color:var(--text-muted);">(optional)</span></label>
+            <div class="email-input-row">
+                <input type="email" id="distCcInput" class="form-input" placeholder="email@example.com"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addCc();}">
+                <button class="btn btn-sm btn-outline" onclick="addCc()">Add</button>
+            </div>
+            <div class="chip-list" id="ccChips"></div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Subject Template</label>
+            <input type="text" id="distSubject" class="form-input" value="Daily Reports - {date}"
+                   placeholder="Daily Reports - {date}">
+            <p style="font-size:11px; color:var(--text-muted); margin:4px 0 0;">Use <code>{date}</code> for today's date.</p>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Body <span style="font-size:11px; color:var(--text-muted);">(optional)</span></label>
+            <textarea id="distBody" class="form-input" rows="3" placeholder="Attached are your reports for {date}."></textarea>
+        </div>
+
+        <div style="margin-bottom:12px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                <input type="checkbox" id="distEnabled" checked>
+                Enabled
+            </label>
+        </div>
+
+        <div id="distModalMsg" style="margin:8px 0; font-size:13px; display:none;"></div>
+
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <button class="btn btn-sm btn-outline" onclick="closeDistModal()">Cancel</button>
+            <button class="btn btn-sm btn-primary" id="distSaveBtn" onclick="saveDist()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Data for JS -->
+<script>
+    var DISTRIBUTIONS_DATA = {{ distributions|tojson }};
+    var REPORT_OPTIONS = {{ report_options|tojson }};
+    var DEFAULT_PATH_TEMPLATES = {{ default_path_templates|tojson }};
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='email_distributions.js') }}"></script>
+{% endblock %}

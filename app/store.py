@@ -38,58 +38,7 @@ def list_users() -> list[dict]:
 
 def get_user(email: str) -> dict | None:
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE lower(email) = ?",
-            ((email or "").strip().lower(),),
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def user_count() -> int:
-    with db() as conn:
-        return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
-
-
-_ACHIM_MAIL = "@achimonline.com"
-_ACHIM_AD = "@ad.achimonline.com"
-
-
-def login_email_aliases(email: str) -> list[str]:
-    """Entra often returns the AD UPN (mennyg@ad.achimonline.com) while People has the mailbox."""
-    raw = (email or "").strip().lower()
-    if not raw:
-        return []
-    aliases = [raw]
-    if raw.endswith(_ACHIM_AD):
-        aliases.append(raw[: -len(_ACHIM_AD)] + _ACHIM_MAIL)
-    elif raw.endswith(_ACHIM_MAIL):
-        aliases.append(raw[: -len(_ACHIM_MAIL)] + _ACHIM_AD)
-    return aliases
-
-
-def get_user_for_login(email: str) -> dict | None:
-    seen: set[str] = set()
-    for candidate in login_email_aliases(email):
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        row = get_user(candidate)
-        if row:
-            return row
-    return None
-
-
-def preview_login_row() -> dict | None:
-    row = get_user("preview@achimonline.com")
-    if row and row.get("is_active"):
-        return row
-    with db() as conn:
-        row = conn.execute(
-            """SELECT * FROM users
-               WHERE is_active = 1 AND role IN ('admin', 'developer')
-               ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, id
-               LIMIT 1"""
-        ).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower(),)).fetchone()
     return dict(row) if row else None
 
 
@@ -326,119 +275,6 @@ def list_outbox() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _weekday_csv(numbers: list[int]) -> str:
-    names = []
-    for day in numbers:
-        if 0 <= day < len(cadence.WEEKDAY_NAMES):
-            names.append(cadence.WEEKDAY_NAMES[day])
-    return ",".join(names)
-
-
-def _weekday_numbers(csv_text: str) -> list[int]:
-    out = []
-    for part in str(csv_text or "").split(","):
-        name = part.strip().lower()[:3]
-        if name in cadence.WEEKDAY_NAMES:
-            out.append(cadence.WEEKDAY_NAMES.index(name))
-    return out
-
-
-def _split_addr_list(raw: str) -> list[str]:
-    return [part.strip().lower() for part in str(raw or "").replace(";", ",").split(",") if "@" in part]
-
-
-def write_schedule_children(
-    conn,
-    schedule_id: int,
-    *,
-    weekdays: str = "",
-    monthday: int | None = None,
-    recipients: str = "",
-    cc: str = "",
-    bcc: str = "",
-    salesmen: list[str] | None = None,
-) -> None:
-    conn.execute("DELETE FROM schedule_weekdays WHERE schedule_id = ?", (schedule_id,))
-    conn.execute("DELETE FROM schedule_monthdays WHERE schedule_id = ?", (schedule_id,))
-    conn.execute("DELETE FROM schedule_recipients WHERE schedule_id = ?", (schedule_id,))
-    conn.execute("DELETE FROM schedule_email_salesmen WHERE schedule_id = ?", (schedule_id,))
-    for day in _weekday_numbers(weekdays):
-        conn.execute(
-            "INSERT OR IGNORE INTO schedule_weekdays (schedule_id, weekday) VALUES (?, ?)",
-            (schedule_id, day),
-        )
-    if monthday not in (None, ""):
-        conn.execute(
-            "INSERT OR IGNORE INTO schedule_monthdays (schedule_id, monthday) VALUES (?, ?)",
-            (schedule_id, int(monthday)),
-        )
-    for email in _split_addr_list(recipients):
-        conn.execute(
-            "INSERT OR IGNORE INTO schedule_recipients (schedule_id, email, role) VALUES (?, ?, 'to')",
-            (schedule_id, email),
-        )
-    for email in _split_addr_list(cc):
-        conn.execute(
-            "INSERT OR IGNORE INTO schedule_recipients (schedule_id, email, role) VALUES (?, ?, 'cc')",
-            (schedule_id, email),
-        )
-    for email in _split_addr_list(bcc):
-        conn.execute(
-            "INSERT OR IGNORE INTO schedule_recipients (schedule_id, email, role) VALUES (?, ?, 'bcc')",
-            (schedule_id, email),
-        )
-    for salesman in salesmen or []:
-        if salesman:
-            conn.execute(
-                "INSERT OR IGNORE INTO schedule_email_salesmen (schedule_id, salesman) VALUES (?, ?)",
-                (schedule_id, salesman),
-            )
-
-
-def hydrate_schedule_row(row, conn) -> dict:
-    out = dict(row)
-    sid = out["id"]
-    days = [
-        int(r["weekday"])
-        for r in conn.execute(
-            "SELECT weekday FROM schedule_weekdays WHERE schedule_id = ? ORDER BY weekday",
-            (sid,),
-        )
-    ]
-    if days:
-        out["weekdays"] = _weekday_csv(days)
-    month = conn.execute(
-        "SELECT monthday FROM schedule_monthdays WHERE schedule_id = ? ORDER BY monthday LIMIT 1",
-        (sid,),
-    ).fetchone()
-    if month:
-        out["monthday"] = int(month["monthday"])
-    to_addrs, cc_addrs, bcc_addrs = [], [], []
-    for rec in conn.execute(
-        "SELECT email, role FROM schedule_recipients WHERE schedule_id = ? ORDER BY role, email",
-        (sid,),
-    ):
-        email = rec["email"] or ""
-        if rec["role"] == "cc":
-            cc_addrs.append(email)
-        elif rec["role"] == "bcc":
-            bcc_addrs.append(email)
-        else:
-            to_addrs.append(email)
-    if to_addrs or cc_addrs or bcc_addrs:
-        out["recipients"] = ", ".join(to_addrs)
-        out["cc"] = ", ".join(cc_addrs)
-        out["bcc"] = ", ".join(bcc_addrs)
-    out["email_salesmen"] = [
-        r["salesman"]
-        for r in conn.execute(
-            "SELECT salesman FROM schedule_email_salesmen WHERE schedule_id = ? ORDER BY salesman",
-            (sid,),
-        )
-    ]
-    return out
-
-
 def list_schedules() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
@@ -446,7 +282,7 @@ def list_schedules() -> list[dict]:
                FROM schedules s JOIN views v ON v.id = s.view_id
                ORDER BY s.id"""
         ).fetchall()
-        return [hydrate_schedule_row(row, conn) for row in rows]
+    return [dict(row) for row in rows]
 
 
 def list_active_schedules() -> list[dict]:
@@ -454,10 +290,10 @@ def list_active_schedules() -> list[dict]:
         rows = conn.execute(
             """SELECT s.*, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedules s JOIN views v ON v.id = s.view_id
-               WHERE s.is_active = 1 AND ifnull(s.kind, 'personal') != 'company'
+               WHERE s.is_active = 1
                ORDER BY s.id"""
         ).fetchall()
-        return [_attach_view_to_schedule(hydrate_schedule_row(row, conn), conn) for row in rows]
+        return [_attach_view_to_schedule(row, conn) for row in rows]
 
 
 def claim_today_slot(schedule_id: int, now: datetime | None = None) -> bool:
@@ -506,33 +342,21 @@ def add_schedule(
     filename: str = "",
     sharepoint_folder: str = "",
     onedrive_folder: str = "",
-    name: str = "",
-    kind: str = "personal",
 ) -> int:
     with db() as conn:
         cur = conn.execute(
             """INSERT INTO schedules (
-                   view_id, owner_email, name, kind, freq, run_time, weekdays, monthday,
+                   view_id, owner_email, freq, run_time, weekdays, monthday,
                    recipients, cc, bcc, subject, filename, sharepoint_folder,
                    onedrive_folder, is_active
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
             (
-                view_id, owner_email, name or "", kind, freq, run_time, weekdays, monthday,
+                view_id, owner_email, freq, run_time, weekdays, monthday,
                 recipients, cc, bcc, subject, filename, sharepoint_folder,
                 onedrive_folder,
             ),
         )
-        schedule_id = int(cur.lastrowid)
-        write_schedule_children(
-            conn,
-            schedule_id,
-            weekdays=weekdays,
-            monthday=monthday,
-            recipients=recipients,
-            cc=cc,
-            bcc=bcc,
-        )
-        return schedule_id
+        return int(cur.lastrowid)
 
 
 def toggle_schedule(schedule_id: int) -> None:
@@ -689,11 +513,11 @@ def get_schedule(schedule_id: int) -> dict | None:
         ).fetchone()
         if row is None:
             return None
-        return _attach_view_to_schedule(hydrate_schedule_row(row, conn), conn)
+        return _attach_view_to_schedule(row, conn)
 
 
 def test_emails() -> list[str]:
-    raw = setting("test_emails", "")
+    raw = setting("test_emails", "preview@achimonline.com")
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
@@ -714,12 +538,6 @@ def mail_recipients(explicit: str) -> str:
     if setting("schedule_test_mode") == "1":
         return ", ".join(test_emails())
     return explicit
-
-
-def mail_copy_lists(cc: str = "", bcc: str = "") -> tuple[str, str]:
-    if setting("schedule_test_mode") == "1":
-        return "", ""
-    return cc or "", bcc or ""
 
 
 def set_exclusions(email: str, accounts: list[str]) -> None:

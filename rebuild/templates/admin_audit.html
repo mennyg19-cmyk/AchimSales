@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<section class="page">
+  <div class="page__head">
+    <h1 class="page__title">Audit log</h1>
+    <a class="page__admin-link" href="{{ url_for('reporting.reports_home') }}">&larr; Reports</a>
+  </div>
+  <p class="muted">The latest report runs, exports, and deliveries. Newest first.</p>
+  {% if entries %}
+  <div class="audit-wrap">
+    <table class="audit">
+      <thead>
+        <tr><th>When (UTC)</th><th>User</th><th>Action</th><th>Report</th><th>Status</th><th>Took</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td>{{ entry.ts }}</td>
+          <td>{{ entry.user_email or '' }}</td>
+          <td>{{ entry.action }}</td>
+          <td>{{ entry.report_key or '' }}</td>
+          <td>{{ entry.status or '' }}</td>
+          <td>{{ '%.1fs'|format(entry.duration_ms / 1000) if entry.duration_ms else '' }}</td>
+          <td>{{ entry.message or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Nothing logged yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

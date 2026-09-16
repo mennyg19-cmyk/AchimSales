@@ -35,12 +35,15 @@
     </section>
     <section class="settings-card">
         <h2 class="section-title">Customer exclusions</h2>
-        <p class="flag-desc">Hide these accounts from your own Last Order list and dashboard leftovers. Live customer_master when the Reporting API key is set. Search and check customers to hide them.</p>
-        <div id="exclPicker" class="customer-picker" data-customers='{{ customers | tojson }}' data-excluded='{{ excluded | tojson }}'>
-            <input type="text" id="exclSearch" class="customer-search" placeholder="Search customers" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="exclMenu">
-            <div id="exclMenu" class="customer-options" hidden></div>
+        <p class="flag-desc">Hide these accounts from your own Last Order list and dashboard leftovers. Dummy list only.</p>
+        <div id="exclPills" class="customer-pills">
+            {% for c in customers %}
+            <label class="access-item">
+                <input type="checkbox" class="excl-box" value="{{ c.account }}" {% if c.account in excluded %}checked{% endif %}>
+                {{ c.name }}
+            </label>
+            {% endfor %}
         </div>
-        <div id="exclPills" class="customer-pills" aria-label="Hidden customers"></div>
         <button type="button" id="exclSave" class="btn btn-outline btn-sm mt-12">Save exclusions</button>
     </section>
 </details>
@@ -73,7 +76,6 @@
             </li>
             {% endfor %}
         </ul>
-        {% if flags %}
         <h2 class="section-title">Feature flags</h2>
         <ul class="flag-list">
             {% for f in flags %}
@@ -89,13 +91,15 @@
             </li>
             {% endfor %}
         </ul>
-        {% endif %}
     </section>
 </details>
 
 <details class="settings-cat">
     <summary>Delivery</summary>
     <section class="settings-card">
+        {% if company_schedule_setup %}
+        <a class="btn btn-outline btn-sm" href="/settings/company-schedules">Company schedules</a>
+        {% endif %}
         <h3 class="settings-subhead">Schedule test mode</h3>
         <p class="flag-desc">While on, every schedule mail (Run now and the clock) goes only to the addresses below. Graph still sends when secrets are set; otherwise the outbox is the record.</p>
         <ul class="flag-list">
@@ -140,21 +144,12 @@
 <details class="settings-cat">
     <summary>Developer</summary>
     <section class="settings-card">
-        <h2 class="section-title">Copy from live precious.db</h2>
-        <p class="flag-desc">Upload the home-site sqlite from Azure SSH <code>BETA_PRECIOUS_DB_PATH</code> (usually <code>/tmp/betadata/precious.db</code> — about 97 views, 58 report schedules, 592 layout tabs). <code>/tmp/v3data/precious.db</code> is the /test app (~9 views) and will not bring personal views. Adds People. Clears dummy views and schedules, then copies those assemble column tables. JSON leftovers are already inside <code>views</code> / <code>report_schedules</code> and are not read. Admins and developers see every imported schedule, including paused ones.</p>
-        <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <label class="filter-field">
-                <span>precious.db</span>
-                <input type="file" name="file" accept=".db,application/octet-stream" required>
-            </label>
-            <button type="submit" class="btn btn-primary btn-sm mt-12">Import</button>
-        </form>
         <div class="admin-links">
             <a class="btn btn-outline btn-sm" href="/dev/db-explorer">Database explorer</a>
             <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>
             <a class="btn btn-outline btn-sm" href="/dev/diagnostics">Salesman / Number 4 diagnostics</a>
             <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
+            <a class="btn btn-outline btn-sm" href="/master-schedules">Master schedules</a>
         </div>
         <p class="flag-desc">OData vs SQL source picker is retired. This app talks to the office Reporting API when REPORTING_API_KEY is set; otherwise catalog mock JSON. POST /api/dev/reporting/&lt;id&gt;/run returns 501 without the key, or live rows when it is set.</p>
     </section>

@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ report_title }}{% endblock %}
 
+{% block head %}
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="report-top">
 <div class="page-head">
@@ -20,7 +25,6 @@
 
 <div class="report-controls" id="reportControls"
      data-report-key="{{ report_key }}"
-     data-user-email="{{ user.email }}"
      data-filters="{{ filters|join(',') }}"
      data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'
      data-view-layout='{{ (loaded_view.layout if loaded_view else {}) | tojson }}'
@@ -99,12 +103,10 @@
             <input type="text" id="customerSearch" placeholder="All customers" autocomplete="off">
             <div id="customerMenu" class="toolbar-dropdown" hidden></div>
         </div>
+        <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
     </div>
     {% endif %}
     </div>
-    {% if "customers" in filters %}
-    <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
-    {% endif %}
     <div class="filter-run-group">
     <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
     <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn">Email me</button>
@@ -126,6 +128,10 @@
     <button type="button" class="btn btn-outline" id="resetLayoutBtn" title="Reset column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
     <button type="button" class="btn btn-outline" id="saveViewBtn" title="Save these filters as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
     <button type="button" class="btn btn-outline" id="savedViewsBtn" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    <label class="filter-field" id="groupByWrap" hidden>
+        <span>Group by</span>
+        <select id="groupBySelect"><option value="">None</option></select>
+    </label>
     <div id="groupPills" class="group-pills" hidden></div>
     <div class="toolbar-menu" id="moreMenuWrap">
         <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false">
@@ -180,7 +186,7 @@
     <div class="modal" role="dialog">
         <div class="modal-head"><h3>Saved views</h3>
             <button type="button" class="modal-close" id="savedViewsClose">&times;</button></div>
-        <div class="modal-body presets-list" id="savedViewsList"></div>
+        <div class="modal-body" id="savedViewsList"></div>
     </div>
 </div>
 

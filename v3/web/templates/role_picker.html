@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Impersonate User - Sales Reports{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+    <div class="auth-card" style="max-width: 520px;">
+        <a href="{{ url_for('reports.reports_list') }}" class="back-link" style="margin-bottom:12px;">
+            <i data-feather="arrow-left"></i> Back
+        </a>
+        <h1 class="auth-title">Impersonate User</h1>
+        <p class="auth-sub">Signed in as <strong>{{ user._dev_name or user.name }}</strong></p>
+        <p class="auth-sub" style="margin-top:-12px;">Pick any user to view the app exactly as they see it.</p>
+
+        <form method="POST" action="{{ url_for('auth.role_picker') }}" style="margin-bottom: 16px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="target_email" value="__self__">
+            <button type="submit" class="btn btn-primary btn-lg btn-block">View as Admin (yourself)</button>
+        </form>
+
+        <div style="border-top: 1px solid var(--border); margin: 16px 0; padding-top: 16px;">
+            <label class="auth-label" style="text-align:left; display:block; margin-bottom:8px;">Or impersonate a specific user:</label>
+            <input type="text" id="userFilter" placeholder="Search by name or email..."
+                   autocomplete="off"
+                   style="width:100%; margin-bottom:12px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
+
+            <form method="POST" action="{{ url_for('auth.role_picker') }}" id="impersonateForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div id="userList" style="max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+                    {% set role_order = [('admin', 'Admins'), ('developer', 'Developers'), ('manager', 'Managers'), ('salesman', 'Salesmen')] %}
+                    {% for role_key, role_label in role_order %}
+                    {% if grouped_users.get(role_key) %}
+                    <div class="user-group" data-role="{{ role_key }}">
+                        <div style="padding: 8px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+                                    letter-spacing: 0.05em; color: var(--text-muted); background: var(--bg);
+                                    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1;">
+                            {{ role_label }}
+                        </div>
+                        {% for u in grouped_users[role_key] %}
+                        <label class="user-row" data-search="{{ (u.display_name or '')|lower }} {{ u.email|lower }}"
+                               style="display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+                                      cursor: pointer; border-bottom: 1px solid var(--border);">
+                            <input type="radio" name="target_email" value="{{ u.email }}" style="flex-shrink:0;"
+                                   {% if u.email == dev_email %}disabled{% endif %}>
+                            <div style="flex:1; min-width:0;">
+                                <div style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    {{ u.display_name or u.email }}
+                                    {% if u.email == dev_email %}<span style="color:var(--text-muted); font-weight:normal;">(you)</span>{% endif %}
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    {{ u.email }}
+                                    {% if u.salesman_key %} &middot; {{ u.salesman_key }}{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge {% if u.role in ('admin','developer') %}badge-admin{% elif u.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}"
+                                  style="font-size: 10px; flex-shrink: 0;">
+                                {{ u.role|title }}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                <button type="submit" id="btnImpersonate" class="btn btn-outline btn-lg btn-block" style="margin-top: 12px;" disabled>
+                    View as Selected User
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    var filter = document.getElementById('userFilter');
+    var groups = document.querySelectorAll('.user-group');
+    var btn = document.getElementById('btnImpersonate');
+    var radios = document.querySelectorAll('input[name="target_email"]');
+    filter.addEventListener('input', function() {
+        var q = this.value.toLowerCase().trim();
+        groups.forEach(function(g) {
+            var visibleInGroup = 0;
+            g.querySelectorAll('.user-row').forEach(function(row) {
+                var match = !q || (row.getAttribute('data-search') || '').indexOf(q) !== -1;
+                row.style.display = match ? '' : 'none';
+                if (match) visibleInGroup++;
+            });
+            g.style.display = visibleInGroup > 0 ? '' : 'none';
+        });
+    });
+    radios.forEach(function(r) {
+        r.addEventListener('change', function() { btn.disabled = false; });
+    });
+})();
+</script>
+{% endblock %}

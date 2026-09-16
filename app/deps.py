@@ -14,10 +14,8 @@ import catalog
 import config
 import doorway
 import store
-import cadence
 
 templates = Jinja2Templates(directory=str(config.ROOT / "templates"))
-templates.env.filters["stamp"] = cadence.format_stamp
 
 THEME_BODY_CLASS = {
     "light": "",
@@ -60,7 +58,7 @@ def ctx(request: Request, **extra):
         "theme_class": THEME_BODY_CLASS[current],
         "theme_names": ",".join(THEME_BODY_CLASS),
         "theme_color": config.THEME_COLOR,
-        "asset_v": "home13",
+        "asset_v": "home5",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
@@ -185,12 +183,18 @@ def salesman_keys(user: dict) -> set[str] | None:
     return keys
 
 
+def _schedule_is_company(row: dict) -> bool:
+    return (row.get("view_kind") or row.get("kind") or "") == "company"
+
+
 def can_read_schedule(user: dict, row: dict) -> bool:
-    if (row.get("kind") or "") == "company":
-        return False
     if is_privileged(user):
         return True
-    return row.get("owner_email") == user.get("email")
+    if row.get("owner_email") == user.get("email"):
+        return True
+    if user.get("role") == "manager":
+        return _schedule_is_company(row)
+    return False
 
 
 def can_read_job(user: dict, job: dict) -> bool:

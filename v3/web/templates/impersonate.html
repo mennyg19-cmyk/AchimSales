@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Impersonate User{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card" style="max-width: 600px;">
+    <h1 class="auth-title">Impersonate User</h1>
+    <p class="auth-sub">Signed in as <strong>{{ principal.name }}</strong>. Select a user to see their view.</p>
+    {% for role, users in grouped_users.items() %}
+    {% if users %}
+    <details {% if role == 'salesman' %}open{% endif %} style="margin-bottom:1rem;">
+      <summary class="auth-label" style="cursor:pointer; font-weight:600;">{{ role|title }}s ({{ users|length }})</summary>
+      <div style="padding-left:0.5rem; margin-top:0.5rem;">
+        {% for u in users %}
+        <form method="post" action="{{ url_for('auth.impersonate_start') }}" style="display:inline-block; margin:0.2rem;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="email" value="{{ u.email }}">
+          <button type="submit" class="btn btn-sm {% if not u.is_active %}btn-muted{% else %}btn-outline{% endif %}"
+                  title="{{ u.email }}{% if not u.is_active %} (inactive){% endif %}">
+            {{ u.display_name or u.email }}{% if not u.is_active %} *{% endif %}
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% endfor %}
+    <p style="margin-top:1rem; font-size:0.85rem; color:var(--muted);">* = inactive account</p>
+  </div>
+</div>
+{% endblock %}

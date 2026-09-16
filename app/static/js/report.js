@@ -47,88 +47,6 @@ function setStatus(text, canCancel) {
   if (cancel) cancel.hidden = !canCancel;
 }
 
-function currentUserEmail() {
-  const controls = document.getElementById("reportControls");
-  return ((controls && controls.getAttribute("data-user-email")) || "").toLowerCase();
-}
-
-function appendPresetRow(panel, view, reportKey) {
-  const row = document.createElement("div");
-  row.className = "presets-row";
-  const open = document.createElement("button");
-  open.type = "button";
-  open.className = "presets-open";
-  open.textContent = view.name || "Untitled";
-  open.addEventListener("click", () => {
-    window.location.href = "/reports/" + reportKey + "?view=" + view.id;
-  });
-  row.appendChild(open);
-  if (view.kind === "company" || view.kind === "company_default") {
-    const tag = document.createElement("span");
-    tag.className = "presets-kind";
-    tag.textContent = "company";
-    row.appendChild(tag);
-  }
-  panel.appendChild(row);
-}
-
-function appendPresetFold(panel, title) {
-  const wrap = document.createElement("details");
-  wrap.className = "presets-fold";
-  const head = document.createElement("summary");
-  head.className = "presets-section";
-  head.textContent = title;
-  wrap.appendChild(head);
-  panel.appendChild(wrap);
-  return wrap;
-}
-
-function renderSavedViews(list, views, reportKey) {
-  list.replaceChildren();
-  if (!views.length) {
-    list.textContent = "None yet. Save this view first.";
-    return;
-  }
-  const me = currentUserEmail();
-  const company = [];
-  const mine = [];
-  const others = [];
-  const otherIndex = new Map();
-  views.forEach((view) => {
-    if (view.kind === "company" || view.kind === "company_default") {
-      company.push(view);
-      return;
-    }
-    const email = (view.owner_email || "").toLowerCase();
-    if (email && email === me) {
-      mine.push(view);
-      return;
-    }
-    const key = email || "unknown";
-    let group = otherIndex.get(key);
-    if (!group) {
-      group = { name: view.owner_name || view.owner_email || "Unknown", views: [] };
-      otherIndex.set(key, group);
-      others.push(group);
-    }
-    group.views.push(view);
-  });
-  others.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  if (company.length) {
-    const fold = appendPresetFold(list, "Company views");
-    company.forEach((view) => appendPresetRow(fold, view, reportKey));
-  }
-  if (mine.length) {
-    const fold = appendPresetFold(list, "My views");
-    fold.open = true;
-    mine.forEach((view) => appendPresetRow(fold, view, reportKey));
-  }
-  others.forEach((group) => {
-    const fold = appendPresetFold(list, group.name + " — views");
-    group.views.forEach((view) => appendPresetRow(fold, view, reportKey));
-  });
-}
-
 function logJob(step) {
   const panel = document.getElementById("jobLiveLogPanel");
   const list = document.getElementById("jobLiveLog");
@@ -416,7 +334,15 @@ document.addEventListener("DOMContentLoaded", () => {
       openOverlay("savedViewsOverlay");
       return;
     }
-    renderSavedViews(list, data.views || [], params.report_key);
+    const views = data.views || [];
+    if (!views.length) {
+      list.textContent = "None yet. Save this view first.";
+    } else {
+      list.innerHTML = views.map((view) =>
+        '<div class="recent-row"><a href="/reports/' + params.report_key + "?view=" + view.id + '">'
+        + view.name + "</a> <span class='muted'>(" + view.kind + ")</span></div>"
+      ).join("");
+    }
     openOverlay("savedViewsOverlay");
   });
   document.getElementById("scheduleViewBtn").addEventListener("click", async () => {

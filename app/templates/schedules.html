@@ -7,12 +7,6 @@
         <h1 class="page-title">Schedules</h1>
         <p class="page-subtitle">Recurring deliveries from a named saved view. Graph sends when secrets are set; otherwise the outbox.</p>
     </div>
-    <div class="page-head-actions">
-        <button type="button" class="btn btn-primary" id="psStartBtn"
-                {% if not views %}disabled title="Save a named view on a report first"{% endif %}>
-            Add a schedule
-        </button>
-    </div>
 </div>
 
 {% if test_mode_on %}
@@ -25,7 +19,7 @@
     Clock skips Shabbos and Yom Tov using the Brooklyn Hebcal calendar. If that calendar cannot be loaded, the clock holds (does not send) until it can. Run now still sends.
 </div>
 
-<section class="settings-card" id="schedWizardCard"{% if not preselect_view %} hidden{% endif %}>
+<section class="settings-card">
     <h2 class="section-title">Add a schedule</h2>
     {% if views %}
     <form method="post" action="/schedules/add" class="auth-form form-narrow" id="schedWizard">
@@ -135,71 +129,41 @@
     {% endif %}
 </section>
 
-<section id="personal">
-    <h2 class="section-title">{% if is_privileged %}All schedules{% else %}Your schedules{% endif %}</h2>
+<section class="settings-card">
+    <h2 class="section-title">Your schedules</h2>
     {% if schedules %}
-    <div class="table-wrap">
-    <table class="data-table ps-sched-table js-site-table">
-        <colgroup>
-            <col class="ps-col-report">
-            <col class="ps-col-view">
-            <col class="ps-col-cadence">
-            <col class="ps-col-recipients">
-            <col class="ps-col-folder">
-            <col class="ps-col-lastrun">
-            <col class="ps-col-active">
-            <col class="ps-col-actions">
-        </colgroup>
-        <thead>
-            <tr>
-                <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>Folder</th>
-                <th>Last run</th><th>Active</th><th>Actions</th>
-            </tr>
-        </thead>
+    <table class="simple-table">
+        <thead><tr><th>View</th><th>When</th><th>Where</th><th>Last</th><th></th></tr></thead>
         <tbody>
-            {% for g in schedule_groups %}
-            {% if is_privileged %}
-            <tr class="ps-owner-row">
-                <td colspan="8">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></td>
-            </tr>
-            {% endif %}
-            {% for s in g.schedules %}
-            <tr>
-                <td>{{ s.report_title }}</td>
-                <td>{{ s.name or s.view_name or '—' }}</td>
-                <td>{{ s.cadence }}</td>
-                <td>{{ s.recipients or '—' }}</td>
-                <td>{{ s.folder or '—' }}</td>
-                <td>{{ s.last_run }}</td>
-                <td>
-                    <form method="post" action="/schedules/{{ s.id }}/toggle" class="inline-form">
-                        <input type="hidden" name="csrf" value="{{ csrf }}">
-                        <button class="btn btn-sm {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}" type="submit">
-                            {{ 'On' if s.is_active else 'Off' }}
-                        </button>
-                    </form>
-                </td>
-                <td class="row-actions">
-                    <form method="post" action="/schedules/{{ s.id }}/run-now" class="inline-form">
-                        <input type="hidden" name="csrf" value="{{ csrf }}">
-                        <button class="btn btn-sm btn-outline" type="submit">Run now</button>
-                    </form>
-                    <form method="post" action="/schedules/{{ s.id }}/copy" class="inline-form">
-                        <input type="hidden" name="csrf" value="{{ csrf }}">
-                        <button class="btn btn-sm btn-outline" type="submit">Copy</button>
-                    </form>
-                    <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
-                    <form method="post" action="/schedules/{{ s.id }}/delete" class="inline-form" onsubmit="return confirm('Delete this schedule?');">
-                        <input type="hidden" name="csrf" value="{{ csrf }}">
-                        <button class="btn btn-sm btn-outline" type="submit">Delete</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-            {% endfor %}
+        {% for s in schedules %}
+        <tr>
+            <td>{{ s.view_name }} <span class="mini-flag">{{ s.report_key }}</span></td>
+            <td>{{ s.freq }} {{ s.run_time }} {% if not s.is_active %}<span class="mini-flag mini-off">paused</span>{% endif %}</td>
+            <td>{{ s.recipients }}</td>
+            <td>{{ s.last_status or '—' }} {{ s.last_run or '' }}</td>
+            <td class="cell-actions">
+                <form method="post" action="/schedules/{{ s.id }}/run-now" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <button class="btn btn-sm btn-primary" type="submit">Run now</button>
+                </form>
+                <form method="post" action="/schedules/{{ s.id }}/toggle" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <button class="btn btn-sm btn-outline" type="submit">{{ 'Pause' if s.is_active else 'Resume' }}</button>
+                </form>
+                <form method="post" action="/schedules/{{ s.id }}/copy" class="inline-form">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <button class="btn btn-sm btn-outline" type="submit">Copy</button>
+                </form>
+                <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
+                <form method="post" action="/schedules/{{ s.id }}/delete" class="inline-form" onsubmit="return confirm('Delete this schedule?');">
+                    <input type="hidden" name="csrf" value="{{ csrf }}">
+                    <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
         </tbody>
     </table>
-    </div>
     {% else %}
     <p class="run-log-empty">No schedules yet.</p>
     {% endif %}
@@ -213,12 +177,12 @@
     </form>
     {% endif %}
     {% if recent_runs %}
-    <table class="simple-table js-site-table">
+    <table class="simple-table">
         <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th><th></th></tr></thead>
         <tbody>
         {% for r in recent_runs %}
         <tr>
-            <td>{{ r.started_at|stamp }}</td>
+            <td>{{ r.started_at }}</td>
             <td>{{ r.view_name }}</td>
             <td>{{ r.status }}</td>
             <td>{{ r.message }}</td>
@@ -243,13 +207,6 @@
   }
   if (freq) freq.addEventListener("change", sync);
   sync();
-  var start = document.getElementById("psStartBtn");
-  var card = document.getElementById("schedWizardCard");
-  if (start && card) {
-    start.addEventListener("click", function () {
-      card.hidden = !card.hidden;
-    });
-  }
   var labels = ["View", "When", "Where"];
   var step = 1;
   var hint = document.getElementById("wizHint");

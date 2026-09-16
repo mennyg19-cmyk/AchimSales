@@ -1,14 +1,5 @@
 # Testing Strategy
 
-**2026-09-16:** Report Tabulator uses `fitDataTable` + a viewport `height` + `nestedFieldSeparator: false` (old site). No `renderHorizontal: "virtual"`. Tests: `app/tests/test_layout.py` (`test_report_grid_filters_live_in_header_menu`).
-
-**2026-09-16:** Report tabs stamp `columns` with old-site types (money / int / percent / date). Grid formatters and Excel number formats follow those types. Qty is int, not money. Fulfillment % paints red→green. Tests: `app/tests/test_reporting.py` (`test_invoiced_tabs_carry_old_site_column_types`, `test_ordered_fulfillment_and_qty_types`, `test_xlsx_uses_old_site_number_formats`).
-
-**2026-09-16:** Flask home and Azure Automation CLI are gone from this
-branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
-`test_golive.py`. Sections below that cite `v3/tests/`, `run.py`, or
-`tests/test_wsgi_dispatch.py` are historical.
-
 ## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
 
 **What to test:**
@@ -18,8 +9,8 @@ branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
 - SharePoint/OneDrive upload mocks when Graph is unset; production without Graph raises.
 - `SESSION_SECRET` accepts `FLASK_SECRET` / `FLASK_SECRET_KEY`. Production boot without `LITESTREAM_AZURE_ACCOUNT_KEY` raises.
 - Keep cap 5 per owner drops the oldest; theme POST writes `users.theme`.
-- `import_precious.py` copies People, views, and schedules from a v3 precious.db. Existing emails stay. Reads assemble column tables only (`views` / `layout_*` / `report_schedules` + children). JSON blob tables are not read and are dropped on dest.
-- Company schedules (`kind=company`) do not import, show, or tick. User/personal schedules only. Company views stay.
+- `import_precious.py` copies People rows (and extra groups / report access / theme) without overwriting existing emails.
+- `app/startup.sh` still gunicorn + UvicornWorker `main:app` and mentions litestream.
 
 **Expected behavior:** Dummy stays clickable without secrets. A new Azure Web App with production env refuses a missing session secret or Litestream key. Clock does not double-send (fcntl + claim_today_slot).
 
@@ -554,7 +545,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 ## Personal schedules page is full width
 
 **What to test:**
-- `schedules.html` does not set `container-narrow`.
+- `schedules.html` does not set `container-narrow` (same as `company_schedules.html`).
 
 **Expected behavior:**
 - Personal schedules uses the default full-width `.container`, not the 800px reading column.
@@ -1268,7 +1259,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
 
 **Expected behavior:**
-- `/master-schedules` and `/master-schedules/<id>/history` redirect to `/schedules`.
+- `/master-schedules` redirects privileged users to `/schedules#company`; salesmen get 403. Create/update APIs are privileged; managers and salesmen 403 on create.
 - Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
 
 **Edge cases:**

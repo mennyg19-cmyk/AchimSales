@@ -64,277 +64,8 @@ function deserializeView(o) {
   };
 }
 
-const TEXT_OPS = [
-  { op: "contains", label: "contains" },
-  { op: "equals", label: "equals" },
-  { op: "starts", label: "starts with" },
-  { op: "ends", label: "ends with" },
-  { op: "in", label: "is one of (comma-separated)" },
-  { op: "empty", label: "is empty" },
-  { op: "notEmpty", label: "is not empty" },
-];
-const NUM_OPS = [
-  { op: "eq", label: "equals" },
-  { op: "ne", label: "not equal to" },
-  { op: "gt", label: "greater than" },
-  { op: "ge", label: "greater than or equal" },
-  { op: "lt", label: "less than" },
-  { op: "le", label: "less than or equal" },
-  { op: "between", label: "between" },
-  { op: "empty", label: "is empty" },
-  { op: "notEmpty", label: "is not empty" },
-];
-const DATE_OPS = [
-  { op: "on", label: "on" },
-  { op: "before", label: "before" },
-  { op: "after", label: "after" },
-  { op: "between", label: "between" },
-  { op: "empty", label: "is empty" },
-  { op: "notEmpty", label: "is not empty" },
-];
-
-function reportKey() {
-  const data = (window._reportPayload && window._reportPayload.data) || {};
-  if (data.report_key) return data.report_key;
-  const el = document.getElementById("reportControls");
-  return (el && el.getAttribute("data-report-key")) || "";
-}
-
-function columnSpec(field) {
-  const cols = ((tabsByKey[activeKey] || {}).columns) || [];
-  return cols.find((c) => c && c.field === field) || null;
-}
-
-function fieldType(field) {
-  const spec = columnSpec(field);
-  if (spec) {
-    if (spec.type === "date") return "date";
-    if (spec.type === "money" || spec.type === "int" || spec.type === "percent") return "number";
-    return "text";
-  }
-  const rows = ((tabsByKey[activeKey] || {}).rows) || [];
-  for (let i = 0; i < rows.length; i++) {
-    const val = rows[i][field];
-    if (val == null || val === "") continue;
-    if (typeof val === "number") return "number";
-    if (/^\d{4}-\d{2}-\d{2}/.test(String(val))) return "date";
-    return "text";
-  }
-  return "text";
-}
-
-function operatorsFor(type) {
-  if (type === "number") return NUM_OPS;
-  if (type === "date") return DATE_OPS;
-  return TEXT_OPS;
-}
-
-function opNeedsTwo(op) { return op === "between"; }
-function opNeedsNone(op) { return op === "empty" || op === "notEmpty"; }
-
-function filterArmed(f) {
-  if (!f) return false;
-  if (opNeedsNone(f.op)) return true;
-  return String(f.v || "").trim() !== "";
-}
-
-function asNumber(x) {
-  const s = String(x).replace(/[$,%\s]/g, "");
-  if (s === "") return null;
-  const n = Number(s);
-  return isFinite(n) ? n : null;
-}
-
-function rowMatches(row, field, type, f) {
-  const raw = row[field];
-  if (f.op === "empty") return raw === "" || raw == null;
-  if (f.op === "notEmpty") return !(raw === "" || raw == null);
-  if (type === "number") {
-    const x = asNumber(raw);
-    const a = asNumber(f.v);
-    if (x == null || a == null) return false;
-    if (f.op === "eq") return x === a;
-    if (f.op === "ne") return x !== a;
-    if (f.op === "gt") return x > a;
-    if (f.op === "ge") return x >= a;
-    if (f.op === "lt") return x < a;
-    if (f.op === "le") return x <= a;
-    if (f.op === "between") {
-      const b = asNumber(f.v2);
-      return b == null ? x >= a : x >= a && x <= b;
-    }
-    return true;
-  }
-  if (type === "date") {
-    const d = String(raw ?? "").slice(0, 10);
-    const a = String(f.v ?? "").slice(0, 10);
-    const b = String(f.v2 ?? "").slice(0, 10);
-    if (f.op === "on") return d === a;
-    if (f.op === "before") return !!d && d < a;
-    if (f.op === "after") return !!d && d > a;
-    if (f.op === "between") return (!a || d >= a) && (!b || d <= b);
-    return true;
-  }
-  const s = String(raw ?? "").toLowerCase();
-  const q = String(f.v ?? "").toLowerCase();
-  if (f.op === "contains") return s.indexOf(q) !== -1;
-  if (f.op === "equals") return s === q;
-  if (f.op === "starts") return s.indexOf(q) === 0;
-  if (f.op === "ends") return s.slice(-q.length) === q;
-  if (f.op === "in") {
-    return q.split(",").map((p) => p.trim()).filter(Boolean).indexOf(s) !== -1;
-  }
-  return s.indexOf(q) !== -1;
-}
-
-function armedFilters(v) {
-  const out = [];
-  Object.keys(v.columnFilters || {}).forEach((field) => {
-    const f = v.columnFilters[field];
-    if (filterArmed(f)) out.push({ field, type: fieldType(field), f });
-  });
-  return out;
-}
-
-function applyColumnFilters() {
-  if (!table || !activeKey) return;
-  const active = armedFilters(viewFor(activeKey));
-  try {
-    if (!active.length) table.clearFilter();
-    else table.setFilter((row) => active.every((a) => rowMatches(row, a.field, a.type, a.f)));
-  } catch (err) {
-    /* table not ready */
-  }
-  updateFilterMarkers();
-}
-
-function updateFilterMarkers() {
-  if (!table || !activeKey) return;
-  const cf = viewFor(activeKey).columnFilters;
-  table.getColumns().forEach((col) => {
-    const el = col.getElement();
-    if (!el) return;
-    el.classList.toggle("has-col-filter", filterArmed(cf[col.getField()]));
-  });
-}
-
-let colFilterPopover = null;
-let colFilterClose = null;
-function closeColumnFilterPopover() {
-  if (colFilterPopover) colFilterPopover.remove();
-  colFilterPopover = null;
-  if (colFilterClose) {
-    colFilterClose();
-    colFilterClose = null;
-  }
-}
-
-function openColumnFilterPopover(column) {
-  closeColumnFilterPopover();
-  if (!activeKey) return;
-  const field = column.getField();
-  const type = fieldType(field);
-  const ops = operatorsFor(type);
-  const cf = viewFor(activeKey).columnFilters;
-  const current = cf[field] || { op: ops[0].op, v: "", v2: "" };
-  const panel = document.createElement("div");
-  panel.className = "col-filter-popover";
-  const title = document.createElement("div");
-  title.className = "col-filter-popover-title";
-  title.textContent = (column.getDefinition() || {}).title || field;
-  panel.appendChild(title);
-  const opSel = document.createElement("select");
-  ops.forEach((o) => {
-    const opt = document.createElement("option");
-    opt.value = o.op;
-    opt.textContent = o.label;
-    if (o.op === current.op) opt.selected = true;
-    opSel.appendChild(opt);
-  });
-  panel.appendChild(opSel);
-  const values = document.createElement("div");
-  values.className = "cf-values";
-  panel.appendChild(values);
-  const inputType = type === "date" ? "date" : type === "number" ? "number" : "text";
-  const v1 = document.createElement("input");
-  v1.type = inputType;
-  v1.value = current.v || "";
-  const v2 = document.createElement("input");
-  v2.type = inputType;
-  v2.value = current.v2 || "";
-  function syncValueInputs() {
-    values.innerHTML = "";
-    const op = opSel.value;
-    if (opNeedsNone(op)) return;
-    v1.placeholder = type === "text" && op === "in" ? "a, b, c" : "value";
-    values.appendChild(v1);
-    if (opNeedsTwo(op)) {
-      v2.placeholder = "and";
-      values.appendChild(v2);
-    }
-  }
-  opSel.addEventListener("change", syncValueInputs);
-  syncValueInputs();
-  const foot = document.createElement("div");
-  foot.className = "col-filter-popover-foot";
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.className = "btn btn-sm btn-outline";
-  clear.textContent = "Clear";
-  clear.addEventListener("click", () => {
-    delete cf[field];
-    applyColumnFilters();
-    closeColumnFilterPopover();
-  });
-  const apply = document.createElement("button");
-  apply.type = "button";
-  apply.className = "btn btn-sm btn-primary";
-  apply.textContent = "Apply";
-  function doApply() {
-    const op = opSel.value;
-    if (opNeedsNone(op)) cf[field] = { op: op, v: "" };
-    else if (v1.value.trim() === "") delete cf[field];
-    else cf[field] = { op: op, v: v1.value.trim(), v2: opNeedsTwo(op) ? v2.value.trim() : "" };
-    applyColumnFilters();
-    closeColumnFilterPopover();
-  }
-  apply.addEventListener("click", doApply);
-  [v1, v2].forEach((inp) => inp.addEventListener("keydown", (evt) => {
-    if (evt.key === "Enter") doApply();
-  }));
-  foot.append(clear, apply);
-  panel.appendChild(foot);
-  const anchor = column.getElement();
-  const r = anchor ? anchor.getBoundingClientRect() : { bottom: 80, left: 16 };
-  panel.style.top = Math.round(r.bottom + 4) + "px";
-  panel.style.left = Math.round(Math.min(r.left, window.innerWidth - 252)) + "px";
-  document.body.appendChild(panel);
-  colFilterPopover = panel;
-  (opNeedsNone(opSel.value) ? opSel : v1).focus();
-  setTimeout(() => {
-    function onOut(evt) {
-      if (colFilterPopover && !colFilterPopover.contains(evt.target)) closeColumnFilterPopover();
-    }
-    function onEsc(evt) {
-      if (evt.key === "Escape") closeColumnFilterPopover();
-    }
-    document.addEventListener("click", onOut);
-    document.addEventListener("keydown", onEsc);
-    colFilterClose = function () {
-      document.removeEventListener("click", onOut);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, 0);
-}
-
 function headerMenu(key) {
   return [
-    {
-      label: "Filter this column",
-      action: function (_e, column) {
-        openColumnFilterPopover(column);
-      },
-    },
     {
       label: "Hide column",
       action: function (_e, column) {
@@ -398,197 +129,61 @@ function captureActive() {
       const w = c.getWidth();
       if (field && w) v.widths[field] = w;
     });
+    const filters = {};
+    (table.getHeaderFilters() || []).forEach((hf) => {
+      if (hf.field && String(hf.value || "").trim() !== "") {
+        filters[hf.field] = { op: "contains", v: String(hf.value), v2: "" };
+      }
+    });
+    v.columnFilters = filters;
     v.groups_explicit = true;
   } catch (err) {
     /* table not ready */
   }
 }
 
-function moneyParams(precision) {
-  return { symbol: "$", precision: precision, thousand: ",", negativeSign: true };
-}
-
-function isoDate(value) {
-  if (value == null || value === "") return "";
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    const y = value.getUTCFullYear();
-    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(value.getUTCDate()).padStart(2, "0");
-    return y + "-" + m + "-" + day;
-  }
-  const s = String(value).trim();
-  if (!s) return "";
-  const upper = s.toUpperCase();
-  if (upper === "N/A" || upper === "NA" || upper === "NONE" || s === "-") return s;
-  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (iso) return iso[1];
-  const parsed = Date.parse(s);
-  if (!isNaN(parsed)) {
-    const d = new Date(parsed);
-    const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(d.getUTCDate()).padStart(2, "0");
-    return y + "-" + m + "-" + day;
-  }
-  return s;
-}
-
-function fulfillmentFillCss(score) {
-  const s = Math.max(0, Math.min(1, score));
-  const red = [255, 199, 206];
-  const yellow = [255, 235, 156];
-  const green = [198, 239, 206];
-  let rgb;
-  if (s <= 0) rgb = red;
-  else if (s >= 1) rgb = green;
-  else if (s < 0.5) {
-    const t = s * 2;
-    rgb = red.map((x, i) => Math.round(x + (yellow[i] - x) * t));
-  } else {
-    const t = (s - 0.5) * 2;
-    rgb = yellow.map((x, i) => Math.round(x + (green[i] - x) * t));
-  }
-  return "rgb(" + rgb[0] + ", " + rgb[1] + ", " + rgb[2] + ")";
-}
-
-function isFulfillmentField(field) {
-  return /fulfillment/i.test(String(field || "").replace(/[^a-z0-9%]/gi, ""));
-}
-
-function percentParts(raw) {
-  const n = Number(raw);
-  if (!isFinite(n) || raw === "" || raw == null) return null;
-  const score = Math.abs(n) <= 1 ? n : n / 100;
-  const text = (score * 100).toFixed(1) + "%";
-  return { n: n, score: score, text: text };
-}
-
-function formatMoneyText(raw) {
-  const n = Number(raw);
-  if (!isFinite(n) || raw === "" || raw == null) return "";
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
-
-function salesmanBandIndex(col, colIndex) {
-  if (typeof col.band === "number" && isFinite(col.band)) {
-    return Math.min(Math.max(Math.trunc(col.band), 0), 2);
-  }
-  if (reportKey() === "salesman" && colIndex >= 4) {
-    return Math.min(Math.floor((colIndex - 4) / 4), 2);
-  }
-  return -1;
-}
-
-function formatterFor(col, colIndex) {
-  const band = salesmanBandIndex(col, colIndex);
-  const bandColor = band === 0 ? "#0000CC" : band === 1 ? "#008000" : band === 2 ? "#800080" : null;
-  switch (col.type) {
-    case "money": {
-      if (!bandColor) {
-        return {
-          formatter: "money",
-          formatterParams: moneyParams(2),
-          sorter: "number",
-          hozAlign: "right",
-        };
-      }
-      return {
-        sorter: "number",
-        hozAlign: "right",
-        formatter: function (cell) {
-          const text = formatMoneyText(cell.getValue());
-          const n = Number(cell.getValue());
-          const color = isFinite(n) && n < 0 ? "#FF0000" : bandColor;
-          return color && text ? '<span style="color:' + color + '">' + text + "</span>" : text;
-        },
-      };
-    }
-    case "int":
-      return {
-        formatter: "money",
-        formatterParams: { symbol: "", precision: 0, thousand: ",", negativeSign: true },
-        sorter: "number",
-        hozAlign: "right",
-      };
-    case "percent":
-      return {
-        sorter: "number",
-        hozAlign: "right",
-        formatter: function (cell) {
-          const parts = percentParts(cell.getValue());
-          const text = parts ? parts.text : "";
-          const color = parts && parts.n < 0 ? "#FF0000" : bandColor;
-          const inner = color && text ? '<span style="color:' + color + '">' + text + "</span>" : text;
-          if (parts && isFulfillmentField(col.field)) {
-            return '<span style="display:block;background:' + fulfillmentFillCss(parts.score) + ';margin:-8px;padding:8px">' + inner + "</span>";
-          }
-          return inner;
-        },
-      };
-    case "date":
-      return {
-        sorter: "string",
-        formatter: function (cell) { return isoDate(cell.getValue()); },
-      };
-    default:
-      return { sorter: "string", formatter: "plaintext" };
-  }
-}
-
-function canSumColumn(col) {
-  if (col.sum === false) return false;
-  if (col.field === "Net Price") return false;
-  return col.type === "money" || col.type === "int";
-}
-
-function defaultColWidth(col) {
-  if (col.type === "money" || col.type === "int" || col.type === "percent") return 108;
-  if (col.type === "date") return 112;
-  const title = String(col.header || col.field || "");
-  return Math.min(240, Math.max(120, title.length * 8 + 36));
-}
-
-function typedColumns(rows, tab, v, key) {
-  const specs = Array.isArray(tab && tab.columns) ? tab.columns.slice() : [];
+function columnsFromRows(rows, v, key) {
   const first = rows[0] || {};
-  let fields = specs.map((c) => c.field).filter(Boolean);
-  Object.keys(first).forEach((field) => {
-    if (fields.indexOf(field) === -1) fields.push(field);
-  });
+  let fields = Object.keys(first);
   if (v.order && v.order.length) {
     const saved = v.order.filter((f) => fields.indexOf(f) !== -1);
     const savedSet = new Set(saved);
     fields = saved.concat(fields.filter((f) => !savedSet.has(f)));
   }
-  const byField = {};
-  specs.forEach((c) => { if (c && c.field) byField[c.field] = c; });
   return fields.map((field, idx) => {
-    const col = byField[field] || { field: field, header: field, type: "text" };
-    const fmt = formatterFor(col, idx);
-    const frozen = v.frozen.has(field);
-    const def = {
-      title: col.header || field,
-      field: field,
+    const sample = first[field];
+    const isNumber = typeof sample === "number";
+    const moneyName = /total|amount|invoice|commission|percent|charge|sales|price|qty|open|ordered|fulfill/i.test(field)
+      && !/count/i.test(field);
+    const frozen = v.frozen.size ? v.frozen.has(field) : idx === 0;
+    return {
+      title: field,
+      field,
       visible: !v.hidden.has(field),
-      frozen: frozen,
-      width: v.widths[field] || defaultColWidth(col),
+      frozen,
+      width: v.widths[field],
+      hozAlign: isNumber ? "right" : "left",
+      headerFilter: "input",
       headerMenu: headerMenu(key),
-      headerMenuIcon: "⋮",
-      hozAlign: fmt.hozAlign || "left",
-      sorter: fmt.sorter,
-      formatter: fmt.formatter,
-      formatterParams: fmt.formatterParams,
-      bottomCalc: canSumColumn(col) ? "sum" : undefined,
+      formatter: isNumber && moneyName ? "money" : "plaintext",
+      bottomCalc: isNumber ? "sum" : undefined,
     };
-    if (col.type === "money") {
-      def.bottomCalcFormatter = "money";
-      def.bottomCalcFormatterParams = moneyParams(2);
-    } else if (col.type === "int") {
-      def.bottomCalcFormatter = "money";
-      def.bottomCalcFormatterParams = { symbol: "", precision: 0, thousand: "," };
-    }
-    return def;
   });
+}
+
+function fillGroupBy(columns, group) {
+  const wrap = document.getElementById("groupByWrap");
+  const select = document.getElementById("groupBySelect");
+  if (!wrap || !select) return;
+  wrap.hidden = false;
+  select.innerHTML = '<option value="">None</option>';
+  columns.forEach((col) => {
+    const opt = document.createElement("option");
+    opt.value = col.field;
+    opt.textContent = col.title;
+    select.appendChild(opt);
+  });
+  select.value = (group && group[0]) || "";
 }
 
 function renderGroupPills(group, columns) {
@@ -615,41 +210,7 @@ function renderGroupPills(group, columns) {
   });
 }
 
-function tableHeight() {
-  const el = document.getElementById("reportTable");
-  const top = el ? el.getBoundingClientRect().top : 230;
-  const nav = document.querySelector(".bottom-nav");
-  const bottom = nav ? nav.getBoundingClientRect().top : window.innerHeight;
-  return Math.max(220, Math.round(bottom - top - 16));
-}
-
-function dropTable() {
-  if (table) {
-    try { table.destroy(); } catch (err) { /* already gone */ }
-    table = null;
-  }
-  const host = document.getElementById("reportTable");
-  if (host) host.innerHTML = "";
-}
-
-let heightWatchBound = false;
-function bindHeightWatch() {
-  if (heightWatchBound) return;
-  heightWatchBound = true;
-  let timer = 0;
-  window.addEventListener("resize", () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (!table) return;
-      try { table.setHeight(tableHeight()); } catch (err) { /* gone */ }
-    }, 120);
-  });
-}
-
-let buildGen = 0;
-
 function showTab(key) {
-  const gen = ++buildGen;
   if (activeKey && activeKey !== key) captureActive();
   activeKey = key;
   const tab = tabsByKey[key];
@@ -660,44 +221,37 @@ function showTab(key) {
   const wrap = document.getElementById("commissionCards");
   const grid = document.getElementById("reportTable");
   if (key === "commissions") {
-    dropTable();
     wrap.hidden = false;
     grid.hidden = true;
     wrap.innerHTML = rows.map((row) => {
       const name = row.SalesmanName || row.Salesman || "";
-      const pctParts = percentParts(row.Percent != null ? row.Percent : row["Commission %"]);
-      const pct = pctParts ? pctParts.text : "";
-      const dollars = formatMoneyText(row.CommissionDollars != null ? row.CommissionDollars : row.YTDCommission);
-      return '<div class="settings-card"><h3>' + name + "</h3><p>" + pct + (dollars ? " · " + dollars : "") + "</p></div>";
+      const pct = row.Percent != null ? Math.round(row.Percent * 1000) / 10 + "%" : "";
+      const dollars = row.CommissionDollars != null ? row.CommissionDollars : "";
+      return '<div class="settings-card"><h3>' + name + "</h3><p>" + pct + " · $" + dollars + "</p></div>";
     }).join("");
     return;
   }
   wrap.hidden = true;
   grid.hidden = false;
-  dropTable();
-  closeColumnFilterPopover();
+  if (table) table.destroy();
   const v = viewFor(key);
-  const columns = typedColumns(rows, tab, v, key);
+  const columns = columnsFromRows(rows, v, key);
+  fillGroupBy(columns, v.group);
   renderGroupPills(v.group, columns);
-  bindHeightWatch();
-  const host = document.getElementById("reportTable");
-  table = new Tabulator(host, {
+  table = new Tabulator("#reportTable", {
     data: rows,
-    layout: "fitDataTable",
+    layout: "fitDataStretch",
     placeholder: "No rows",
     movableColumns: true,
-    resizableColumns: true,
-    nestedFieldSeparator: false,
-    rowHeight: 32,
-    height: tableHeight(),
     groupBy: v.group.length ? v.group : false,
     initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
     columns,
   });
-  const built = table;
   table.on("tableBuilt", () => {
-    if (gen !== buildGen || table !== built) return;
-    applyColumnFilters();
+    Object.keys(v.columnFilters || {}).forEach((field) => {
+      const spec = v.columnFilters[field];
+      if (spec && spec.v) table.setHeaderFilterValue(field, spec.v);
+    });
   });
 }
 
@@ -709,7 +263,6 @@ function tabKeys(tabs) {
 }
 
 function renderTabs(payload) {
-  window._reportPayload = payload;
   const data = payload.data || {};
   const tabs = data.tabs || {};
   tabsByKey = tabs;
@@ -793,7 +346,18 @@ function setFrozen(field, frozen) {
   if (activeKey) showTab(activeKey);
 }
 
-function initGrid() {}
+function initGrid() {
+  const groupBy = document.getElementById("groupBySelect");
+  if (groupBy) {
+    groupBy.addEventListener("change", () => {
+      if (!activeKey) return;
+      const v = viewFor(activeKey);
+      v.group = groupBy.value ? [groupBy.value] : [];
+      v.groups_explicit = true;
+      showTab(activeKey);
+    });
+  }
+}
 
 window.ReportGrid = {
   renderTabs,

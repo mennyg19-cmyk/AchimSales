@@ -33,29 +33,6 @@ def from_schedule(row: dict) -> dict:
     return out
 
 
-def describe(row: dict | None) -> str:
-    """One-line cadence for the schedules table (Daily 08:00, Weekly Mon, Wed 09:00)."""
-    raw = row or {}
-    freq = str(raw.get("freq") or "").strip().lower()
-    run_time = str(raw.get("run_time") or raw.get("time") or "08:00")
-    if freq == "weekly":
-        days = [
-            part.strip().lower()[:3].title()
-            for part in str(raw.get("weekdays") or "").split(",")
-            if part.strip()
-        ]
-        label = "Weekly " + (", ".join(days) if days else "").strip()
-        return f"{label} {run_time}".strip()
-    if freq == "monthly":
-        day = raw.get("monthday")
-        if day in (None, ""):
-            day = 1
-        return f"Monthly day {day} {run_time}"
-    if freq == "daily":
-        return f"Daily {run_time}"
-    return f"{freq} {run_time}".strip()
-
-
 def eastern_date_iso(now_utc: datetime | None = None) -> str:
     now = (now_utc or datetime.now(timezone.utc)).astimezone(_EASTERN)
     return now.date().isoformat()
@@ -130,15 +107,3 @@ def _day_matches(c: dict, now: datetime) -> bool:
             return now.day == last
         return now.day == md
     return False
-
-
-def format_stamp(iso: str | None) -> str:
-    if not iso:
-        return "never"
-    try:
-        last = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-    except ValueError:
-        return str(iso)
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    return last.astimezone(EASTERN).strftime("%Y-%m-%d %H:%M")
