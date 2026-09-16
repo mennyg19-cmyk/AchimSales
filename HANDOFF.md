@@ -38,7 +38,9 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## What's next
 
-1. Merge when Menny says. After merge, Kudu-import into `/tmp/homedata/home.sqlite`.
+1. Merge when Menny says. After merge, SSH/Kudu Bash from `/home/site/wwwroot`:
+   `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`.
+   That script is not on the live Flask box. Reuse `home-precious.db` already in LogFiles.
 2. Dummy People (preview@, loop users) are stripped on import; Achim User Login falls back to the first live admin.
 3. Graph on Azure uses `EMAIL_FROM_ADDRESS` (already aliased). Entra redirect URI is done. `FLASK_SECRET` is accepted as `SESSION_SECRET`.
 4. Still not in this app: P4.I8 salesman map, Customer Aging. No new Azure app or DNS if this merge boots `achim-sales-reports`.

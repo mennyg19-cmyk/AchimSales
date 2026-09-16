@@ -79,15 +79,19 @@ Admins and developers see every imported schedule, including paused ones.
 https://reports.achimonline.com does **not** have this form until this PR merges.
 
 **After cutover, on the Azure box** (production login needs People first, so use
-Kudu instead of the website):
+Kudu instead of the website). Do **not** run this while the live site is still
+Flask — `import-precious.py` is in this PR and only lands at
+`/home/site/wwwroot/import-precious.py` **after** merge. If Bash says that file
+does not exist, you are still on the old site, or you are not in `wwwroot`.
 
-1. Kudu Debug console → drag `Downloads\precious.db` into `/home/LogFiles/`
-   (or reuse the file already there from step 1).
-2. Bash:
+The `home-precious.db` already in `/home/LogFiles/` is enough. You do not need
+to upload the PC copy unless that file is gone. Ignore a tiny `precious.db` in
+the same folder (empty leftover).
 
 ```
 cd /home/site/wwwroot
-python3 import-precious.py /home/LogFiles/precious.db --dest /tmp/homedata/home.sqlite
+ls import-precious.py /home/LogFiles/home-precious.db
+python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite
 ```
 
 That destination is the new site’s database (`APP_DB_PATH`). You should see a
