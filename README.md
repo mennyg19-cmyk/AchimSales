@@ -54,8 +54,11 @@ Keep that file. That is the only copy you need on your PC.
 ### 2. Import into the new site (not a file copy)
 
 The importer writes People, views, and schedules into the new sqlite. Existing
-emails stay. Import **clears dummy views and schedules**, then copies every live
-view and schedule.
+emails stay. Import **clears dummy views and schedules**, then copies the live
+column tables (`views`, `layout_*`, `report_schedules`, and schedule child
+tables for weekdays / monthdays / recipients / email salesmen). It does **not**
+read the old JSON blob backups (`saved_reports`, `company_views`, `schedules`,
+`master_schedules`). Admins and developers see every imported schedule.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**

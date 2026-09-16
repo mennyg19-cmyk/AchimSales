@@ -8,7 +8,8 @@ Save precious.db from the live Azure box, then:
 
 On Windows:  .\\import-precious.ps1 -Precious path\\to\\precious.db
 
-Existing emails stay. Matching company view names get the live layout.
+Existing emails stay. Dummy views/schedules are wiped, then live column tables
+are copied (not the old JSON blob backups).
 """
 
 from __future__ import annotations

@@ -130,13 +130,20 @@
 </section>
 
 <section class="settings-card">
-    <h2 class="section-title">Your schedules</h2>
+    <h2 class="section-title">{% if is_privileged %}All schedules{% else %}Your schedules{% endif %}</h2>
     {% if schedules %}
     <table class="simple-table">
-        <thead><tr><th>View</th><th>When</th><th>Where</th><th>Last</th><th></th></tr></thead>
+        <thead><tr>
+            {% if is_privileged %}<th>Owner</th><th>Name</th>{% endif %}
+            <th>View</th><th>When</th><th>Where</th><th>Last</th><th></th>
+        </tr></thead>
         <tbody>
         {% for s in schedules %}
         <tr>
+            {% if is_privileged %}
+            <td>{{ s.owner_email }}</td>
+            <td>{{ s.name or '—' }}</td>
+            {% endif %}
             <td>{{ s.view_name }} <span class="mini-flag">{{ s.report_key }}</span></td>
             <td>{{ s.freq }} {{ s.run_time }} {% if not s.is_active %}<span class="mini-flag mini-off">paused</span>{% endif %}</td>
             <td>{{ s.recipients }}</td>

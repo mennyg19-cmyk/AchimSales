@@ -305,6 +305,7 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
             kind TEXT NOT NULL,
             view_id TEXT NOT NULL,
             owner_handle TEXT,
+            name TEXT NOT NULL DEFAULT '',
             freq TEXT NOT NULL,
             time TEXT NOT NULL DEFAULT '08:00',
             sharepoint_path TEXT NOT NULL DEFAULT '',
@@ -321,11 +322,19 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
             schedule_id TEXT NOT NULL,
             weekday INTEGER NOT NULL
         );
+        CREATE TABLE schedule_monthdays (
+            schedule_id TEXT NOT NULL,
+            monthday INTEGER NOT NULL
+        );
         CREATE TABLE schedule_recipients (
             id TEXT PRIMARY KEY,
             schedule_id TEXT NOT NULL,
             email TEXT NOT NULL,
             role TEXT NOT NULL
+        );
+        CREATE TABLE schedule_email_salesmen (
+            schedule_id TEXT NOT NULL,
+            salesman TEXT NOT NULL
         );
         INSERT INTO users (id, email, display_name, role, handle)
         VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
@@ -337,15 +346,18 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
         INSERT INTO layout_columns (tab_id, field, position, hidden)
         VALUES ('t1', 'SalesAmount', 1, 1);
         INSERT INTO report_schedules (
-            id, kind, view_id, owner_handle, freq, time, sharepoint_path,
+            id, kind, view_id, owner_handle, name, freq, time, sharepoint_path,
             filename_template, email_subject, window_period
         ) VALUES (
-            's1', 'company', 'v-daily', 'heshey', 'weekly', '09:00',
+            's1', 'company', 'v-daily', 'heshey', 'Monday Ordered', 'weekly', '09:00',
             'Direct Reports/Ordered Report', '{Schedule}.xlsx', '{Schedule} {Period}', 'this_week'
         );
         INSERT INTO schedule_weekdays (schedule_id, weekday) VALUES ('s1', 0);
+        INSERT INTO schedule_monthdays (schedule_id, monthday) VALUES ('s1', 15);
         INSERT INTO schedule_recipients (id, schedule_id, email, role)
-        VALUES ('r1', 's1', 'reports@achimonline.com', 'to');
+        VALUES ('r1', 's1', 'reports@achimonline.com', 'to'),
+               ('r2', 's1', 'cc@achimonline.com', 'cc');
+        INSERT INTO schedule_email_salesmen (schedule_id, salesman) VALUES ('s1', 'HKaufman');
         """
     )
     conn.commit()
@@ -361,12 +373,22 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
     match = next(s for s in rows if s["view_id"] == view["id"] and s["run_time"] == "09:00")
     assert match["freq"] == "weekly"
     assert match["weekdays"] == "mon"
+    assert match["monthday"] == 15
+    assert match["name"] == "Monday Ordered"
+    assert match["kind"] == "company"
     assert "reports@achimonline.com" in match["recipients"]
+    assert "cc@achimonline.com" in match["cc"]
+    assert match["email_salesmen"] == ["HKaufman"]
     assert match["sharepoint_folder"] == "Direct Reports/Ordered Report"
     assert match["filename"] == "{Schedule}.xlsx"
+    with db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM schedule_monthdays").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM schedule_recipients").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM schedule_email_salesmen").fetchone()[0] == 1
 
 
-def test_import_precious_json_fallback(tmp_path, monkeypatch):
+def test_import_skips_json_blob_tables(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -390,53 +412,120 @@ def test_import_precious_json_fallback(tmp_path, monkeypatch):
             params_json TEXT NOT NULL,
             layout_json TEXT NOT NULL
         );
-        CREATE TABLE company_views (
-            id INTEGER PRIMARY KEY,
-            report_key TEXT NOT NULL,
-            name TEXT NOT NULL,
-            params_json TEXT NOT NULL,
-            layout_json TEXT NOT NULL
-        );
         CREATE TABLE schedules (
             id INTEGER PRIMARY KEY,
             owner_user_id INTEGER NOT NULL,
             report_key TEXT NOT NULL,
-            view_name TEXT NOT NULL DEFAULT 'Default',
-            params_json TEXT NOT NULL DEFAULT '{}',
-            layout_json TEXT NOT NULL DEFAULT '{}',
             cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL,
-            sharepoint_path TEXT NOT NULL DEFAULT '',
-            filename_template TEXT NOT NULL DEFAULT '',
-            is_active INTEGER NOT NULL DEFAULT 1
+            recipients TEXT NOT NULL
         );
         INSERT INTO users (id, email, display_name, role)
         VALUES (1, 'meir@achimonline.com', 'Meir', 'salesman');
         INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
-        VALUES (1, 'invoiced', 'My Invoiced', '{"period":"mtd"}', '{"views":{"detail":{"hidden":["Cost"]}}}');
-        INSERT INTO company_views (report_key, name, params_json, layout_json)
-        VALUES ('ordered', 'Heshy Open Orders', '{"status":"Open order"}', '{}');
-        INSERT INTO schedules (owner_user_id, report_key, view_name, cadence, recipients)
-        VALUES (1, 'invoiced', 'My Invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com');
+        VALUES (1, 'invoiced', 'My Invoiced', '{"period":"mtd"}', '{}');
+        INSERT INTO schedules (owner_user_id, report_key, cadence, recipients)
+        VALUES (1, 'invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com');
         """
     )
     conn.commit()
     conn.close()
     result = import_precious(source, dest)
-    assert result["views_inserted"] >= 2
-    assert result["schedules_inserted"] >= 1
-    views = home_store.list_views("meir@achimonline.com", True)
-    personal = next(v for v in views if v["name"] == "My Invoiced")
-    assert personal["params"]["period"] == "mtd"
-    company = next(v for v in views if v["name"] == "Heshy Open Orders")
-    assert company["kind"] == "company"
-    assert company["params"]["status"] == "Open order"
-    sched = next(s for s in home_store.list_schedules() if s["view_id"] == personal["id"])
-    assert sched["run_time"] == "07:30"
-    assert sched["freq"] == "daily"
+    assert result["source_views"] == 0
+    assert result["source_schedules"] == 0
+    assert result["views_inserted"] == 0
+    assert result["schedules_inserted"] == 0
+    names = {v["name"] for v in home_store.list_views("meir@achimonline.com", True)}
+    assert "My Invoiced" not in names
 
 
-def test_import_wipes_dummy_views_and_keeps_json_when_views_table_exists(tmp_path, monkeypatch):
+def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            name TEXT NOT NULL DEFAULT '',
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE schedule_recipients (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        CREATE TABLE schedules (
+            id INTEGER PRIMARY KEY,
+            owner_user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            cadence TEXT NOT NULL,
+            recipients TEXT NOT NULL
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey'),
+               (2, 'tina@achimonline.com', 'Tina', 'manager', 'tina');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('v1', 'company', 'ordered', 'Daily Ordered', NULL, 'this_week');
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time)
+        VALUES ('s1', 'company', 'v1', 'heshey', 'Morning Ordered', 'daily', '09:00'),
+               ('s2', 'personal', 'v1', 'tina', 'Tina copy', 'daily', '09:00');
+        INSERT INTO schedule_recipients (id, schedule_id, email, role)
+        VALUES ('r1', 's1', 'reports@achimonline.com', 'to'),
+               ('r2', 's2', 'tina@achimonline.com', 'to');
+        INSERT INTO schedules (owner_user_id, report_key, cadence, recipients)
+        VALUES (1, 'ordered', '{"freq":"daily","time":"07:00"}', 'blob@achimonline.com');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["source_schedules"] == 2
+    assert result["schedules_inserted"] == 2
+    rows = home_store.list_schedules()
+    assert len(rows) == 2
+    names = {row["name"] for row in rows}
+    assert names == {"Morning Ordered", "Tina copy"}
+    owners = {row["owner_email"] for row in rows}
+    assert "heshey@achimonline.com" in owners
+    assert "tina@achimonline.com" in owners
+    assert any("reports@achimonline.com" in row["recipients"] for row in rows)
+    assert not any("blob@achimonline.com" in (row["recipients"] or "") for row in rows)
+    with TestClient(create_app()) as client:
+        login(client)
+        html = client.get("/schedules").text
+    assert "All schedules" in html
+    assert "heshey@achimonline.com" in html
+    assert "tina@achimonline.com" in html
+    assert "Morning Ordered" in html
+    assert "Tina copy" in html
+
+
+def test_import_wipes_dummy_views_and_keeps_personal_views(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -463,14 +552,6 @@ def test_import_wipes_dummy_views_and_keeps_json_when_views_table_exists(tmp_pat
             owner_handle TEXT,
             period TEXT
         );
-        CREATE TABLE saved_reports (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            report_key TEXT NOT NULL,
-            name TEXT NOT NULL,
-            params_json TEXT NOT NULL,
-            layout_json TEXT NOT NULL
-        );
         CREATE TABLE report_schedules (
             id TEXT PRIMARY KEY,
             kind TEXT NOT NULL,
@@ -483,9 +564,8 @@ def test_import_wipes_dummy_views_and_keeps_json_when_views_table_exists(tmp_pat
         INSERT INTO users (id, email, display_name, role, handle)
         VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
         INSERT INTO views (id, kind, report_key, name, owner_handle, period)
-        VALUES ('v-ghost', 'personal', 'invoiced', 'Ghost Handle View', 'no-such-handle', 'mtd');
-        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
-        VALUES (1, 'ordered', 'Heshey Extra', '{"period":"ytd"}', '{}');
+        VALUES ('v-ghost', 'personal', 'invoiced', 'Ghost Handle View', 'no-such-handle', 'mtd'),
+               ('v-extra', 'personal', 'ordered', 'Heshey Extra', 'heshey', 'ytd');
         INSERT INTO report_schedules (id, kind, view_id, owner_handle, freq, time)
         VALUES ('s-ghost', 'personal', 'v-ghost', 'no-such-handle', 'daily', '06:15');
         """

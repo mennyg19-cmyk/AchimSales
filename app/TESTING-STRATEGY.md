@@ -64,6 +64,8 @@
 | Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
 | POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
 | Legacy `params_json` sqlite | migrate copies into columns then drops the blob |
+| precious import | copies `report_schedules` + weekday/monthday/recipient/salesman children; skips JSON blob tables; two schedules on the same view+time both land; admins see Owner + Name |
+| Admin `/schedules` | heading All schedules; other users' imported rows listed |
 
 Never set `REPORTING_API_KEY` in CI.
 

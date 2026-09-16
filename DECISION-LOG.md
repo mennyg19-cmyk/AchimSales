@@ -1,3 +1,11 @@
+## 2026-09-16 Import normalized schedule children only; skip JSON blobs
+**What I had to decide:** Import old JSON `schedules` / `master_schedules` / `saved_reports` as a fallback vs only the later child-table schema; collapse schedules that share view+time vs keep every `report_schedules` row.
+**Options I considered:** Dual-path JSON then normalized; JSON only; normalized parent+children one row at a time; keep parent CSV-only on the new site.
+**What I chose:** New site has `schedules` plus `schedule_weekdays` / `schedule_monthdays` / `schedule_recipients` / `schedule_email_salesmen` like live 0021 (integer PKs, no `email_html` blob). Import each `report_schedules` row, then copy those four children by source id. Skip `saved_reports`, `company_views`, `schedules`, `master_schedules`. Admins/devs see every row (Owner + Name). Weekdays stay 0=Mon.
+**Why:** Menny had ~45 named schedules on the child tables. The JSON tables are leftover backups. Upsert-by-view-and-time dropped extras and left Where empty because recipients live on `schedule_recipients`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Import wipes dummy views/schedules and copies JSON plus normalized
 **What I had to decide:** Keep matching-name upsert (dummy leftovers stay) vs wipe then copy everything; skip personal views when owner_handle does not map vs assign a fallback owner.
 **Options I considered:** Upsert-only; wipe views/schedules then import normalized only; wipe then import normalized and old JSON blobs; skip unknown report keys.

@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY,
     view_id INTEGER NOT NULL,
     owner_email TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'personal',
     freq TEXT NOT NULL,
     run_time TEXT NOT NULL DEFAULT '08:00',
     weekdays TEXT NOT NULL DEFAULT '',
@@ -129,6 +131,27 @@ CREATE TABLE IF NOT EXISTS schedules (
     last_status TEXT,
     catch_up_pending INTEGER NOT NULL DEFAULT 0,
     catch_up_for_date TEXT
+);
+CREATE TABLE IF NOT EXISTS schedule_weekdays (
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    weekday INTEGER NOT NULL,
+    PRIMARY KEY (schedule_id, weekday)
+);
+CREATE TABLE IF NOT EXISTS schedule_monthdays (
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    monthday INTEGER NOT NULL,
+    PRIMARY KEY (schedule_id, monthday)
+);
+CREATE TABLE IF NOT EXISTS schedule_recipients (
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    PRIMARY KEY (schedule_id, email, role)
+);
+CREATE TABLE IF NOT EXISTS schedule_email_salesmen (
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    salesman TEXT NOT NULL,
+    PRIMARY KEY (schedule_id, salesman)
 );
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
@@ -223,6 +246,8 @@ def init_db() -> None:
         ensure_column("schedules", "catch_up_pending", "INTEGER NOT NULL DEFAULT 0")
         ensure_column("schedules", "catch_up_for_date", "TEXT")
         ensure_column("users", "theme", "TEXT NOT NULL DEFAULT 'light'")
+        ensure_column("schedules", "name", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "kind", "TEXT NOT NULL DEFAULT 'personal'")
         ensure_column("jobs", "kept_until", "TEXT")
         for row in SEED_USERS:
             conn.execute(
@@ -268,7 +293,13 @@ def init_db() -> None:
             ).fetchone()
             if view_id:
                 conn.execute(
-                    """INSERT INTO schedules (view_id, owner_email, freq, run_time, recipients, is_active)
-                       VALUES (?, 'preview@achimonline.com', 'daily', '08:00', 'preview@achimonline.com', 1)""",
+                    """INSERT INTO schedules (view_id, owner_email, name, kind, freq, run_time, recipients, is_active)
+                       VALUES (?, 'preview@achimonline.com', 'Daily Ordered', 'company', 'daily', '08:00', 'preview@achimonline.com', 1)""",
                     (view_id[0],),
+                )
+                sid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                conn.execute(
+                    """INSERT INTO schedule_recipients (schedule_id, email, role)
+                       VALUES (?, 'preview@achimonline.com', 'to')""",
+                    (sid,),
                 )
