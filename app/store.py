@@ -656,7 +656,7 @@ def get_schedule(schedule_id: int) -> dict | None:
 
 
 def test_emails() -> list[str]:
-    raw = setting("test_emails", "preview@achimonline.com")
+    raw = setting("test_emails", "")
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 

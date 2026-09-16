@@ -263,6 +263,7 @@ def test_purge_dummy_people_keeps_live_users(tmp_path, monkeypatch):
     init_db()
     home_store.add_user("avig@achimonline.com", "Avi", "admin", 0, "")
     home_store.add_user("loopa-reviewer@local.test", "LoopA", "salesman", 0, "")
+    home_store.set_setting("schedule_test_mode", "1")
     from db import db, purge_dummy_people
 
     with db() as conn:
@@ -271,6 +272,22 @@ def test_purge_dummy_people_keeps_live_users(tmp_path, monkeypatch):
     assert home_store.get_user("avig@achimonline.com") is not None
     assert home_store.get_user("preview@achimonline.com") is None
     assert home_store.get_user("loopa-reviewer@local.test") is None
+    assert home_store.setting("schedule_test_mode") == "0"
+
+
+def test_purge_turns_off_empty_test_mode(tmp_path, monkeypatch):
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    from db import db, purge_dummy_people
+
+    with db() as conn:
+        purge_dummy_people(conn)
+    home_store.set_setting("schedule_test_mode", "1")
+    home_store.set_setting("test_emails", "")
+    with db() as conn:
+        purge_dummy_people(conn)
+    assert home_store.setting("schedule_test_mode") == "0"
 
 
 def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):

@@ -266,32 +266,33 @@ def purge_dummy_people(conn: sqlite3.Connection) -> int:
         for row in conn.execute("SELECT id, email FROM users").fetchall()
         if is_dummy_email(row["email"])
     ]
-    if not dummy:
-        return 0
-    emails = [row["email"].lower() for row in dummy]
-    ids = [int(row["id"]) for row in dummy]
-    placeholders, values = _in_clause(emails)
-    view_ids = [
-        int(row[0])
-        for row in conn.execute(
-            f"SELECT id FROM views WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
-            values,
-        )
-    ]
-    schedule_ids = [
-        int(row[0])
-        for row in conn.execute(
-            f"SELECT id FROM schedules WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
-            values,
-        )
-    ]
-    _delete_schedules(conn, schedule_ids)
-    _delete_views(conn, view_ids)
-    conn.execute(f"DELETE FROM jobs WHERE lower(ifnull(owner_email, '')) IN ({placeholders})", values)
-    id_ph, id_vals = _in_clause(ids)
-    conn.execute(f"DELETE FROM user_sales_groups WHERE user_id IN ({id_ph})", id_vals)
-    conn.execute(f"DELETE FROM user_report_access WHERE user_id IN ({id_ph})", id_vals)
-    conn.execute(f"DELETE FROM users WHERE id IN ({id_ph})", id_vals)
+    removed = 0
+    if dummy:
+        emails = [row["email"].lower() for row in dummy]
+        ids = [int(row["id"]) for row in dummy]
+        placeholders, values = _in_clause(emails)
+        view_ids = [
+            int(row[0])
+            for row in conn.execute(
+                f"SELECT id FROM views WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
+                values,
+            )
+        ]
+        schedule_ids = [
+            int(row[0])
+            for row in conn.execute(
+                f"SELECT id FROM schedules WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
+                values,
+            )
+        ]
+        _delete_schedules(conn, schedule_ids)
+        _delete_views(conn, view_ids)
+        conn.execute(f"DELETE FROM jobs WHERE lower(ifnull(owner_email, '')) IN ({placeholders})", values)
+        id_ph, id_vals = _in_clause(ids)
+        conn.execute(f"DELETE FROM user_sales_groups WHERE user_id IN ({id_ph})", id_vals)
+        conn.execute(f"DELETE FROM user_report_access WHERE user_id IN ({id_ph})", id_vals)
+        conn.execute(f"DELETE FROM users WHERE id IN ({id_ph})", id_vals)
+        removed = len(ids)
     row = conn.execute("SELECT value FROM app_settings WHERE key = 'test_emails'").fetchone()
     if row:
         kept = [
@@ -303,7 +304,11 @@ def purge_dummy_people(conn: sqlite3.Connection) -> int:
             "UPDATE app_settings SET value = ? WHERE key = 'test_emails'",
             (",".join(kept),),
         )
-    return len(ids)
+        if not kept:
+            conn.execute(
+                "UPDATE app_settings SET value = '0' WHERE key = 'schedule_test_mode'"
+            )
+    return removed
 
 
 def _connect(path: Path | None = None) -> sqlite3.Connection:
