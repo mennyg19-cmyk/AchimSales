@@ -149,6 +149,7 @@ def test_reports_list_shows_built_reports_for_admin(tmp_path):
     html = client.get("/").get_data(as_text=True)
     assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
     assert "Sales by State" in html
+    assert "Customer Transaction Detail" in html
     assert "Coming soon" in html  # backlog section
 
 
@@ -162,6 +163,7 @@ def test_salesman_inherit_shows_salesman_default_reports(tmp_path):
     assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
     assert "Number 4" not in html  # non-salesman-default: inherit-hidden until allowed
     assert "Sales by State" not in html
+    assert "Customer Transaction Detail" not in html
 
 
 def test_report_view_renders_filters(tmp_path):
@@ -172,6 +174,47 @@ def test_report_view_renders_filters(tmp_path):
     assert 'id="runBtn"' in html
     assert 'id="emailMeBtn"' in html
     assert 'name="period"' in html  # ordered exposes a period filter
+
+
+def test_customer_transaction_detail_view_filters(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/customer_transaction_detail").get_data(as_text=True)
+    assert 'name="period"' in html
+    assert 'name="invoice"' in html
+    assert 'name="open_balance"' in html
+    assert "last_7_days" in html
+    assert "Customer Transaction Detail" in html
+
+
+def test_customer_transaction_detail_run_keeps_settlement_duplicates(tmp_path):
+    rows = {
+        "customertransactiondetail": [
+            {"RecId": 111, "AccountNum": "9017", "Invoice": "IN1",
+             "AmountMST": 100, "OffsetRecId": "A"},
+            {"RecId": 111, "AccountNum": "9017", "Invoice": "IN1",
+             "AmountMST": 100, "OffsetRecId": "B"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    run = client.post(
+        "/api/reports/customer_transaction_detail/run",
+        json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert run.status_code == 202
+    job_id = run.get_json()["job_id"]
+    assert client.get(f"/api/jobs/{job_id}").get_json()["status"] == "success"
+    payload = client.get(f"/api/reports/result/{job_id}").get_json()
+    assert payload["report_key"] == "customer_transaction_detail"
+    tab = payload["tabs"][0]
+    assert tab["name"] == "Transactions"
+    assert len(tab["rows"]) == 2
+    assert [r["OffsetRecId"] for r in tab["rows"]] == ["A", "B"]
+    assert tab["rows"][0]["RecId"] == "111"
 
 
 def test_run_poll_result_export_flow(tmp_path):
@@ -3470,4 +3513,6 @@ def test_dev_reporting_passthrough_returns_every_column(tmp_path):
     # SQL-only: not on the Beta source selector. Global visibility still lists it.
     assert 'class="beta-source-select" data-key="sales_by_state"' not in html
     assert 'class="vis-toggle" data-key="sales_by_state"' in html
+    assert 'class="beta-source-select" data-key="customer_transaction_detail"' not in html
+    assert 'class="vis-toggle" data-key="customer_transaction_detail"' in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200

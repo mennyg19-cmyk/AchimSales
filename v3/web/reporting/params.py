@@ -236,6 +236,31 @@ SALES_BY_STATE_NYC_SP = "sales_by_state_new_york_city"
 SALES_BY_STATE_DETAIL_SP = "sales_by_state_filtered"
 
 
+def translate_customer_transaction_detail(p: dict) -> dict[str, Any]:
+    """customer_transaction_detail -> customertransactiondetail.
+
+    Period maps to original-transaction CreatedDateTime. AccountNum is exact
+    match, so only a single customer is pushed down; multi-select is
+    post-filtered. Open-balance checkbox becomes RemainAmountCurMin 0.01.
+    """
+    out = _date_range(p, "CreatedDateTimeFrom", "CreatedDateTimeTo")
+    customers = p.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        cust = [str(c).strip() for c in customers if str(c).strip()]
+    elif customers:
+        cust = [str(customers).strip()]
+    else:
+        cust = []
+    if len(cust) == 1:
+        out["AccountNum"] = cust[0]
+    if v := _csv(p.get("invoice") or p.get("Invoice")):
+        out["Invoice"] = v
+    flag = str(p.get("open_balance") or "").strip().lower()
+    if flag in ("1", "true", "on", "yes"):
+        out["RemainAmountCurMin"] = 0.01
+    return out
+
+
 def translate_sales_by_state(p: dict) -> dict[str, Any]:
     """sales_by_state -> the three sales-by-state SPs (same FromDate/ToDate).
 
@@ -286,6 +311,10 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "customer_last_order": ("customer_last_orders", translate_customer_last_orders),
     # Three SPs share this translator; the orchestrator calls all three.
     "sales_by_state": (SALES_BY_STATE_SUMMARY_SP, translate_sales_by_state),
+    "customer_transaction_detail": (
+        "customertransactiondetail",
+        translate_customer_transaction_detail,
+    ),
 }
 
 

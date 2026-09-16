@@ -64,6 +64,23 @@ var HELP = {
               "Pick the year and tap Run."
     },
 
+    "report-customer_transaction_detail": {
+        title: "Customer Transaction Detail",
+        body: "Shows each original customer transaction together with its settlement and the offset transaction.<br><br>" +
+              "One original transaction can appear more than once when it was settled in parts. Those extra rows are real — the report does not collapse them.<br><br>" +
+              "Filter by period (original created date), customer, invoice number, or remaining amount. Extra filters from the API are still available in the developer preview."
+    },
+
+    "param-invoice": {
+        title: "Invoice",
+        body: "Exact invoice number on the original transaction. Leave blank for every invoice in the other filters."
+    },
+
+    "param-open-balance": {
+        title: "Open only",
+        body: "When checked, only rows with a remaining amount of at least 0.01 are requested from SQL."
+    },
+
     "report-customer_aging": {
         title: "Customer Aging Report",
         body: "Shows how much each customer owes and how old the balances are.<br><br>" +

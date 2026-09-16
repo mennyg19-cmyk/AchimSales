@@ -71,6 +71,7 @@ REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "item_averages": (),
     "customer_activity": ("salesman",),
     "sales_by_state": ("year",),
+    "customer_transaction_detail": ("period", "customers", "invoice", "open_balance"),
 }
 
 PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -417,6 +418,9 @@ def report_view(report_key: str):
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
+        default_period=(
+            "last_7_days" if report_key == "customer_transaction_detail" else "all_time"
+        ),
         is_developer=authz.is_developer(p),
         is_privileged=authz.is_privileged(p),
         user_email=p.email,

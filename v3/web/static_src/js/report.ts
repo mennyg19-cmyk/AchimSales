@@ -2068,6 +2068,10 @@ function updateControlsSummary(): void {
   const ed = (document.querySelector('[name="end_date"]') as HTMLInputElement | null)?.value;
   if (sd || ed) parts.push(`${sd || "…"} – ${ed || "…"}`);
   if (selectedCustomers.size) parts.push(`${selectedCustomers.size} customer${selectedCustomers.size > 1 ? "s" : ""}`);
+  const invoice = (document.querySelector('[name="invoice"]') as HTMLInputElement | null)?.value.trim();
+  if (invoice) parts.push(`Invoice ${invoice}`);
+  const openOnly = (document.querySelector('[name="open_balance"]') as HTMLInputElement | null)?.checked;
+  if (openOnly) parts.push("Open only");
   el.textContent = parts.filter(Boolean).join("  ·  ");
 }
 
@@ -2874,6 +2878,14 @@ function applyParamsObject(params: Record<string, unknown>): void {
   if (hasFilter("customerPicker")) {
     renderCustomerPicker();
     void loadCustomers();
+  }
+  const invoiceEl = document.querySelector<HTMLInputElement>('[name="invoice"]');
+  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
+  const openEl = document.querySelector<HTMLInputElement>('[name="open_balance"]');
+  if (openEl) {
+    const raw = params.open_balance;
+    const flag = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
+    openEl.checked = ["1", "true", "on", "yes"].includes(flag.trim().toLowerCase());
   }
   // Re-sync custom-range field visibility via the listener bound at boot.
   ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));

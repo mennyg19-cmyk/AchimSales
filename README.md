@@ -19,6 +19,7 @@ from the CLI.
 | Number 4 Report | `python run.py number_4` | Direct Reports/Number 4 Report/{sub}/{period}/ |
 | Customer Activity | `python run.py customer_activity` | Direct Reports/Customer Activity/ |
 | Sales by State | home site only (SQL) | — |
+| Customer Transaction Detail | home site only (SQL) | — |
 
 ## CLI Usage
 

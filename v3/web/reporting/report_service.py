@@ -31,6 +31,7 @@ from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_e
 from report_engine.facts import InvoiceChargeFact, SalesmanFact
 from report_engine.lib import filter_facts_by_scope, salesman_key, sales_group_value
 from report_engine.reports import customer_activity as rpt_customer_activity
+from report_engine.reports import customer_transaction_detail as rpt_customer_transaction_detail
 from report_engine.reports import invoiced as rpt_invoiced
 from report_engine.reports import item_averages as rpt_item_averages
 from report_engine.reports import number_4 as rpt_number_4
@@ -595,6 +596,19 @@ def _orch_sales_by_state(svc: ReportService, params: dict, visible_keys) -> dict
     return svc._payload("sales_by_state", tabs, sum(len(t["rows"]) for t in tabs))
 
 
+def _orch_customer_transaction_detail(svc: ReportService, params: dict, visible_keys) -> dict:
+    """One catalog call. Duplicate RecIds (multiple settlements) stay as rows."""
+    _ = visible_keys  # no salesman column; not a salesman-default report
+    sp = P.translate("customer_transaction_detail", params)
+    rows = rpt_customer_transaction_detail.clean_rows(
+        svc._rows(P.report_id_for("customer_transaction_detail"), sp))
+    accounts = _selected_accounts(params)
+    if len(accounts) > 1:
+        rows = [row for row in rows if row["AccountNum"] in accounts]
+    tabs = rpt_customer_transaction_detail.build(rows)
+    return svc._payload("customer_transaction_detail", tabs, len(rows))
+
+
 _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "ordered": _orch_ordered,
     "invoiced": _orch_invoiced,
@@ -603,4 +617,5 @@ _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "item_averages": _orch_item_averages,
     "customer_activity": _orch_customer_activity,
     "sales_by_state": _orch_sales_by_state,
+    "customer_transaction_detail": _orch_customer_transaction_detail,
 }
