@@ -30,7 +30,7 @@ jobs:
       - name: Set up Python version
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       # Website deps live in app/requirements.txt (FastAPI, gunicorn, uvicorn).
       # Oryx on App Service runs `pip install -r requirements.txt` at the
@@ -75,3 +75,4 @@ jobs:
           app-name: 'achim-sales-reports'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
+          clean: true
