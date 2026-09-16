@@ -60,7 +60,7 @@
 | Cancel running job | 200; finished job 409 |
 | DB explorer write | Confirm required; DROP blocked; WITH+UPDATE needs confirm; no params_json editor |
 | Schedule OneDrive folder | mock outbox body |
-| Report chrome | customer picker, Columns (show + freeze), status, More |
+| Report chrome | customer picker, Columns (show + freeze), status, More; no toolbar Group by dropdown; no header search bars — Filter this column is in the column ⋮ menu |
 | Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
 | POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
 | Legacy `params_json` sqlite | migrate copies into columns then drops the blob |

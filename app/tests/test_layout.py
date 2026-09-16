@@ -99,6 +99,20 @@ def test_save_view_layout_lives_in_columns(client):
     html = client.get(f"/reports/invoiced?view={view_id}").text
     assert "data-view-layout" in html
     assert "CustomerName" in html
+    assert "groupBySelect" not in html
+
+
+def test_report_grid_filters_live_in_header_menu(client):
+    login(client)
+    html = client.get("/reports/invoiced").text
+    assert "groupBySelect" not in html
+    assert "groupByWrap" not in html
+    assert 'id="groupPills"' in html
+    js = client.get("/static/js/report-grid.js").text
+    assert 'headerFilter: "input"' not in js
+    assert "Filter this column" in js
+    assert "col-filter-popover" in js
+    assert "Group by this column" in js
 
 
 def test_group_string_rejected_on_params_and_layout(client):

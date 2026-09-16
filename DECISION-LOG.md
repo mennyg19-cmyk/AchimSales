@@ -1,3 +1,11 @@
+## 2026-09-16 Column filters live in the header ⋮ menu, not search bars
+**What I had to decide:** Keep the toolbar Group by dropdown + Tabulator header search inputs vs the old header ⋮ menu (group + Excel-style filter).
+**Options I considered:** Leave both; funnel button in the header (old v3); filter form inside the ⋮ menu.
+**What I chose:** Drop the Group by `<select>` (grouping stays on Hide / Freeze / Group in the column ⋮). Drop `headerFilter` inputs. ⋮ → Filter this column opens the existing `col-filter-popover` (operator + value). Pills still show active groups.
+**Why:** Menny said grouping is already in the column headers and header search bars have to go in favor of filters in the three-dot dropdown. That reverses the dummy shortcut that saved headerFilter as `contains`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Home site reads BETA_PRECIOUS_DB_PATH, not /tmp/v3data
 **What I had to decide:** Keep telling Menny to copy `/tmp/v3data/precious.db` vs the home-site env var.
 **Options I considered:** Same path as /test; `BETA_PRECIOUS_DB_PATH` (`/tmp/betadata`).

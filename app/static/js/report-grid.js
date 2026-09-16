@@ -64,8 +64,259 @@ function deserializeView(o) {
   };
 }
 
+const TEXT_OPS = [
+  { op: "contains", label: "contains" },
+  { op: "equals", label: "equals" },
+  { op: "starts", label: "starts with" },
+  { op: "ends", label: "ends with" },
+  { op: "in", label: "is one of (comma-separated)" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+const NUM_OPS = [
+  { op: "eq", label: "equals" },
+  { op: "ne", label: "not equal to" },
+  { op: "gt", label: "greater than" },
+  { op: "ge", label: "greater than or equal" },
+  { op: "lt", label: "less than" },
+  { op: "le", label: "less than or equal" },
+  { op: "between", label: "between" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+const DATE_OPS = [
+  { op: "on", label: "on" },
+  { op: "before", label: "before" },
+  { op: "after", label: "after" },
+  { op: "between", label: "between" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+
+function fieldType(field) {
+  const rows = ((tabsByKey[activeKey] || {}).rows) || [];
+  for (let i = 0; i < rows.length; i++) {
+    const val = rows[i][field];
+    if (val == null || val === "") continue;
+    if (typeof val === "number") return "number";
+    if (/^\d{4}-\d{2}-\d{2}/.test(String(val))) return "date";
+    return "text";
+  }
+  return "text";
+}
+
+function operatorsFor(type) {
+  if (type === "number") return NUM_OPS;
+  if (type === "date") return DATE_OPS;
+  return TEXT_OPS;
+}
+
+function opNeedsTwo(op) { return op === "between"; }
+function opNeedsNone(op) { return op === "empty" || op === "notEmpty"; }
+
+function filterArmed(f) {
+  if (!f) return false;
+  if (opNeedsNone(f.op)) return true;
+  return String(f.v || "").trim() !== "";
+}
+
+function asNumber(x) {
+  const s = String(x).replace(/[$,%\s]/g, "");
+  if (s === "") return null;
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+
+function rowMatches(row, field, type, f) {
+  const raw = row[field];
+  if (f.op === "empty") return raw === "" || raw == null;
+  if (f.op === "notEmpty") return !(raw === "" || raw == null);
+  if (type === "number") {
+    const x = asNumber(raw);
+    const a = asNumber(f.v);
+    if (x == null || a == null) return false;
+    if (f.op === "eq") return x === a;
+    if (f.op === "ne") return x !== a;
+    if (f.op === "gt") return x > a;
+    if (f.op === "ge") return x >= a;
+    if (f.op === "lt") return x < a;
+    if (f.op === "le") return x <= a;
+    if (f.op === "between") {
+      const b = asNumber(f.v2);
+      return b == null ? x >= a : x >= a && x <= b;
+    }
+    return true;
+  }
+  if (type === "date") {
+    const d = String(raw ?? "").slice(0, 10);
+    const a = String(f.v ?? "").slice(0, 10);
+    const b = String(f.v2 ?? "").slice(0, 10);
+    if (f.op === "on") return d === a;
+    if (f.op === "before") return !!d && d < a;
+    if (f.op === "after") return !!d && d > a;
+    if (f.op === "between") return (!a || d >= a) && (!b || d <= b);
+    return true;
+  }
+  const s = String(raw ?? "").toLowerCase();
+  const q = String(f.v ?? "").toLowerCase();
+  if (f.op === "contains") return s.indexOf(q) !== -1;
+  if (f.op === "equals") return s === q;
+  if (f.op === "starts") return s.indexOf(q) === 0;
+  if (f.op === "ends") return s.slice(-q.length) === q;
+  if (f.op === "in") {
+    return q.split(",").map((p) => p.trim()).filter(Boolean).indexOf(s) !== -1;
+  }
+  return s.indexOf(q) !== -1;
+}
+
+function armedFilters(v) {
+  const out = [];
+  Object.keys(v.columnFilters || {}).forEach((field) => {
+    const f = v.columnFilters[field];
+    if (filterArmed(f)) out.push({ field, type: fieldType(field), f });
+  });
+  return out;
+}
+
+function applyColumnFilters() {
+  if (!table || !activeKey) return;
+  const active = armedFilters(viewFor(activeKey));
+  try {
+    if (!active.length) table.clearFilter();
+    else table.setFilter((row) => active.every((a) => rowMatches(row, a.field, a.type, a.f)));
+  } catch (err) {
+    /* table not ready */
+  }
+  updateFilterMarkers();
+}
+
+function updateFilterMarkers() {
+  if (!table || !activeKey) return;
+  const cf = viewFor(activeKey).columnFilters;
+  table.getColumns().forEach((col) => {
+    const el = col.getElement();
+    if (!el) return;
+    el.classList.toggle("has-col-filter", filterArmed(cf[col.getField()]));
+  });
+}
+
+let colFilterPopover = null;
+let colFilterClose = null;
+function closeColumnFilterPopover() {
+  if (colFilterPopover) colFilterPopover.remove();
+  colFilterPopover = null;
+  if (colFilterClose) {
+    colFilterClose();
+    colFilterClose = null;
+  }
+}
+
+function openColumnFilterPopover(column) {
+  closeColumnFilterPopover();
+  if (!activeKey) return;
+  const field = column.getField();
+  const type = fieldType(field);
+  const ops = operatorsFor(type);
+  const cf = viewFor(activeKey).columnFilters;
+  const current = cf[field] || { op: ops[0].op, v: "", v2: "" };
+  const panel = document.createElement("div");
+  panel.className = "col-filter-popover";
+  const title = document.createElement("div");
+  title.className = "col-filter-popover-title";
+  title.textContent = (column.getDefinition() || {}).title || field;
+  panel.appendChild(title);
+  const opSel = document.createElement("select");
+  ops.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.op;
+    opt.textContent = o.label;
+    if (o.op === current.op) opt.selected = true;
+    opSel.appendChild(opt);
+  });
+  panel.appendChild(opSel);
+  const values = document.createElement("div");
+  values.className = "cf-values";
+  panel.appendChild(values);
+  const inputType = type === "date" ? "date" : type === "number" ? "number" : "text";
+  const v1 = document.createElement("input");
+  v1.type = inputType;
+  v1.value = current.v || "";
+  const v2 = document.createElement("input");
+  v2.type = inputType;
+  v2.value = current.v2 || "";
+  function syncValueInputs() {
+    values.innerHTML = "";
+    const op = opSel.value;
+    if (opNeedsNone(op)) return;
+    v1.placeholder = type === "text" && op === "in" ? "a, b, c" : "value";
+    values.appendChild(v1);
+    if (opNeedsTwo(op)) {
+      v2.placeholder = "and";
+      values.appendChild(v2);
+    }
+  }
+  opSel.addEventListener("change", syncValueInputs);
+  syncValueInputs();
+  const foot = document.createElement("div");
+  foot.className = "col-filter-popover-foot";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "btn btn-sm btn-outline";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", () => {
+    delete cf[field];
+    applyColumnFilters();
+    closeColumnFilterPopover();
+  });
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "btn btn-sm btn-primary";
+  apply.textContent = "Apply";
+  function doApply() {
+    const op = opSel.value;
+    if (opNeedsNone(op)) cf[field] = { op: op, v: "" };
+    else if (v1.value.trim() === "") delete cf[field];
+    else cf[field] = { op: op, v: v1.value.trim(), v2: opNeedsTwo(op) ? v2.value.trim() : "" };
+    applyColumnFilters();
+    closeColumnFilterPopover();
+  }
+  apply.addEventListener("click", doApply);
+  [v1, v2].forEach((inp) => inp.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") doApply();
+  }));
+  foot.append(clear, apply);
+  panel.appendChild(foot);
+  const anchor = column.getElement();
+  const r = anchor ? anchor.getBoundingClientRect() : { bottom: 80, left: 16 };
+  panel.style.top = Math.round(r.bottom + 4) + "px";
+  panel.style.left = Math.round(Math.min(r.left, window.innerWidth - 252)) + "px";
+  document.body.appendChild(panel);
+  colFilterPopover = panel;
+  (opNeedsNone(opSel.value) ? opSel : v1).focus();
+  setTimeout(() => {
+    function onOut(evt) {
+      if (colFilterPopover && !colFilterPopover.contains(evt.target)) closeColumnFilterPopover();
+    }
+    function onEsc(evt) {
+      if (evt.key === "Escape") closeColumnFilterPopover();
+    }
+    document.addEventListener("click", onOut);
+    document.addEventListener("keydown", onEsc);
+    colFilterClose = function () {
+      document.removeEventListener("click", onOut);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, 0);
+}
+
 function headerMenu(key) {
   return [
+    {
+      label: "Filter this column",
+      action: function (_e, column) {
+        openColumnFilterPopover(column);
+      },
+    },
     {
       label: "Hide column",
       action: function (_e, column) {
@@ -129,13 +380,6 @@ function captureActive() {
       const w = c.getWidth();
       if (field && w) v.widths[field] = w;
     });
-    const filters = {};
-    (table.getHeaderFilters() || []).forEach((hf) => {
-      if (hf.field && String(hf.value || "").trim() !== "") {
-        filters[hf.field] = { op: "contains", v: String(hf.value), v2: "" };
-      }
-    });
-    v.columnFilters = filters;
     v.groups_explicit = true;
   } catch (err) {
     /* table not ready */
@@ -163,27 +407,11 @@ function columnsFromRows(rows, v, key) {
       frozen,
       width: v.widths[field],
       hozAlign: isNumber ? "right" : "left",
-      headerFilter: "input",
       headerMenu: headerMenu(key),
       formatter: isNumber && moneyName ? "money" : "plaintext",
       bottomCalc: isNumber ? "sum" : undefined,
     };
   });
-}
-
-function fillGroupBy(columns, group) {
-  const wrap = document.getElementById("groupByWrap");
-  const select = document.getElementById("groupBySelect");
-  if (!wrap || !select) return;
-  wrap.hidden = false;
-  select.innerHTML = '<option value="">None</option>';
-  columns.forEach((col) => {
-    const opt = document.createElement("option");
-    opt.value = col.field;
-    opt.textContent = col.title;
-    select.appendChild(opt);
-  });
-  select.value = (group && group[0]) || "";
 }
 
 function renderGroupPills(group, columns) {
@@ -234,9 +462,9 @@ function showTab(key) {
   wrap.hidden = true;
   grid.hidden = false;
   if (table) table.destroy();
+  closeColumnFilterPopover();
   const v = viewFor(key);
   const columns = columnsFromRows(rows, v, key);
-  fillGroupBy(columns, v.group);
   renderGroupPills(v.group, columns);
   table = new Tabulator("#reportTable", {
     data: rows,
@@ -247,12 +475,7 @@ function showTab(key) {
     initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
     columns,
   });
-  table.on("tableBuilt", () => {
-    Object.keys(v.columnFilters || {}).forEach((field) => {
-      const spec = v.columnFilters[field];
-      if (spec && spec.v) table.setHeaderFilterValue(field, spec.v);
-    });
-  });
+  table.on("tableBuilt", () => applyColumnFilters());
 }
 
 function tabKeys(tabs) {
@@ -346,18 +569,7 @@ function setFrozen(field, frozen) {
   if (activeKey) showTab(activeKey);
 }
 
-function initGrid() {
-  const groupBy = document.getElementById("groupBySelect");
-  if (groupBy) {
-    groupBy.addEventListener("change", () => {
-      if (!activeKey) return;
-      const v = viewFor(activeKey);
-      v.group = groupBy.value ? [groupBy.value] : [];
-      v.groups_explicit = true;
-      showTab(activeKey);
-    });
-  }
-}
+function initGrid() {}
 
 window.ReportGrid = {
   renderTabs,
