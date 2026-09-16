@@ -454,7 +454,7 @@ def list_active_schedules() -> list[dict]:
         rows = conn.execute(
             """SELECT s.*, v.name AS view_name, v.report_key, v.kind AS view_kind
                FROM schedules s JOIN views v ON v.id = s.view_id
-               WHERE s.is_active = 1
+               WHERE s.is_active = 1 AND ifnull(s.kind, 'personal') != 'company'
                ORDER BY s.id"""
         ).fetchall()
         return [_attach_view_to_schedule(hydrate_schedule_row(row, conn), conn) for row in rows]

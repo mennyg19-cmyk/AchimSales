@@ -76,6 +76,7 @@
             </li>
             {% endfor %}
         </ul>
+        {% if flags %}
         <h2 class="section-title">Feature flags</h2>
         <ul class="flag-list">
             {% for f in flags %}
@@ -91,15 +92,13 @@
             </li>
             {% endfor %}
         </ul>
+        {% endif %}
     </section>
 </details>
 
 <details class="settings-cat">
     <summary>Delivery</summary>
     <section class="settings-card">
-        {% if company_schedule_setup %}
-        <a class="btn btn-outline btn-sm" href="/settings/company-schedules">Company schedules</a>
-        {% endif %}
         <h3 class="settings-subhead">Schedule test mode</h3>
         <p class="flag-desc">While on, every schedule mail (Run now and the clock) goes only to the addresses below. Graph still sends when secrets are set; otherwise the outbox is the record.</p>
         <ul class="flag-list">

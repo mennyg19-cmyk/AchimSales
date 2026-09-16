@@ -1,3 +1,11 @@
+## 2026-09-16 Company schedules retired; user schedules only
+**What I had to decide:** Hide company schedules vs keep them running with the UI off (P9.1).
+**Options I considered:** Hide UI but keep clock (old P9.1); convert company rows to personal; drop company-kind from UI, clock, and import.
+**What I chose:** `schedules.kind = company` does not show, tick, import, or Run now. Company **views** stay. Existing imported company rows are paused on boot. Settings flag and Company schedules page are gone.
+**Why:** Menny: everything is handled through user schedules.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Import dest on Azure is /tmp/homedata/home.sqlite
 **What I had to decide:** Upsert Menny on Entra callback vs keep People-required and fix the empty sqlite.
 **Options I considered:** Upsert on callback; auto-import LogFiles on boot (rejected at go-live); default Kudu import dest to the gunicorn path.

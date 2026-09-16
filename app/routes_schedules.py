@@ -1,4 +1,4 @@
-"""Personal and company schedules. Graph mail when secrets exist; clock ticks every minute."""
+"""User schedules. Graph mail when secrets exist; clock ticks every minute."""
 
 from __future__ import annotations
 
@@ -271,12 +271,8 @@ def company_schedules(request: Request):
     denied = need_login(request)
     if denied:
         return denied
-    user = session_user(request)
-    if store.setting("show_company_schedule_setup", "0") != "1" and not is_privileged(user):
-        flash(request, "Company schedule setup is hidden.", "warn")
-        return RedirectResponse("/settings", status_code=302)
-    rows = [row for row in store.list_schedules() if row.get("view_name")]
-    return page(request, "company_schedules.html", active_tab="settings", schedules=rows)
+    flash(request, "Company schedules are retired. Use user schedules.", "warn")
+    return RedirectResponse("/schedules", status_code=302)
 
 
 @router.get("/master-schedules")
@@ -292,7 +288,10 @@ def master_schedules(request: Request):
         request,
         "company_schedules.html",
         active_tab="settings",
-        schedules=store.list_schedules(),
+        schedules=[
+            row for row in store.list_schedules()
+            if (row.get("kind") or "") != "company"
+        ],
         master=True,
     )
 
@@ -307,7 +306,7 @@ def master_schedule_history(request: Request, schedule_id: int):
         flash(request, "Master schedules are admin-only on this preview.", "warn")
         return RedirectResponse("/schedules", status_code=302)
     row = store.get_schedule(schedule_id)
-    if row is None:
+    if row is None or (row.get("kind") or "") == "company":
         flash(request, "Unknown schedule.", "error")
         return RedirectResponse("/master-schedules", status_code=302)
     runs = store.list_schedule_runs_for(schedule_id)

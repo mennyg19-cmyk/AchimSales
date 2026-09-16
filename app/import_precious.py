@@ -29,7 +29,6 @@ KNOWN_REPORTS = {item["key"] for item in catalog.REPORTS}
 SETTING_KEYS = {
     "schedule_test_mode",
     "test_emails",
-    "show_company_schedule_setup",
 }
 SECRET_BITS = ("secret", "password", "token", "key")
 REPORT_KEY_ALIASES = {
@@ -529,6 +528,9 @@ def _import_report_schedules(
         sharepoint = folder if folder_kind != "onedrive" else ""
         onedrive = folder if folder_kind == "onedrive" else ""
         sched_kind = row["kind"] if "kind" in cols and row["kind"] in {"personal", "company"} else "personal"
+        if sched_kind == "company":
+            counts["skipped"] += 1
+            continue
         dest_id = _insert_schedule(
             dest,
             view_id=view_id,

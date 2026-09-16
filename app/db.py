@@ -368,6 +368,9 @@ def init_db() -> None:
         ensure_column("schedules", "window_end", "TEXT")
         ensure_column("jobs", "kept_until", "TEXT")
         ensure_column("schedule_runs", "message", "TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "UPDATE schedules SET is_active = 0 WHERE ifnull(kind, '') = 'company'"
+        )
         for name in (
             "saved_reports",
             "company_views",
@@ -424,7 +427,7 @@ def init_db() -> None:
             if view_id:
                 conn.execute(
                     """INSERT INTO schedules (view_id, owner_email, name, kind, freq, run_time, recipients, is_active)
-                       VALUES (?, 'preview@achimonline.com', 'Daily Ordered', 'company', 'daily', '08:00', 'preview@achimonline.com', 1)""",
+                       VALUES (?, 'preview@achimonline.com', 'Daily Ordered', 'personal', 'daily', '08:00', 'preview@achimonline.com', 1)""",
                     (view_id[0],),
                 )
                 sid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

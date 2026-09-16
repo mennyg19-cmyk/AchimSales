@@ -621,7 +621,7 @@ def test_manager_sees_company_schedules_not_others_personal(client):
     )
     become(client, "manager@achimonline.com")
     html = client.get("/schedules").text
-    assert "Daily Ordered" in html
+    assert "Daily Ordered" not in html
     assert "Admin personal for manager test" not in html
 
 
@@ -746,13 +746,17 @@ def test_manager_cannot_run_others_personal_schedule(client):
             "SELECT id FROM schedules WHERE view_id = ? ORDER BY id DESC LIMIT 1",
             (created["id"],),
         ).fetchone()["id"]
-        company = conn.execute(
+        leftover = conn.execute(
             "SELECT s.id FROM schedules s JOIN views v ON v.id = s.view_id "
             "WHERE v.kind = 'company' LIMIT 1"
         ).fetchone()["id"]
         before = conn.execute(
             "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
             (sid,),
+        ).fetchone()["n"]
+        leftover_before = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
+            (leftover,),
         ).fetchone()["n"]
     become(client, "manager@achimonline.com")
     blocked = client.post(
@@ -767,18 +771,18 @@ def test_manager_cannot_run_others_personal_schedule(client):
             (sid,),
         ).fetchone()["n"]
     assert after == before
-    company_run = client.post(
-        f"/schedules/{company}/run-now",
+    leftover_run = client.post(
+        f"/schedules/{leftover}/run-now",
         data={"csrf": client.csrf},
         follow_redirects=False,
     )
-    assert company_run.status_code == 303
+    assert leftover_run.status_code == 303
     with db() as conn:
-        company_runs = conn.execute(
+        leftover_runs = conn.execute(
             "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
-            (company,),
+            (leftover,),
         ).fetchone()["n"]
-    assert company_runs >= 1
+    assert leftover_runs == leftover_before
 
 
 def test_salesman_cannot_schedule_company_view(client):
@@ -811,6 +815,36 @@ def test_salesman_cannot_schedule_company_view(client):
     assert after == before
     html = client.get("/schedules").text
     assert "Daily Ordered" not in html
+
+
+def test_company_schedule_pages_are_gone(client):
+    login(client)
+    settings = client.get("/settings").text
+    assert "Company schedules" not in settings
+    assert "Feature flags" not in settings
+    res = client.get("/settings/company-schedules", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/schedules"
+
+
+def test_clock_skips_company_kind_schedules(client):
+    login(client)
+    with db() as conn:
+        conn.execute("UPDATE schedules SET kind = 'company', is_active = 1")
+        sid = conn.execute("SELECT id FROM schedules LIMIT 1").fetchone()["id"]
+    assert home_store.list_active_schedules() == []
+    res = client.post(
+        f"/schedules/{sid}/run-now",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    with db() as conn:
+        runs = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedule_runs WHERE schedule_id = ?",
+            (sid,),
+        ).fetchone()["n"]
+    assert runs == 0
 
 
 def test_invoiced_hides_totals_for_one_salesman(client):

@@ -447,23 +447,8 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM view_statuses").fetchone()[0] == 2
         assert conn.execute("SELECT COUNT(*) FROM layout_tab_groups").fetchone()[0] == 1
     rows = home_store.list_schedules()
-    match = next(s for s in rows if s["view_id"] == view["id"] and s["run_time"] == "09:00")
-    assert match["freq"] == "weekly"
-    assert match["weekdays"] == "mon"
-    assert match["monthday"] == 15
-    assert match["name"] == "Monday Ordered"
-    assert match["kind"] == "company"
-    assert "reports@achimonline.com" in match["recipients"]
-    assert "cc@achimonline.com" in match["cc"]
-    assert match["email_salesmen"] == ["HKaufman"]
-    assert match["sharepoint_folder"] == "Direct Reports/Ordered Report"
-    assert match["filename"] == "{Schedule}.xlsx"
-    assert match["window_period"] == "this_week"
-    with db() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM schedule_monthdays").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM schedule_recipients").fetchone()[0] == 2
-        assert conn.execute("SELECT COUNT(*) FROM schedule_email_salesmen").fetchone()[0] == 1
+    assert not any(s["name"] == "Monday Ordered" for s in rows)
+    assert result["schedules_skipped"] >= 1
 
 
 def test_import_ignores_json_blob_tables(tmp_path, monkeypatch):
@@ -813,7 +798,7 @@ def test_import_uses_live_admin_and_column_recipients(tmp_path, monkeypatch):
         INSERT INTO views (id, kind, report_key, name, owner_handle)
         VALUES ('v1', 'company', 'ordered', 'Daily Ordered', NULL);
         INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, sharepoint_path, folder_kind)
-        VALUES ('s1', 'company', 'v1', NULL, 'Daily Ordered Report', 'daily', '00:00', 'Ordered Report/Daily', 'onedrive');
+        VALUES ('s1', 'personal', 'v1', NULL, 'Daily Ordered Report', 'daily', '00:00', 'Ordered Report/Daily', 'onedrive');
         INSERT INTO schedule_recipients (id, schedule_id, email, role)
         VALUES ('r1', 's1', 'reports@achimonline.com', 'to');
         """
@@ -891,24 +876,20 @@ def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch)
     conn.close()
     result = import_precious(source, dest)
     assert result["source_schedules"] == 2
-    assert result["schedules_inserted"] == 2
+    assert result["schedules_inserted"] == 1
     rows = home_store.list_schedules()
-    assert len(rows) == 2
+    assert len(rows) == 1
     names = {row["name"] for row in rows}
-    assert names == {"Morning Ordered", "Tina copy"}
+    assert names == {"Tina copy"}
     owners = {row["owner_email"] for row in rows}
-    assert "heshey@achimonline.com" in owners
-    assert "tina@achimonline.com" in owners
-    assert any("reports@achimonline.com" in row["recipients"] for row in rows)
-    assert not any("blob@achimonline.com" in (row["recipients"] or "") for row in rows)
+    assert owners == {"tina@achimonline.com"}
+    assert not any("reports@achimonline.com" in (row["recipients"] or "") for row in rows)
     with TestClient(create_app()) as client:
         login(client)
         html = client.get("/schedules").text
-    assert "All schedules" in html
-    assert "heshey@achimonline.com" in html
-    assert "tina@achimonline.com" in html
-    assert "Morning Ordered" in html
     assert "Tina copy" in html
+    assert "Morning Ordered" not in html
+    assert "tina@achimonline.com" in html
 
 
 def test_import_keeps_schedule_windows_on_shared_view(tmp_path, monkeypatch):
@@ -954,8 +935,8 @@ def test_import_keeps_schedule_windows_on_shared_view(tmp_path, monkeypatch):
         VALUES ('df-invoiced', 'default', 'invoiced', 'Default', NULL, NULL);
         INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, window_period)
         VALUES
-            ('s-daily', 'company', 'df-invoiced', NULL, 'Daily Invoiced', 'daily', '05:00', 'yesterday'),
-            ('s-month', 'company', 'df-invoiced', NULL, 'Monthly Invoiced', 'monthly', '05:00', 'month');
+            ('s-daily', 'personal', 'df-invoiced', NULL, 'Daily Invoiced', 'daily', '05:00', 'yesterday'),
+            ('s-month', 'personal', 'df-invoiced', NULL, 'Monthly Invoiced', 'monthly', '05:00', 'month');
         """
     )
     conn.commit()

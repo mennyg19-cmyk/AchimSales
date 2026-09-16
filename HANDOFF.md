@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16 (Litestream restore/replicate re-enabled)
 
-**Status:** FastAPI is live on `achim-sales-reports`. `/tmp` sqlite is ephemeral; Litestream blob `home.sqlite` is the durable copy. After this hotfix deploys, import once into `/tmp/homedata/home.sqlite`, wait a couple seconds, Restart, then Achim User Login.
+**Status:** FastAPI is live. Login works. Company schedules are retired (user schedules only).
 
 ## Working tree
 

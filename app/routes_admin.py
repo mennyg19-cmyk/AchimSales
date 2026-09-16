@@ -25,9 +25,7 @@ from deps import (
 
 router = APIRouter()
 
-FLAGS = (
-    ("show_company_schedule_setup", "Show the Company schedules setup page (runs still happen if this is off)."),
-)
+FLAGS = ()
 
 
 def _deny(request: Request, message: str, dest: str = "/settings"):
@@ -79,7 +77,6 @@ def settings_page(request: Request):
         test_emails=store.test_emails(),
         excluded=store.exclusions_for(user["email"]),
         customers=catalog.CUSTOMERS,
-        company_schedule_setup=store.setting("show_company_schedule_setup", "0") == "1",
     )
 
 

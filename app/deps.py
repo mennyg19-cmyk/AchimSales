@@ -185,18 +185,12 @@ def salesman_keys(user: dict) -> set[str] | None:
     return keys
 
 
-def _schedule_is_company(row: dict) -> bool:
-    return (row.get("view_kind") or row.get("kind") or "") == "company"
-
-
 def can_read_schedule(user: dict, row: dict) -> bool:
+    if (row.get("kind") or "") == "company":
+        return False
     if is_privileged(user):
         return True
-    if row.get("owner_email") == user.get("email"):
-        return True
-    if user.get("role") == "manager":
-        return _schedule_is_company(row)
-    return False
+    return row.get("owner_email") == user.get("email")
 
 
 def can_read_job(user: dict, job: dict) -> bool:
