@@ -209,9 +209,9 @@ def invoiced_payload() -> dict:
             "full_details": {
                 "name": "Full Details",
                 "rows": [
-                    {"InvoiceNumber": "IN01008282", "CustomerAccount": "C-1001", "CustomerName": "HD SUPPLY", "Total Invoice": 1035.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
-                    {"InvoiceNumber": "FCRD-004181", "CustomerAccount": "C-1002", "CustomerName": "MAZER WHOLESALE", "Total Invoice": -50.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
-                    {"InvoiceNumber": "IN01008290", "CustomerAccount": "C-2001", "CustomerName": "AMAZON.COM DEDC, LLC", "Total Invoice": 520.0, "Salesman": "HKaufman", "SalesmanName": "Kaufman, Herschel"},
+                    {"InvoiceNumber": "IN01008282", "CustomerAccount": "C-1001", "CustomerName": "HD SUPPLY", "InvoiceDate": "2026-09-02", "Total Invoice": 1035.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
+                    {"InvoiceNumber": "FCRD-004181", "CustomerAccount": "C-1002", "CustomerName": "MAZER WHOLESALE", "InvoiceDate": "2026-09-03", "Total Invoice": -50.0, "Salesman": "DDweck", "SalesmanName": "Dweck, David"},
+                    {"InvoiceNumber": "IN01008290", "CustomerAccount": "C-2001", "CustomerName": "AMAZON.COM DEDC, LLC", "InvoiceDate": "2026-09-04", "Total Invoice": 520.0, "Salesman": "HKaufman", "SalesmanName": "Kaufman, Herschel"},
                 ],
             },
             "credits": {

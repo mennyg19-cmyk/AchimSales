@@ -1,5 +1,7 @@
 # Testing Strategy
 
+**2026-09-16:** Report tabs stamp `columns` with old-site types (money / int / percent / date). Grid formatters and Excel number formats follow those types. Qty is int, not money. Fulfillment % paints red→green. Tests: `app/tests/test_reporting.py` (`test_invoiced_tabs_carry_old_site_column_types`, `test_ordered_fulfillment_and_qty_types`, `test_xlsx_uses_old_site_number_formats`).
+
 **2026-09-16:** Flask home and Azure Automation CLI are gone from this
 branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
 `test_golive.py`. Sections below that cite `v3/tests/`, `run.py`, or

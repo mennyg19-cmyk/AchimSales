@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (drop master schedules; exclusion dropdown; report pills)
+Last updated: 2026-09-16 (report cell formats)
 
-**Status:** FastAPI is live. Company and master schedule pages are retired (302 `/schedules`). Next: Settings exclusions should be search + scrolling checkboxes; report customer pills sit beside the selector until Run report.
+**Status:** FastAPI is live. Company and master schedule pages are retired (302 `/schedules`). Report tabs now stamp old-site column types (money/int/percent/date) for the grid and Excel.
 
 ## Working tree
 

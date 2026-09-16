@@ -490,3 +490,100 @@ def test_assemble_converts_old_rows_and_pads_empty_fields():
     assert row["Total Invoice"] == ""
     assert "full_details" in payload["data"]["tabs"]
     assert "credits" in payload["data"]["tabs"]
+
+
+def _column_map(payload: dict, tab_key: str) -> dict:
+    cols = payload["data"]["tabs"][tab_key]["columns"]
+    return {col["field"]: col["type"] for col in cols}
+
+
+def test_invoiced_tabs_carry_old_site_column_types(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.delenv("REPORTING_API_KEY", raising=False)
+    from db import init_db
+
+    init_db()
+    payload = reports.build_payload("invoiced", {"role": "admin", "email": "a@b.c"}, {})
+    details = _column_map(payload, "full_details")
+    assert details["Total Invoice"] == "money"
+    assert details["InvoiceDate"] == "date"
+    assert details["InvoiceNumber"] == "text"
+    summary = _column_map(payload, "summary_by_customer")
+    assert summary["InvoiceCount"] == "int"
+    assert summary["Total Invoices"] == "money"
+
+
+def test_ordered_fulfillment_and_qty_types(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.delenv("REPORTING_API_KEY", raising=False)
+    from db import init_db
+
+    init_db()
+    payload = reports.build_payload("ordered", {"role": "admin", "email": "a@b.c"}, {})
+    by_customer = _column_map(payload, "by_customer")
+    assert by_customer["Fulfillment%"] == "percent"
+    assert by_customer["QtyOrdered"] == "int"
+    assert by_customer["Open$"] == "money"
+
+
+def test_number_4_month_columns_typed(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.delenv("REPORTING_API_KEY", raising=False)
+    from db import init_db
+
+    init_db()
+    payload = reports.build_payload("number_4", {"role": "admin", "email": "a@b.c"}, {})
+    cols = _column_map(payload, "by_customer")
+    assert cols["Sep Qty"] == "int"
+    assert cols["Sep $"] == "money"
+    assert cols["Avg Price"] == "money"
+
+
+def test_api_column_type_is_kept():
+    result = _result(
+        "invoiced_report",
+        [],
+        {
+            "data": {
+                "tabs": {
+                    "full_details": {
+                        "name": "Full Details",
+                        "columns": [{"field": "Total Invoice", "type": "money"}],
+                        "rows": [{"Total Invoice": 10, "WeirdQty": 3}],
+                    }
+                }
+            }
+        },
+    )
+    payload = assemble.from_result("invoiced", result)
+    cols = _column_map(payload, "full_details")
+    assert cols["Total Invoice"] == "money"
+    assert cols["WeirdQty"] == "int"
+
+
+def test_xlsx_uses_old_site_number_formats(client):
+    login(client)
+    from openpyxl import load_workbook
+
+    res = client.post(
+        "/api/reports/invoiced/xlsx",
+        json={},
+        headers=csrf_headers(client),
+    )
+    assert res.status_code == 200
+    book = load_workbook(BytesIO(res.content))
+    sheet = book["Full Details"]
+    headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
+    money_idx = headers.index("Total Invoice") + 1
+    date_idx = headers.index("InvoiceDate") + 1
+    money_cell = sheet.cell(row=2, column=money_idx)
+    date_cell = sheet.cell(row=2, column=date_idx)
+    assert money_cell.value == 1035.0
+    assert "$" in money_cell.number_format
+    assert "0.00" in money_cell.number_format
+    assert str(date_cell.value).startswith("2026-09-02")
+    summary = book["Summary by Customer"]
+    summary_headers = [cell.value for cell in next(summary.iter_rows(min_row=1, max_row=1))]
+    count_idx = summary_headers.index("InvoiceCount") + 1
+    assert summary.cell(row=2, column=count_idx).number_format == "#,##0"
+

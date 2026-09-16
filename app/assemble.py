@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import catalog
+import column_types
 from doorway import ReportResult, rows_from_body
 
 
@@ -12,8 +13,11 @@ def _slug(name: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in name).strip("_") or "tab"
 
 
-def _tab(name: str, rows: list) -> dict:
-    return {"name": name, "rows": list(rows)}
+def _tab(name: str, rows: list, columns=None) -> dict:
+    out = {"name": name, "rows": list(rows)}
+    if columns:
+        out["columns"] = list(columns)
+    return out
 
 
 def _is_credit(row: dict) -> bool:
@@ -72,12 +76,25 @@ def _tab_rows(tab) -> list:
     return []
 
 
+def _tab_columns(tab) -> list:
+    if not isinstance(tab, dict):
+        return []
+    columns = tab.get("columns")
+    if isinstance(columns, list):
+        return columns
+    return []
+
+
 def _tabs_dict(raw) -> dict:
     if isinstance(raw, dict):
         out = {}
         for key, tab in raw.items():
             if isinstance(tab, dict):
-                out[str(key)] = {"name": tab.get("name") or str(key), "rows": _tab_rows(tab)}
+                rec = {"name": tab.get("name") or str(key), "rows": _tab_rows(tab)}
+                columns = _tab_columns(tab)
+                if columns:
+                    rec["columns"] = columns
+                out[str(key)] = rec
             elif isinstance(tab, list):
                 out[str(key)] = {"name": str(key), "rows": _tab_rows(tab)}
         return out
@@ -87,7 +104,11 @@ def _tabs_dict(raw) -> dict:
             if not isinstance(tab, dict):
                 continue
             key = str(tab.get("key") or _slug(tab.get("name") or f"tab_{index}"))
-            out[key] = {"name": tab.get("name") or key, "rows": _tab_rows(tab)}
+            rec = {"name": tab.get("name") or key, "rows": _tab_rows(tab)}
+            columns = _tab_columns(tab)
+            if columns:
+                rec["columns"] = columns
+            out[key] = rec
         return out
     return {}
 
@@ -142,10 +163,14 @@ def _pad_tabs(key: str, tabs: dict, raw: list) -> tuple[dict, list]:
         if not isinstance(rows, list):
             rows = []
         keys = _keys_in_order(rows, extra=tab_schema.get(str(tab_key)) or [])
-        padded_tabs[str(tab_key)] = {
+        rec = {
             "name": (tab.get("name") if isinstance(tab, dict) else None) or str(tab_key),
             "rows": _pad_rows(rows, keys),
         }
+        columns = _tab_columns(tab) if isinstance(tab, dict) else []
+        if columns:
+            rec["columns"] = columns
+        padded_tabs[str(tab_key)] = rec
     raw_list = [row for row in raw or [] if isinstance(row, dict)]
     if not raw_list:
         for tab in padded_tabs.values():
@@ -154,19 +179,51 @@ def _pad_tabs(key: str, tabs: dict, raw: list) -> tuple[dict, list]:
     return padded_tabs, _pad_rows(raw_list, raw_keys)
 
 
+def stamp_columns(payload: dict) -> dict:
+    """Attach typed columns to each tab. Grid + Excel both read this."""
+    if not isinstance(payload, dict):
+        return payload
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return payload
+    key = str(data.get("report_key") or "")
+    tabs = data.get("tabs")
+    if not isinstance(tabs, dict):
+        return payload
+    for tab in tabs.values():
+        if not isinstance(tab, dict):
+            continue
+        rows = tab.get("rows") if isinstance(tab.get("rows"), list) else []
+        incoming = tab.get("columns") if isinstance(tab.get("columns"), list) else []
+        fields = _keys_in_order(rows)
+        if not fields and incoming:
+            fields = [
+                str(col.get("field") or col.get("name") or col)
+                if isinstance(col, dict)
+                else str(col)
+                for col in incoming
+            ]
+        tab["columns"] = column_types.columns_for(
+            fields, incoming=incoming, rows=rows, report_key=key
+        )
+    return payload
+
+
 def wrap(key: str, tabs: dict, raw: list, *, source: str = "reporting_api") -> dict:
     spec = catalog.spec(key)
     title = spec["title"] if spec else key
     tabs, raw = _pad_tabs(key, tabs, raw)
-    return {
-        "data": {
-            "report_key": key,
-            "title": title,
-            "raw": raw,
-            "tabs": tabs,
-            "source": source,
+    return stamp_columns(
+        {
+            "data": {
+                "report_key": key,
+                "title": title,
+                "raw": raw,
+                "tabs": tabs,
+                "source": source,
+            }
         }
-    }
+    )
 
 
 def from_result(key: str, result: ReportResult) -> dict:

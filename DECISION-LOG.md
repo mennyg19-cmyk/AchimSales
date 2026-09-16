@@ -1,3 +1,11 @@
+## 2026-09-16 Restore old-site report cell formats
+**What I had to decide:** Port v3 report_engine vs stamp a static field→type map and infer the rest.
+**Options I considered:** Heuristic-only money in report-grid.js; full engine port; typed `tabs[].columns` plus JS/Excel formatters.
+**What I chose:** Hotfix deviation (no Sol/Fable). Keep assemble rows as-is. Add `column_types.py` from the old Column specs (folded aliases like `Fulfillment%` / `Open$`). Grid uses Tabulator money/int/percent/date formatters, salesman color bands, Fulfillment fill, bottomCalc money. Excel uses `$#,##0.00` / `#,##0` / `0.0%` / `YYYY-MM-DD`. Percent values > 1 are already scaled (mock 80 → 80.0%).
+**Why:** Menny: previous-site formatting is not applied to the reports. Assemble had been dropping `columns`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Drop master-schedule pages; exclusion dropdown; report pills beside Run report
 **What I had to decide:** Hide master pages vs keep a duplicate admin list of user schedules; auto-save exclusions vs keep Save; pills wrap inside the customers column vs sit in the filter row.
 **Options I considered:** Leave `/master-schedules` as a privileged alias of `/schedules`; always-visible checkbox wall; keep pills under the selector.

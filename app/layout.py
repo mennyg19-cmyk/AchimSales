@@ -52,6 +52,13 @@ def _apply_to_tab(tab: dict, spec: dict) -> dict:
     slim = [{field: row.get(field) for field in fields} for row in rows]
     out = dict(tab)
     out["rows"] = slim
+    columns = tab.get("columns")
+    if isinstance(columns, list) and columns:
+        by_field = {}
+        for col in columns:
+            if isinstance(col, dict) and col.get("field"):
+                by_field[col["field"]] = col
+        out["columns"] = [by_field[field] for field in fields if field in by_field]
     return out
 
 
