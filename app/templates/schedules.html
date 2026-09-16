@@ -5,7 +5,7 @@
 <div class="page-head page-head-row">
     <div>
         <h1 class="page-title">Schedules</h1>
-        <p class="page-subtitle">Recurring deliveries from a named saved view. Dummy mail goes to the outbox, not Graph.</p>
+        <p class="page-subtitle">Recurring deliveries from a named saved view. Graph sends when secrets are set; otherwise the outbox.</p>
     </div>
 </div>
 
@@ -16,7 +16,7 @@
 </div>
 {% endif %}
 <div class="alert alert-warn hebcal-banner" role="status">
-    Calendar skip is off on this preview (no Hebcal file). Production would hold when the Brooklyn calendar does not cover now, skip Shabbos/Yom Tov, and catch up on the next weekday slot.
+    Clock skips Shabbos and Yom Tov using the Brooklyn Hebcal calendar. If that calendar cannot be loaded, the clock holds (does not send) until it can. Run now still sends.
 </div>
 
 <section class="settings-card">
@@ -81,9 +81,9 @@
             </p>
             {% if is_privileged or user.sharepoint_access %}
             <label class="auth-field"><span class="auth-label">SharePoint folder</span>
-                <input name="sharepoint_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
+                <input name="sharepoint_folder" type="text" placeholder="path saved; Graph upload is not wired yet"></label>
             <label class="auth-field"><span class="auth-label">OneDrive folder</span>
-                <input name="onedrive_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
+                <input name="onedrive_folder" type="text" placeholder="path saved; Graph upload is not wired yet"></label>
             {% endif %}
         </div>
         <div class="modal-foot">

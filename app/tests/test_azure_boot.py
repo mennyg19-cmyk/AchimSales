@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -28,6 +29,8 @@ def test_gunicorn_worker_serves_healthz():
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
+    env = dict(os.environ)
+    env["DISABLE_SCHEDULE_CLOCK"] = "1"
     proc = subprocess.Popen(
         [
             sys.executable, "-m", "gunicorn",
@@ -40,6 +43,7 @@ def test_gunicorn_worker_serves_healthz():
         cwd=str(ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
     url = f"http://127.0.0.1:{port}/healthz"
     try:

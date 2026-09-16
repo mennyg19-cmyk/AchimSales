@@ -10,6 +10,7 @@ import doorway
 import lookups
 import reports
 import store
+from deliver import deliver_report_email
 from deps import (
     can_see_report,
     can_read_job,
@@ -226,15 +227,17 @@ async def report_email(request: Request, report_key: str):
     live = source == "reporting_api"
     recipients = store.mail_recipients((body or {}).get("recipients") or user["email"])
     subject = (body or {}).get("subject") or (spec["title"] if live else f"[MOCK] {spec['title']}")
-    store.add_outbox(
-        recipients,
-        subject,
-        "Excel attached. Graph mail is not wired yet." if live else "Dummy Excel attached. Graph mail is not wired yet.",
-    )
     folder = ((body or {}).get("sharepoint_folder") or "").strip()
-    if folder:
-        store.add_outbox(recipients, subject + " [SharePoint]", f"Would upload to {folder}. Graph is not wired.")
-    return {"ok": True, "recipients": recipients, "mock": not live}
+    result = deliver_report_email(
+        report_key=report_key,
+        payload=payload,
+        recipients=recipients,
+        subject=subject,
+        sharepoint_folder=folder,
+    )
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error") or "Send failed"}, status_code=502)
+    return result
 
 
 @router.get("/report/customer-last-order")

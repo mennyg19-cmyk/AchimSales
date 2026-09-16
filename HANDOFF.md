@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-15 (dummy inventory clickable on Cloudflare)
+Last updated: 2026-09-16 (Graph mail, minute clock, Hebcal, Entra wired)
 
-**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Cheap chrome+API reviews green. No production cutover.
+**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock turn on when `GRAPH_*` + `EMAIL_FROM` are set; otherwise outbox + preview login. No production cutover.
 
 ## Working tree
 
@@ -13,7 +13,7 @@ Last updated: 2026-09-15 (dummy inventory clickable on Cloudflare)
 
 ## What's in the dummy site
 
-Login (preview + magic-link, `next=` same-app only, disabled accounts 403), all home report cards (live doorway or mock `data.tabs`), Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (including Company Default and save-for-other-user), Keep/Recent, schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + Copy + Run now → sqlite outbox, Hebcal honest banner, master schedule history, diagnostics, explorer (confirm writes; views.group array), xlsx export + recent exports, CSRF, PWA icons. Azure `startup.sh` is gunicorn + UvicornWorker `main:app` (timeout 180s).
+Login (preview unless Entra secrets; magic-link emails a 15-minute token when Graph is set, else preview External shortcut; `next=` same-app only; disabled accounts 403; Entra callback requires an existing People row — no upsert), all home report cards (live doorway or mock `data.tabs`), Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (including Company Default and save-for-other-user), Keep/Recent, schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + Copy + Run now, Graph sendMail (stdlib) or sqlite outbox, one-minute clock (daemon thread, off under pytest), Brooklyn Hebcal skip/hold, master schedule history, diagnostics, explorer (confirm writes; views.group array), xlsx export + recent exports, CSRF, PWA icons. Azure `startup.sh` is gunicorn + UvicornWorker `main:app` (timeout 180s). SharePoint/OneDrive *upload* is still not Graph.
 
 Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 
@@ -28,6 +28,6 @@ Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is th
 ## What's next
 
 1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
-2. Menny clicks the dummy Cloudflare URL
-3. If it looks right: new Azure Web App, then DNS
-4. Entra + Graph when secrets exist
+2. Menny sets `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` / `EMAIL_FROM` if he wants real mail and Entra (and adds the preview URL as a redirect URI)
+3. Menny clicks the dummy Cloudflare URL
+4. If it looks right: new Azure Web App, then DNS

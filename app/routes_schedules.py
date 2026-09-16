@@ -1,13 +1,13 @@
-"""Personal and company schedules on mock data. No Graph, no Automation."""
+"""Personal and company schedules. Graph mail when secrets exist; clock ticks every minute."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
-import catalog
+import config
 import store
-from doorway import DoorwayError
+from deliver import deliver_schedule
 from deps import (
     can_read_schedule,
     can_use_view_for_schedule,
@@ -18,50 +18,8 @@ from deps import (
     require_csrf,
     session_user,
 )
-from routes_reports import _build_payload
 
 router = APIRouter()
-
-
-def _deliver(schedule: dict, user: dict) -> str:
-    spec = catalog.spec(schedule["report_key"])
-    if spec is None:
-        store.mark_schedule_run(schedule["id"], "failure", "Unknown report on the saved view.")
-        return "failure"
-    try:
-        payload = _build_payload(schedule["report_key"], user, schedule.get("params") or {})
-    except DoorwayError as err:
-        store.mark_schedule_run(schedule["id"], "failure", str(err))
-        return "failure"
-    store.save_job(schedule["report_key"], schedule["view_name"], payload, owner_email=user["email"])
-    recipients = store.mail_recipients(schedule["recipients"])
-    extra = []
-    if schedule.get("cc"):
-        extra.append(f"CC {schedule['cc']}")
-    if schedule.get("bcc"):
-        extra.append(f"BCC {schedule['bcc']}")
-    if schedule.get("filename"):
-        extra.append(f"file {schedule['filename']}")
-    if schedule.get("sharepoint_folder"):
-        extra.append(f"SharePoint {schedule['sharepoint_folder']}")
-    if schedule.get("onedrive_folder"):
-        extra.append(f"OneDrive {schedule['onedrive_folder']}")
-    source = (payload.get("data") or {}).get("source") or "mock"
-    detail = (
-        "Scheduled workbook from the office Reporting API. Graph is not wired on this preview."
-        if source == "reporting_api"
-        else "Scheduled dummy workbook. Graph is not wired on this preview."
-    )
-    if extra:
-        detail += " " + "; ".join(extra)
-    store.add_outbox(
-        recipients,
-        schedule.get("subject")
-        or (schedule["view_name"] if source == "reporting_api" else f"[MOCK] {schedule['view_name']}"),
-        detail,
-    )
-    store.mark_schedule_run(schedule["id"], "success", f"Mock mail queued to {recipients}")
-    return "success"
 
 
 @router.get("/schedules")
@@ -140,7 +98,7 @@ def schedules_add(
         sharepoint_folder=sharepoint_folder if user.get("sharepoint_access") or is_privileged(user) else "",
         onedrive_folder=onedrive_folder if user.get("sharepoint_access") or is_privileged(user) else "",
     )
-    flash(request, "Schedule saved. Run now sends mock mail to the outbox.")
+    flash(request, "Schedule saved. Run now sends mail (Graph when secrets are set, otherwise the outbox).")
     return RedirectResponse("/schedules", status_code=303)
 
 
@@ -198,8 +156,14 @@ def schedules_run_now(request: Request, schedule_id: int, csrf: str = Form("")):
     if row is None or not can_read_schedule(user, row):
         flash(request, "You can only run a schedule you can see.", "warn")
         return RedirectResponse("/schedules", status_code=303)
-    _deliver(row, user)
-    flash(request, "Mock send finished. Check Settings → Developer → Notification diagnostic.")
+    status = deliver_schedule(row, user)
+    if status == "success":
+        if config.graph_mail_configured():
+            flash(request, "Send finished. Check the inbox (and Settings → Developer → Notification diagnostic).")
+        else:
+            flash(request, "Send finished. Graph secrets are not set, so the copy is in Settings → Developer → Notification diagnostic.")
+    else:
+        flash(request, "Send failed. Open the run log for the error.", "error")
     return RedirectResponse("/schedules", status_code=303)
 
 
@@ -236,7 +200,7 @@ def schedule_run_log(request: Request, run_id: int):
     when = run["started_at"]
     steps = [
         {"time": when, "step": "Start", "detail": f"{run['view_name']} ({run['report_key']})"},
-        {"time": when, "step": "Build", "detail": "Mock workbook from the saved view. No office API."},
+        {"time": when, "step": "Build", "detail": "Workbook from the saved view."},
         {"time": when, "step": "Deliver", "detail": run["message"] or run["status"]},
     ]
     return page(

@@ -1,3 +1,11 @@
+## 2026-09-16 Graph mail, minute clock, Hebcal, Entra on the dummy
+**What I had to decide:** Ship Graph/clock/Hebcal/Entra now vs keep honest stubs until secrets exist; Hebcal-down fail-open (live v3) vs hold (rebuild Q5); Entra upsert (live v3) vs People-row required (Q8).
+**Options I considered:** Stubs until cutover; code paths on, secrets optional; refuse to boot production without Graph/Entra.
+**What I chose:** Wire the real paths. No secrets → sqlite outbox, preview Achim login, External shortcut. Secrets set → Graph sendMail (stdlib urllib), Entra auth-code, magic-link email. Clock is a 60s daemon thread (off under pytest / `DISABLE_SCHEDULE_CLOCK`). Hebcal missing → hold, do not send, retry next minute (Q5). Shabbos/Yom Tov → skipped + last_run so due_now will not retry every minute. Entra callback never upserts. SharePoint/OneDrive upload stays unwired. Same PR, no cutover.
+**Why:** Menny asked why those were missing and to add them. Secrets cannot be invented; fail-closed means no fake success.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Loop C craft: shared cell, dev routes, salesman tabs, sidecar errors
 **What I had to decide:** Fix all five quality findings vs DECIDED-defer any; put the doorway proxy in `routes_reports.py` vs a new `routes_dev.py`.
 **Options I considered:** Move only `/api/dev/reporting/{id}/run` (admin would stay over 500); new `routes_dev.py` for explorer + diagnostics + proxy; leave `_cell` duplicated with a comment.

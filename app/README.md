@@ -6,7 +6,7 @@ This folder is **not** the leftover Flask preview in `/rebuild` and **must not**
 
 ## Dummy preview (what this branch serves)
 
-Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and mock outbox. Reports call the office Reporting API when `REPORTING_API_KEY` is set; without it they stay on catalog JSON (banner on home and report pages). No Graph, no Entra.
+Every home card, Settings, People, saved views, Keep/Recent, schedules, Excel export, and outbox. Reports call the office Reporting API when `REPORTING_API_KEY` is set; without it they stay on catalog JSON (banner on home and report pages). Graph mail, the one-minute clock, Hebcal skip, and Entra login turn on when `GRAPH_*` / `EMAIL_FROM` are set; without them mail stays in sqlite outbox and Achim User Login stays the preview admin.
 
 ```
 cd app
@@ -14,7 +14,7 @@ python -m pip install -r requirements-dev.txt
 PYTHONPATH=. python -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Open `/login` → **Achim User Login** (Preview Admin). External Rep Login with `external@example.com` signs in the seeded external row (preview only).
+Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` is set). External Rep Login with `external@example.com` signs in the seeded external row unless Graph mail is configured (then it emails a 15-minute link).
 
 `pytest` from this folder uses a temp sqlite file. It never calls the live Reporting API (doorway is mocked).
 
@@ -36,7 +36,7 @@ bash create-azure-webapp.sh achim-sales-home-preview
 .\deploy.ps1 -Name achim-sales-home-preview
 ```
 
-App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Do not bind `reports.achimonline.com` yet.
+App settings on that new app: `APP_ENV=preview`, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, Startup Command `bash /home/site/wwwroot/startup.sh`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM`. Do not bind `reports.achimonline.com` yet.
 
 `deploy.ps1` refuses the live app name.
 

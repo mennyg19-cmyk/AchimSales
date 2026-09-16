@@ -10,7 +10,12 @@
 | Last Order `C-1001` | SO-88021 |
 | Duplicate People email | refused (no self-register) |
 | Visibility off | card gone from `/` |
-| Schedule Run now | sqlite outbox, not Graph |
+| Schedule Run now | sqlite outbox when Graph secrets are unset; Graph sendMail when they are |
+| Clock tick | due_now Eastern once/day; Hebcal Shabbos skip; hold if calendar missing |
+| Entra callback | existing People row only — no upsert |
+| Magic link with Graph | emails 15-minute token; does not auto-sign-in |
+| Magic link without Graph (preview) | signs in active External People row |
+| `/login/preview` in production | 403; Achim User Login is Entra when GRAPH_* set |
 | `/schedules/runs/{id}` | Time / Step / Detail log |
 | External login copy | preview does not send mail; no “Send sign-in link” |
 | xlsx | zip magic `PK` |

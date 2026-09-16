@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 
+import cadence
+from config import db_path
 from db import db
 
 
@@ -231,6 +234,49 @@ def list_schedules() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def list_active_schedules() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT s.*, v.name AS view_name, v.report_key, v.params_json, v.kind AS view_kind
+               FROM schedules s JOIN views v ON v.id = s.view_id
+               WHERE s.is_active = 1
+               ORDER BY s.id"""
+        ).fetchall()
+    return [_parse_view(row) for row in rows]
+
+
+def claim_today_slot(schedule_id: int, now: datetime | None = None) -> bool:
+    """True if this process owns today's Eastern slot (once per day, race-safe)."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = sqlite3.connect(db_path(), isolation_level="IMMEDIATE")
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT last_run FROM schedules WHERE id = ?",
+            (schedule_id,),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return False
+        if cadence.ran_today(row["last_run"], now.astimezone(cadence.EASTERN)):
+            conn.rollback()
+            return False
+        conn.execute(
+            "UPDATE schedules SET last_run = ? WHERE id = ?",
+            (stamp, schedule_id),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def add_schedule(
     view_id: int,
     owner_email: str,
@@ -275,15 +321,23 @@ def delete_schedule(schedule_id: int) -> None:
         conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
 
 
-def mark_schedule_run(schedule_id: int, status: str, message: str) -> None:
+def mark_schedule_run(
+    schedule_id: int, status: str, message: str, at: datetime | None = None
+) -> None:
+    if at is None:
+        stamp = now_iso()
+    else:
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        stamp = at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with db() as conn:
         conn.execute(
             "UPDATE schedules SET last_run = ?, last_status = ? WHERE id = ?",
-            (now_iso(), status, schedule_id),
+            (stamp, status, schedule_id),
         )
         conn.execute(
             "INSERT INTO schedule_runs (schedule_id, started_at, status, message) VALUES (?, ?, ?, ?)",
-            (schedule_id, now_iso(), status, message),
+            (schedule_id, stamp, status, message),
         )
 
 

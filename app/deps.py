@@ -66,6 +66,9 @@ def ctx(request: Request, **extra):
         "is_developer": is_privileged(user) and user.get("role") == "developer",
         "impersonating": request.session.get("impersonating"),
         "data_source": "reporting_api" if doorway.configured() else "mock",
+        "graph_configured": config.graph_mail_configured(),
+        "entra_configured": config.entra_configured(),
+        "production": config.PRODUCTION,
         **extra,
     }
 

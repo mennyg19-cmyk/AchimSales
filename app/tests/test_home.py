@@ -616,7 +616,7 @@ def test_schedule_delivery_fields_land_in_outbox(client):
     assert "SharePoint /Reports/Dummy" in diag
     assert "OneDrive /OneDrive/Dummy" in diag
     sched = client.get("/schedules").text
-    assert "Calendar skip is off" in sched
+    assert "Clock skips Shabbos and Yom Tov" in sched
     assert 'href="/schedules/runs/' in sched
     assert "Step 1 of 3" in sched
     assert "OneDrive folder" in sched

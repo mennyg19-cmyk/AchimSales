@@ -51,3 +51,43 @@ def reporting_api_base() -> str:
 
 def reporting_api_key() -> str:
     return (os.environ.get("REPORTING_API_KEY") or "").strip()
+
+
+def graph_tenant() -> str:
+    return (os.environ.get("GRAPH_TENANT_ID") or "").strip()
+
+
+def graph_client_id() -> str:
+    return (os.environ.get("GRAPH_CLIENT_ID") or "").strip()
+
+
+def graph_client_secret() -> str:
+    return (os.environ.get("GRAPH_CLIENT_SECRET") or "").strip()
+
+
+def email_from() -> str:
+    return (
+        os.environ.get("EMAIL_FROM") or os.environ.get("EMAIL_FROM_ADDRESS") or ""
+    ).strip()
+
+
+def graph_mail_configured() -> bool:
+    return bool(graph_tenant() and graph_client_id() and graph_client_secret() and email_from())
+
+
+def entra_configured() -> bool:
+    return bool(graph_tenant() and graph_client_id() and graph_client_secret())
+
+
+def entra_redirect_path() -> str:
+    path = (os.environ.get("ENTRA_REDIRECT_PATH") or "/auth/callback").strip() or "/auth/callback"
+    if not path.startswith("/"):
+        path = "/" + path
+    return path
+
+
+def clock_disabled() -> bool:
+    raw = (os.environ.get("DISABLE_SCHEDULE_CLOCK") or "").strip().lower()
+    if raw in {"1", "true", "yes"}:
+        return True
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))

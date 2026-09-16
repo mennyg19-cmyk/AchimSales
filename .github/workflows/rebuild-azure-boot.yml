@@ -31,4 +31,4 @@ jobs:
       - name: Install runtime deps
         run: pip install -r requirements-dev.txt
       - name: Azure-shaped gunicorn boot
-        run: python -m pytest tests/test_azure_boot.py tests/test_home.py -q
+        run: python -m pytest -q

@@ -4,7 +4,7 @@
 <div class="page-head">
     <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
     <h1 class="page-title">Notification diagnostic</h1>
-    <p class="page-subtitle">Mock outbox. Graph is not connected on this preview.</p>
+    <p class="page-subtitle">{% if graph_configured %}Outbox copy of Graph sends.{% else %}Outbox. Graph secrets are not set, so this is the delivery record.{% endif %}</p>
 </div>
 <section class="settings-card">
     {% if outbox %}
