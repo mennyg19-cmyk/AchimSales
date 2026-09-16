@@ -27,6 +27,9 @@ def test_startup_script_is_azure_shaped():
     assert "GUNICORN_TIMEOUT:-180" in text
     assert "litestream" in text
     assert (ROOT / "litestream.yml").is_file()
+    yml = (ROOT / "litestream.yml").read_text(encoding="utf-8")
+    assert "path: home.sqlite" in yml
+    assert "path: ${LITESTREAM_AZURE_PATH}" not in yml
     root_boot = (ROOT.parent / "startup.sh").read_text(encoding="utf-8")
     assert "app/startup.sh" in root_boot
     assert "exec bash" in root_boot

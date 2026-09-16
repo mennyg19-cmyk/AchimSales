@@ -1,4 +1,11 @@
-## 2026-09-16 Hotfix: skip leftover Litestream wrap; vendor deps
+## 2026-09-16 Hotfix: schedule_runs.message missing after Flask Litestream restore
+**What I had to decide:** Crash on missing column vs migrate; keep replicating to Flask `precious.db` blob path.
+**What I chose:** `init_db` ADD COLUMN `schedule_runs.message`. Replica blob path is `home.sqlite`, not `${LITESTREAM_AZURE_PATH}` (still `precious.db` on live). Log at 12:07: gunicorn bound :8000 then lifespan died. BOOT_B64 still launched Oryx. Re-import after boot; that restore overwrote the Kudu import with an 86KB Flask snapshot.
+**Why:** `CREATE TABLE IF NOT EXISTS` does not add columns. Worker exit → 503.
+**Status:** DECIDED
+
+
+
 **What I had to decide:** Keep `litestream replicate -exec gunicorn` vs boot gunicorn directly.
 **What I chose:** Direct `python -m gunicorn`. Leftover `/home/bin/litestream` (Oct 2023) wraps a system python with no packages and exits. CI vendors `app/deps` with Python 3.11 (matches Azure 3.11.2). Re-enable Litestream after the site answers `/healthz`.
 **Why:** Portal Running + 503. No pip, no ensurepip, PEP 668, no /opt/python.

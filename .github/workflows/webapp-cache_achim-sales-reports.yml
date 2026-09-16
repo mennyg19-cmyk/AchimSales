@@ -30,7 +30,7 @@ jobs:
       - name: Set up Python version
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       # Website deps live in app/requirements.txt (FastAPI, gunicorn, uvicorn).
       # Oryx on App Service runs `pip install -r requirements.txt` at the

@@ -367,6 +367,7 @@ def init_db() -> None:
         ensure_column("schedules", "window_start", "TEXT")
         ensure_column("schedules", "window_end", "TEXT")
         ensure_column("jobs", "kept_until", "TEXT")
+        ensure_column("schedule_runs", "message", "TEXT NOT NULL DEFAULT ''")
         for name in (
             "saved_reports",
             "company_views",

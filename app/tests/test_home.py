@@ -53,6 +53,31 @@ def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
+def test_init_db_adds_schedule_runs_message(tmp_path, monkeypatch):
+    import sqlite3
+
+    from db import init_db
+    from store import abandon_orphan_runs
+
+    path = tmp_path / "legacy.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(path))
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """CREATE TABLE schedule_runs (
+            id INTEGER PRIMARY KEY,
+            schedule_id INTEGER NOT NULL,
+            started_at TEXT NOT NULL,
+            status TEXT NOT NULL
+        )"""
+    )
+    conn.commit()
+    conn.close()
+    init_db()
+    cols = {row[1] for row in sqlite3.connect(path).execute("PRAGMA table_info(schedule_runs)")}
+    assert "message" in cols
+    assert abandon_orphan_runs() >= 0
+
+
 def test_beta_redirects_home(client):
     res = client.get("/beta", follow_redirects=False)
     assert res.status_code == 302

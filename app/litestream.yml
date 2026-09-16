@@ -5,6 +5,9 @@
 # and restore here stay fail-open so a bad binary never takes the site down.
 #
 # ${VAR} is expanded by Litestream from app settings.
+# Blob object is always home.sqlite — do not reuse Flask's LITESTREAM_AZURE_PATH
+# (precious.db). Restoring that replica into home.sqlite crashes boot
+# (schedule_runs has no message column) and wipes the FastAPI import.
 dbs:
   - path: ${APP_DB_PATH}
     replicas:
@@ -12,4 +15,4 @@ dbs:
         account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
         account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
         bucket: ${LITESTREAM_AZURE_CONTAINER}
-        path: ${LITESTREAM_AZURE_PATH}
+        path: home.sqlite
