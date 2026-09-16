@@ -1,3 +1,10 @@
+## 2026-09-16 Hotfix: Azure 503 — gunicorn not on PATH
+**What I had to decide:** Push another `main` deploy vs patch startup to `python3 -m gunicorn` / `python3 -m pip`.
+**What I chose:** Hotfix deviation (no Sol/Fable). Boot-diag: python `boot ok`, no `gunicorn` binary, leftover `/home/bin/litestream`. `startup.sh` now uses the same interpreter as `python3 -c import main`. Kudu can apply the same two-line change without waiting for git.
+**Why:** Portal Running ≠ gunicorn bound. `pip`/`gunicorn` were not on PATH; `|| echo warning` then `exec gunicorn` exited.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Cut over FastAPI home to production
 **What I had to decide:** Run Sol/Fable production-merge loops first vs merge now; port Flask companion-xlsx OOM spill into FastAPI first.
 **Options I considered:** Block merge for premier review; port companion spill; merge immediately as Menny ordered.

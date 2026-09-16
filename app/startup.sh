@@ -20,9 +20,11 @@ LS_CONFIG="${ROOT}/litestream.yml"
 export APP_DB_PATH="${APP_DB_PATH:-/tmp/homedata/home.sqlite}"
 mkdir -p "$(dirname "${APP_DB_PATH}")" 2>/dev/null || true
 
-GUNICORN_CMD="gunicorn --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --workers ${WORKERS} --timeout ${TIMEOUT} --access-logfile - --error-logfile - main:app"
+# Azure Oryx may not put a `gunicorn` binary on PATH. Same interpreter as boot-diag.
+GUNICORN_CMD="python3 -m gunicorn --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --workers ${WORKERS} --timeout ${TIMEOUT} --access-logfile - --error-logfile - main:app"
 
-pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+echo "startup $(date -u +%Y-%m-%dT%H:%M:%SZ) port=${PORT} python=$(command -v python3)" >>/home/LogFiles/home-startup.log 2>/dev/null || true
+python3 -m pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
 
 if [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${LS_CONFIG}" ]; then
   if [ ! -x "${LS_BIN}" ]; then
