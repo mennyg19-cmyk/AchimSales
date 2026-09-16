@@ -19,7 +19,8 @@ def test_startup_script_is_azure_shaped():
     assert "uvicorn.workers.UvicornWorker" in text
     assert "-m gunicorn" in text
     assert "PYTHONPATH" in text
-    assert "${ROOT}/deps" in text
+    assert "${ROOT}/.venv" in text
+    assert "--break-system-packages" in text
     assert "-m pip" in text
     assert "/opt/python" in text
     assert "0.0.0.0" in text

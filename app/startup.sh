@@ -26,9 +26,11 @@ if [ -d "${ROOT}/deps" ]; then
   export PYTHONPATH="${ROOT}/deps${PYTHONPATH:+:$PYTHONPATH}"
 fi
 
-# Azure's /usr/bin/python3 often has no pip and no gunicorn. Prefer Oryx.
+# Azure's /usr/bin/python3 is Debian-externally-managed (no pip, no ensurepip).
 PY=""
-if [ -x /home/site/wwwroot/antenv/bin/python ]; then
+if [ -x "${ROOT}/.venv/bin/python" ]; then
+  PY="${ROOT}/.venv/bin/python"
+elif [ -x /home/site/wwwroot/antenv/bin/python ]; then
   PY=/home/site/wwwroot/antenv/bin/python
 else
   for p in /opt/python/*/bin/python; do
@@ -47,10 +49,10 @@ GUNICORN_CMD="${PY} -m gunicorn --worker-class uvicorn.workers.UvicornWorker --b
 echo "startup $(date -u +%Y-%m-%dT%H:%M:%SZ) port=${PORT} python=${PY}" >>/home/LogFiles/home-startup.log 2>/dev/null || true
 if ! "${PY}" -m pip --version >/dev/null 2>&1; then
   "${PY}" -m ensurepip --user >/dev/null 2>&1 \
-    || curl -fsSL https://bootstrap.pypa.io/get-pip.py | "${PY}" - --user \
+    || curl -fsSL https://bootstrap.pypa.io/get-pip.py | "${PY}" - --break-system-packages \
     || echo "startup: pip bootstrap failed (continuing)"
 fi
-"${PY}" -m pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+"${PY}" -m pip install -q --break-system-packages -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
 
 if [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${LS_CONFIG}" ]; then
   if [ ! -x "${LS_BIN}" ]; then
