@@ -21,7 +21,9 @@ Login (preview unless Entra secrets; magic-link emails a 15-minute token when Gr
 
 Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 
-Copy from live: Settings → People → upload `precious.db`, or `python3 app/import_precious.py /path/to/precious.db`. That copies People, views, and schedules (normalized tables or old JSON blobs). Existing emails stay. Matching company view names get the live layout.
+Copy from live: `python import-precious.py path/to/precious.db` or
+`.\\import-precious.ps1 -Precious path\\to\\precious.db`, or Settings → People
+upload. That copies People, views, and schedules. Existing emails stay.
 
 ## Locked (do not reopen)
 

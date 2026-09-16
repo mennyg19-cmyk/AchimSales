@@ -28,6 +28,13 @@ Settings → People → **Copy from live precious.db**, or:
 python3 import_precious.py /path/to/precious.db
 ```
 
+From the repo root (same importer):
+
+```
+python import-precious.py /path/to/precious.db
+.\import-precious.ps1 -Precious path\to\precious.db
+```
+
 That adds People, views, and schedules. Existing emails stay. Matching company view names get the live layout.
 
 ## Azure

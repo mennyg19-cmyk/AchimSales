@@ -17,10 +17,17 @@ Leftover Flask PR #35 stays parked.
 ## Copy live data (precious.db)
 
 The old site stored People, views, and schedules in `precious.db`. Copy that
-file off the live box, then either:
+file off the live box, then:
 
-- Settings → People → **Copy from live precious.db** (admin upload), or
-- `python3 app/import_precious.py /path/to/precious.db`
+```powershell
+.\import-precious.ps1 -Precious C:\path\to\precious.db
+```
+
+```
+python import-precious.py /path/to/precious.db
+```
+
+Or Settings → People → **Copy from live precious.db** (admin upload).
 
 Existing emails stay. Matching company view names get the live layout.
 Schedules attach to those views. Nightly sends after that are the site clock.

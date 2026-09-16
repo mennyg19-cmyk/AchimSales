@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -468,6 +469,44 @@ def test_settings_import_precious_upload(tmp_path, monkeypatch):
         )
         assert res.status_code == 303
     assert home_store.get_user("upload.user@achimonline.com") is not None
+
+
+def test_root_import_precious_script(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+
+    dest = tmp_path / "home.sqlite"
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        INSERT INTO users (email, display_name, role)
+        VALUES ('script.user@achimonline.com', 'Script User', 'manager');
+        """
+    )
+    conn.commit()
+    conn.close()
+    repo = Path(__file__).resolve().parents[2]
+    script = repo / "import-precious.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), str(source), "--dest", str(dest)],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "People 1 added" in completed.stdout
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    row = home_store.get_user("script.user@achimonline.com")
+    assert row is not None
+    assert row["role"] == "manager"
 
 
 def test_deliver_expands_chips_and_mocks_upload(home_db, monkeypatch):
