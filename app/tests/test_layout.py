@@ -113,6 +113,12 @@ def test_report_grid_filters_live_in_header_menu(client):
     assert "Filter this column" in js
     assert "col-filter-popover" in js
     assert "Group by this column" in js
+    assert 'layout: "fitDataTable"' in js
+    assert "nestedFieldSeparator: false" in js
+    assert "function tableHeight(" in js
+    assert 'renderHorizontal: "virtual"' not in js
+    assert "if (tableBuilding) return" not in js
+    assert "v.frozen.size ? v.frozen.has(field) : idx === 0" not in js
 
 
 def test_group_string_rejected_on_params_and_layout(client):

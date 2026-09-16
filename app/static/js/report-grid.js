@@ -558,7 +558,7 @@ function typedColumns(rows, tab, v, key) {
   return fields.map((field, idx) => {
     const col = byField[field] || { field: field, header: field, type: "text" };
     const fmt = formatterFor(col, idx);
-    const frozen = v.frozen.size ? v.frozen.has(field) : idx === 0;
+    const frozen = v.frozen.has(field);
     const def = {
       title: col.header || field,
       field: field,
@@ -608,10 +608,41 @@ function renderGroupPills(group, columns) {
   });
 }
 
-let tableBuilding = false;
+function tableHeight() {
+  const el = document.getElementById("reportTable");
+  const top = el ? el.getBoundingClientRect().top : 230;
+  const nav = document.querySelector(".bottom-nav");
+  const bottom = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+  return Math.max(220, Math.round(bottom - top - 16));
+}
+
+function dropTable() {
+  if (table) {
+    try { table.destroy(); } catch (err) { /* already gone */ }
+    table = null;
+  }
+  const host = document.getElementById("reportTable");
+  if (host) host.innerHTML = "";
+}
+
+let heightWatchBound = false;
+function bindHeightWatch() {
+  if (heightWatchBound) return;
+  heightWatchBound = true;
+  let timer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!table) return;
+      try { table.setHeight(tableHeight()); } catch (err) { /* gone */ }
+    }, 120);
+  });
+}
+
+let buildGen = 0;
 
 function showTab(key) {
-  if (tableBuilding) return;
+  const gen = ++buildGen;
   if (activeKey && activeKey !== key) captureActive();
   activeKey = key;
   const tab = tabsByKey[key];
@@ -622,10 +653,7 @@ function showTab(key) {
   const wrap = document.getElementById("commissionCards");
   const grid = document.getElementById("reportTable");
   if (key === "commissions") {
-    if (table) {
-      try { table.destroy(); } catch (err) { /* already gone */ }
-      table = null;
-    }
+    dropTable();
     wrap.hidden = false;
     grid.hidden = true;
     wrap.innerHTML = rows.map((row) => {
@@ -639,34 +667,30 @@ function showTab(key) {
   }
   wrap.hidden = true;
   grid.hidden = false;
-  if (table) {
-    try { table.destroy(); } catch (err) { /* already gone */ }
-    table = null;
-  }
+  dropTable();
   closeColumnFilterPopover();
   const v = viewFor(key);
   const columns = typedColumns(rows, tab, v, key);
   renderGroupPills(v.group, columns);
-  tableBuilding = true;
-  try {
-    table = new Tabulator("#reportTable", {
-      data: rows,
-      layout: "fitData",
-      placeholder: "No rows",
-      movableColumns: true,
-      renderHorizontal: "virtual",
-      groupBy: v.group.length ? v.group : false,
-      initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
-      columns,
-    });
-    table.on("tableBuilt", () => {
-      tableBuilding = false;
-      applyColumnFilters();
-    });
-  } catch (err) {
-    tableBuilding = false;
-    throw err;
-  }
+  bindHeightWatch();
+  const host = document.getElementById("reportTable");
+  table = new Tabulator(host, {
+    data: rows,
+    layout: "fitDataTable",
+    placeholder: "No rows",
+    movableColumns: true,
+    resizableColumns: true,
+    nestedFieldSeparator: false,
+    height: tableHeight(),
+    groupBy: v.group.length ? v.group : false,
+    initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),
+    columns,
+  });
+  const built = table;
+  table.on("tableBuilt", () => {
+    if (gen !== buildGen || table !== built) return;
+    applyColumnFilters();
+  });
 }
 
 function tabKeys(tabs) {

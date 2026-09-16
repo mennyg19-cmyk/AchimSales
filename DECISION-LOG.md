@@ -1,3 +1,11 @@
+## 2026-09-16 Report tab switch must virtualize rows like the old site
+**What I had to decide:** Keep fitData + virtual-horizontal vs restore the old Tabulator constructor (fixed height, fitDataTable).
+**Options I considered:** Pagination; keep painting every row; match v3 `height` + `fitDataTable` + `nestedFieldSeparator: false`.
+**What I chose:** Hotfix deviation. Tabulator gets a viewport height so only visible rows paint. Layout is `fitDataTable`. Field names like `Cust. #` are not nested paths. First column is frozen only when the user pins it. Tab clicks are not dropped while a table is building.
+**Why:** Menny: still freezing on tab change after the home12 deploy. `fitData` without height renders every live row.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Pills stay on the filter row; tab switches must not freeze
 **What I had to decide:** Wrap the whole filter bar vs keep one row and wrap chips inside the middle slot.
 **Options I considered:** `flex-wrap:wrap` + `margin-left:auto` on Run report (current — pills drop under the picker); absolute pills; nowrap with pills `flex:1 1 0`.
