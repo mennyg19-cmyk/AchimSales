@@ -1,3 +1,9 @@
+## 2026-09-16 New-agent rebuild prompt after Flask rollback
+**What I had to decide:** Leave the “FastAPI is production, finish it on main” paste prompt vs rewrite after `d17524b`.
+**What I chose:** Rewrite. Docs live in `rebuild-handoff/`. New agent resumes `cursor/fastapi-rebuild-parked-0a24`. Do not merge FastAPI to `main` until Menny signs off. Old PR #67 must not merge (its tree was FastAPI).
+**Why:** A stale prompt would cut FastAPI over again or fight live Flask.
+**Status:** DECIDED
+
 ## 2026-09-16 Roll production back to Flask; FastAPI parked
 **What I had to decide:** Azure Deployment Center redeploy vs put the last Flask tree on `main`.
 **Options I considered:** Redeploy only (next `main` push would ship FastAPI again); `reset --hard` + force-push; new commit whose tree is Flask `4f94afc`.

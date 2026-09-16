@@ -34,6 +34,7 @@ git checkout cursor/fastapi-rebuild-parked-0a24
 ```
 
 Read that branch's `HANDOFF.md`. Merge to `main` only when cutting over again.
+Paste [`rebuild-handoff/NEW-AGENT-PROMPT.md`](rebuild-handoff/NEW-AGENT-PROMPT.md) into a **new** agent.
 
 ## Locked
 
