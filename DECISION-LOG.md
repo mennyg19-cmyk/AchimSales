@@ -1,3 +1,11 @@
+## 2026-09-16 Import every normalized view row and its child tables
+**What I had to decide:** Keep assembling view children through the layout dict vs copy `views` / `view_*` / `layout_*` row by row like schedules.
+**Options I considered:** Leave the dict round-trip; copy children 1:1; also import JSON `saved_reports`.
+**What I chose:** Insert every live `views` row, then copy salesmen/statuses/customers and each layout tab + groups/sorters/columns/filters. Still skip JSON view backups.
+**Why:** Menny had a bunch of views on the column tables. The dict path dropped empty tabs and extra statuses.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Import normalized schedule children only; skip JSON blobs
 **What I had to decide:** Import old JSON `schedules` / `master_schedules` / `saved_reports` as a fallback vs only the later child-table schema; collapse schedules that share view+time vs keep every `report_schedules` row.
 **Options I considered:** Dual-path JSON then normalized; JSON only; normalized parent+children one row at a time; keep parent CSV-only on the new site.

@@ -282,6 +282,10 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
             view_id TEXT NOT NULL,
             salesman TEXT NOT NULL
         );
+        CREATE TABLE view_statuses (
+            view_id TEXT NOT NULL,
+            status TEXT NOT NULL
+        );
         CREATE TABLE layout_tabs (
             id TEXT PRIMARY KEY,
             view_id TEXT NOT NULL,
@@ -292,6 +296,17 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
             has_view INTEGER NOT NULL DEFAULT 0,
             groups_explicit INTEGER NOT NULL DEFAULT 1
         );
+        CREATE TABLE layout_tab_groups (
+            tab_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            column_name TEXT NOT NULL
+        );
+        CREATE TABLE layout_tab_sorters (
+            tab_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            column_name TEXT NOT NULL,
+            dir TEXT NOT NULL
+        );
         CREATE TABLE layout_columns (
             tab_id TEXT NOT NULL,
             field TEXT NOT NULL,
@@ -299,6 +314,13 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
             hidden INTEGER NOT NULL DEFAULT 0,
             frozen INTEGER NOT NULL DEFAULT 0,
             width REAL
+        );
+        CREATE TABLE layout_column_filters (
+            tab_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            op TEXT NOT NULL DEFAULT 'contains',
+            v TEXT,
+            v2 TEXT
         );
         CREATE TABLE report_schedules (
             id TEXT PRIMARY KEY,
@@ -341,10 +363,16 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
         INSERT INTO views (id, kind, report_key, name, owner_handle, period)
         VALUES ('v-daily', 'company', 'ordered', 'Daily Ordered', NULL, 'this_week');
         INSERT INTO view_salesmen (view_id, salesman) VALUES ('v-daily', 'HKaufman');
+        INSERT INTO view_statuses (view_id, status) VALUES ('v-daily', 'Invoiced'), ('v-daily', 'Open');
         INSERT INTO layout_tabs (id, view_id, tab_key, position, has_view)
         VALUES ('t1', 'v-daily', 'summary', 1, 1);
+        INSERT INTO layout_tab_groups (tab_id, position, column_name) VALUES ('t1', 1, 'Salesman');
+        INSERT INTO layout_tab_sorters (tab_id, position, column_name, dir)
+        VALUES ('t1', 1, 'SalesAmount', 'desc');
         INSERT INTO layout_columns (tab_id, field, position, hidden)
         VALUES ('t1', 'SalesAmount', 1, 1);
+        INSERT INTO layout_column_filters (tab_id, field, op, v)
+        VALUES ('t1', 'CustomerName', 'contains', 'HD');
         INSERT INTO report_schedules (
             id, kind, view_id, owner_handle, name, freq, time, sharepoint_path,
             filename_template, email_subject, window_period
@@ -364,11 +392,18 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
     conn.close()
     result = import_precious(source, dest)
     assert result["users_inserted"] == 1
-    assert result["views_updated"] + result["views_inserted"] >= 1
+    assert result["views_inserted"] >= 1
     view = next(v for v in home_store.list_views("heshey@achimonline.com", True) if v["name"] == "Daily Ordered")
     assert view["params"]["period"] == "this_week"
     assert view["params"]["salesmen"] == ["HKaufman"]
+    assert view["params"]["status"] == "Invoiced"
     assert "SalesAmount" in (view["layout"]["views"]["summary"]["hidden"] or [])
+    assert view["layout"]["views"]["summary"]["group"] == ["Salesman"]
+    assert view["layout"]["views"]["summary"]["sorters"] == [{"column": "SalesAmount", "dir": "desc"}]
+    assert view["layout"]["views"]["summary"]["columnFilters"]["CustomerName"]["v"] == "HD"
+    with db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM view_statuses").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM layout_tab_groups").fetchone()[0] == 1
     rows = home_store.list_schedules()
     match = next(s for s in rows if s["view_id"] == view["id"] and s["run_time"] == "09:00")
     assert match["freq"] == "weekly"
@@ -436,6 +471,73 @@ def test_import_skips_json_blob_tables(tmp_path, monkeypatch):
     assert result["schedules_inserted"] == 0
     names = {v["name"] for v in home_store.list_views("meir@achimonline.com", True)}
     assert "My Invoiced" not in names
+
+
+def test_import_every_normalized_view_and_skips_json_views(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT
+        );
+        CREATE TABLE saved_reports (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL
+        );
+        CREATE TABLE company_views (
+            id INTEGER PRIMARY KEY,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey'),
+               (2, 'tina@achimonline.com', 'Tina', 'manager', 'tina');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('df-ordered', 'default', 'ordered', 'Default', NULL, 'this_week'),
+               ('co-ordered-daily', 'company', 'ordered', 'Daily Ordered', NULL, 'this_week'),
+               ('pe-heshey-open', 'personal', 'ordered', 'Heshey Open Orders', 'heshey', 'ytd'),
+               ('pe-tina-mtd', 'personal', 'invoiced', 'Tina MTD', 'tina', 'mtd');
+        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
+        VALUES (1, 'ordered', 'Blob Only View', '{}', '{}');
+        INSERT INTO company_views (report_key, name, params_json)
+        VALUES ('ordered', 'Blob Company', '{}');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["source_views"] == 4
+    assert result["views_inserted"] == 4
+    names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
+    assert names == {"Default", "Daily Ordered", "Heshey Open Orders", "Tina MTD"}
+    assert "Blob Only View" not in names
+    assert "Blob Company" not in names
+    tina = next(v for v in home_store.list_views("tina@achimonline.com", True) if v["name"] == "Tina MTD")
+    assert tina["owner_email"] == "tina@achimonline.com"
+    assert tina["kind"] == "personal"
 
 
 def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch):

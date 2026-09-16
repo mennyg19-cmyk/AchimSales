@@ -22,7 +22,6 @@ import catalog
 import config
 from db import db, init_db
 from store import hydrate_schedule_row
-from views import save_filters_and_layout
 
 ROLES = {"admin", "developer", "manager", "salesman"}
 KNOWN_REPORTS = {item["key"] for item in catalog.REPORTS}
@@ -99,181 +98,143 @@ def _wipe_views_and_schedules(dest: sqlite3.Connection) -> None:
     dest.execute("DELETE FROM schedule_recipients")
     dest.execute("DELETE FROM schedule_email_salesmen")
     dest.execute("DELETE FROM schedules")
+    dest.execute("DELETE FROM layout_column_filters")
+    dest.execute("DELETE FROM layout_columns")
+    dest.execute("DELETE FROM layout_tab_groups")
+    dest.execute("DELETE FROM layout_tab_sorters")
+    dest.execute("DELETE FROM layout_tabs")
+    dest.execute("DELETE FROM view_salesmen")
+    dest.execute("DELETE FROM view_statuses")
+    dest.execute("DELETE FROM view_customers")
     dest.execute("DELETE FROM views")
 
 
-def _filters_from_children(src: sqlite3.Connection, tables: set[str], view_id) -> dict:
-    filters: dict = {}
-    if "view_salesmen" in tables:
-        salesmen = [
-            r["salesman"]
-            for r in src.execute(
-                "SELECT salesman FROM view_salesmen WHERE view_id = ? ORDER BY salesman",
-                (view_id,),
-            )
-        ]
-        if salesmen:
-            filters["salesman"] = salesmen[0] if len(salesmen) == 1 else ""
-            filters["salesmen"] = salesmen
-    if "view_statuses" in tables:
-        statuses = [
-            r["status"]
-            for r in src.execute(
-                "SELECT status FROM view_statuses WHERE view_id = ? ORDER BY status",
-                (view_id,),
-            )
-        ]
-        if statuses:
-            filters["status"] = statuses[0]
-    if "view_customers" in tables:
-        customers = [
-            r["customer_account"]
-            for r in src.execute(
-                "SELECT customer_account FROM view_customers WHERE view_id = ? ORDER BY customer_account",
-                (view_id,),
-            )
-        ]
-        if customers:
-            filters["customers"] = customers
-    return filters
+def _copy_paired_rows(
+    src: sqlite3.Connection,
+    dest: sqlite3.Connection,
+    table: str,
+    src_key: str,
+    src_id,
+    dest_id: int,
+    columns: list[str],
+    dest_key: str | None = None,
+) -> None:
+    dest_key = dest_key or src_key
+    present = [name for name in columns if name in _cols(src, table)]
+    if not present:
+        return
+    cols = ", ".join(present)
+    placeholders = ", ".join("?" for _ in present)
+    for row in src.execute(
+        f"SELECT {cols} FROM {table} WHERE {src_key} = ?",
+        (src_id,),
+    ):
+        dest.execute(
+            f"INSERT OR IGNORE INTO {table} ({dest_key}, {cols}) VALUES (?, {placeholders})",
+            (dest_id, *[row[name] for name in present]),
+        )
 
 
-def _layout_from_children(src: sqlite3.Connection, tables: set[str], view_id) -> dict:
-    if "layout_tabs" not in tables:
-        return {}
-    tab_cols = _cols(src, "layout_tabs")
-    tabs = src.execute(
-        """SELECT * FROM layout_tabs WHERE view_id = ? ORDER BY position, id""",
-        (view_id,),
-    ).fetchall()
-    layout_views: dict = {}
-    order: list[str] = []
-    clones: list[dict] = []
-    for tab in tabs:
-        key = tab["tab_key"]
-        if tab["position"] is not None:
-            order.append(key)
-        if tab["clone_of_tab_key"]:
-            clones.append(
-                {"key": key, "baseKey": tab["clone_of_tab_key"], "name": tab["tab_name"] or key}
-            )
-        tab_id = tab["id"]
-        groups = []
-        if "layout_tab_groups" in tables:
-            groups = [
-                r["column_name"]
-                for r in src.execute(
-                    "SELECT column_name FROM layout_tab_groups WHERE tab_id = ? ORDER BY position",
-                    (tab_id,),
-                )
-            ]
-        sorters = []
-        if "layout_tab_sorters" in tables:
-            sorters = [
-                {"column": r["column_name"], "dir": r["dir"]}
-                for r in src.execute(
-                    "SELECT column_name, dir FROM layout_tab_sorters WHERE tab_id = ? ORDER BY position",
-                    (tab_id,),
-                )
-            ]
-        cols = []
-        if "layout_columns" in tables:
-            cols = src.execute(
-                """SELECT field, position, hidden, frozen, width
-                   FROM layout_columns WHERE tab_id = ? ORDER BY position, field""",
-                (tab_id,),
-            ).fetchall()
-        filters = []
-        if "layout_column_filters" in tables:
-            filters = src.execute(
-                "SELECT field, op, v, v2 FROM layout_column_filters WHERE tab_id = ?",
-                (tab_id,),
-            ).fetchall()
-        col_order = [c["field"] for c in cols if c["position"] is not None]
-        hidden = [c["field"] for c in cols if c["hidden"]]
-        frozen = [c["field"] for c in cols if c["frozen"]]
-        widths = {c["field"]: c["width"] for c in cols if c["width"] is not None}
-        column_filters = {
-            f["field"]: {"op": f["op"], "v": f["v"] or "", "v2": f["v2"] or ""}
-            for f in filters
-        }
-        has_view = int(tab["has_view"]) if "has_view" in tab_cols else 0
-        groups_explicit = True
-        if "groups_explicit" in tab_cols:
-            groups_explicit = bool(tab["groups_explicit"])
-        if has_view or groups or sorters or cols or filters:
-            layout_views[key] = {
-                "hidden": hidden,
-                "frozen": frozen,
-                "order": col_order or None,
-                "sorters": sorters or None,
-                "columnFilters": column_filters,
-                "group": groups,
-                "groups_explicit": groups_explicit,
-                "widths": widths,
-            }
-    return {"order": order, "clones": clones, "views": layout_views}
-
-
-def _filters_from_view_row(row, src: sqlite3.Connection, tables: set[str]) -> dict:
-    filters = _filters_from_children(src, tables, row["id"])
-    if row["period"]:
-        filters["period"] = row["period"]
-    cols = {key for key in row.keys()}
-    if "start_date" in cols and row["start_date"]:
-        filters["from_date"] = row["start_date"]
-    if "end_date" in cols and row["end_date"]:
-        filters["to_date"] = row["end_date"]
-    if "year" in cols and row["year"]:
-        filters["year"] = row["year"]
-    if "mode" in cols and row["mode"]:
-        filters["n4_mode"] = row["mode"]
-    return filters
-
-
-def _upsert_view(
+def _insert_view(
     dest: sqlite3.Connection,
     *,
-    kind: str,
+    owner_email: str | None,
     report_key: str,
     name: str,
-    owner_email: str | None,
-    filters: dict,
-    layout: dict,
+    kind: str,
     include_period: int,
-    active_tab: str | None,
-) -> tuple[int, str]:
-    if kind == "personal":
-        existing = dest.execute(
-            """SELECT id FROM views
-               WHERE kind = 'personal' AND report_key = ? AND name = ? AND owner_email = ?""",
-            (report_key, name, owner_email),
-        ).fetchone()
-    else:
-        existing = dest.execute(
-            """SELECT id FROM views
-               WHERE kind = ? AND report_key = ? AND name = ? AND owner_email IS NULL""",
-            (kind, report_key, name),
-        ).fetchone()
-    layout = dict(layout or {})
-    if active_tab:
-        layout["active"] = active_tab
-    if existing:
-        view_id = int(existing["id"])
-        dest.execute(
-            "UPDATE views SET include_period = ? WHERE id = ?",
-            (include_period, view_id),
-        )
-        save_filters_and_layout(dest, view_id, filters, layout, include_period)
-        return view_id, "updated"
+    period: str | None,
+    start_date: str | None,
+    end_date: str | None,
+    year: str | None,
+    mode: str | None,
+    active_tab_key: str | None,
+) -> int:
     dest.execute(
-        """INSERT INTO views (owner_email, report_key, name, kind, include_period)
-           VALUES (?, ?, ?, ?, ?)""",
-        (owner_email, report_key, name, kind, include_period),
+        """INSERT INTO views (
+               owner_email, report_key, name, kind, include_period,
+               period, start_date, end_date, year, mode, active_tab_key
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            owner_email, report_key, name, kind, include_period,
+            period, start_date, end_date, year, mode, active_tab_key,
+        ),
     )
-    view_id = int(dest.execute("SELECT last_insert_rowid()").fetchone()[0])
-    save_filters_and_layout(dest, view_id, filters, layout, include_period)
-    return view_id, "inserted"
+    return int(dest.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+
+def _copy_view_children(
+    src: sqlite3.Connection,
+    dest: sqlite3.Connection,
+    src_id,
+    dest_id: int,
+    tables: set[str],
+) -> None:
+    if "view_salesmen" in tables:
+        _copy_paired_rows(
+            src, dest, "view_salesmen", "view_id", src_id, dest_id, ["salesman"]
+        )
+    if "view_statuses" in tables:
+        _copy_paired_rows(
+            src, dest, "view_statuses", "view_id", src_id, dest_id, ["status"]
+        )
+    if "view_customers" in tables:
+        _copy_paired_rows(
+            src, dest, "view_customers", "view_id", src_id, dest_id, ["customer_account"]
+        )
+    if "layout_tabs" not in tables:
+        return
+    tab_cols = _cols(src, "layout_tabs")
+    tab_map: dict[str, int] = {}
+    for tab in src.execute(
+        "SELECT * FROM layout_tabs WHERE view_id = ? ORDER BY position, id",
+        (src_id,),
+    ):
+        dest.execute(
+            """INSERT INTO layout_tabs (
+                   view_id, tab_key, position, clone_of_tab_key, tab_name, has_view, groups_explicit
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                dest_id,
+                tab["tab_key"],
+                tab["position"] if "position" in tab_cols else None,
+                tab["clone_of_tab_key"] if "clone_of_tab_key" in tab_cols else None,
+                tab["tab_name"] if "tab_name" in tab_cols else None,
+                int(tab["has_view"] or 0) if "has_view" in tab_cols else 0,
+                int(tab["groups_explicit"] if tab["groups_explicit"] is not None else 1)
+                if "groups_explicit" in tab_cols
+                else 1,
+            ),
+        )
+        tab_map[str(tab["id"])] = int(dest.execute("SELECT last_insert_rowid()").fetchone()[0])
+    for src_tab_id, dest_tab_id in tab_map.items():
+        if "layout_tab_groups" in tables:
+            _copy_paired_rows(
+                src, dest, "layout_tab_groups", "tab_id", src_tab_id, dest_tab_id,
+                ["position", "column_name"],
+            )
+        if "layout_tab_sorters" in tables:
+            for row in src.execute(
+                """SELECT position, column_name, dir FROM layout_tab_sorters
+                   WHERE tab_id = ? ORDER BY position""",
+                (src_tab_id,),
+            ):
+                direction = row["dir"] if row["dir"] in {"asc", "desc"} else "asc"
+                dest.execute(
+                    """INSERT OR IGNORE INTO layout_tab_sorters
+                       (tab_id, position, column_name, dir) VALUES (?, ?, ?, ?)""",
+                    (dest_tab_id, row["position"], row["column_name"], direction),
+                )
+        if "layout_columns" in tables:
+            _copy_paired_rows(
+                src, dest, "layout_columns", "tab_id", src_tab_id, dest_tab_id,
+                ["field", "position", "hidden", "frozen", "width"],
+            )
+        if "layout_column_filters" in tables:
+            _copy_paired_rows(
+                src, dest, "layout_column_filters", "tab_id", src_tab_id, dest_tab_id,
+                ["field", "op", "v", "v2"],
+            )
 
 
 def _import_users(src: sqlite3.Connection, dest: sqlite3.Connection) -> dict:
@@ -380,25 +341,31 @@ def _import_normalized_views(
             handle = row["owner_handle"] if "owner_handle" in view_cols else None
             email_col = row["owner_email"] if "owner_email" in view_cols else None
             owner = _lookup_owner(by_handle, handle, email_col, fallback=fallback)
-        filters = _filters_from_view_row(row, src, tables)
-        layout = _layout_from_children(src, tables, row["id"])
-        include = 1 if (filters.get("period") or filters.get("from_date") or filters.get("to_date")) else 0
+        period = row["period"] if "period" in view_cols else None
+        start_date = row["start_date"] if "start_date" in view_cols else None
+        end_date = row["end_date"] if "end_date" in view_cols else None
+        year = row["year"] if "year" in view_cols else None
+        mode = row["mode"] if "mode" in view_cols else None
+        include = 1 if (period or start_date or end_date) else 0
         if "include_period" in view_cols and row["include_period"] is not None:
             include = int(row["include_period"])
-        active = row["active_tab_key"] if "active_tab_key" in view_cols else None
-        view_id, action = _upsert_view(
+        dest_id = _insert_view(
             dest,
-            kind=kind,
+            owner_email=owner,
             report_key=report_key,
             name=row["name"] or "Imported view",
-            owner_email=owner,
-            filters=filters,
-            layout=layout,
+            kind=kind,
             include_period=include,
-            active_tab=active,
+            period=period,
+            start_date=start_date,
+            end_date=end_date,
+            year=year,
+            mode=mode,
+            active_tab_key=row["active_tab_key"] if "active_tab_key" in view_cols else None,
         )
-        id_map[str(row["id"])] = view_id
-        counts[action] += 1
+        _copy_view_children(src, dest, row["id"], dest_id, tables)
+        id_map[str(row["id"])] = dest_id
+        counts["inserted"] += 1
     return id_map, counts
 
 
