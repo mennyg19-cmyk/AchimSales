@@ -895,6 +895,68 @@ def test_explorer_write_confirm(client):
     assert "Confirm write" in cte.text
 
 
+def test_schedules_page_groups_by_owner(client):
+    login(client)
+    html = client.get("/schedules").text
+    assert "ps-sched-table" in html
+    assert "ps-owner-row" in html
+    assert "Preview Admin" in html
+    assert "Add a schedule" in html
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Salesman grouped",
+            "report_key": "invoiced",
+            "kind": "personal",
+            "for_email": "salesman@achimonline.com",
+            "params": {"period": "mtd"},
+        },
+        headers=csrf_headers(client),
+    ).json()
+    become(client, "salesman@achimonline.com")
+    client.post(
+        "/schedules/add",
+        data={
+            "view_id": created["id"],
+            "freq": "weekly",
+            "run_time": "07:30",
+            "weekdays": ["mon"],
+            "recipients": "salesman@achimonline.com",
+            "csrf": client.csrf,
+        },
+        follow_redirects=False,
+    )
+    salesman_page = client.get("/schedules").text
+    assert "ps-owner-row" not in salesman_page
+    client.post("/impersonate/stop", data={"csrf": client.csrf}, follow_redirects=False)
+    html = client.get("/").text
+    match = re.search(r'data-csrf="([^"]+)"', html)
+    assert match
+    client.csrf = match.group(1)
+    grouped = client.get("/schedules").text
+    assert grouped.count("ps-owner-row") >= 2
+    assert "Preview Admin" in grouped
+    assert "Preview Salesman" in grouped
+    assert "Weekly Mon 07:30" in grouped
+    admin_at = grouped.index("Preview Admin")
+    salesman_at = grouped.index("Preview Salesman")
+    assert admin_at < salesman_at
+    assert "Daily Ordered" in grouped[admin_at:salesman_at]
+    assert "Salesman grouped" in grouped[salesman_at:]
+
+
+def test_views_api_includes_owner_name(client):
+    login(client)
+    invoiced = client.get("/api/views?report=invoiced").json()["views"]
+    daily = next(view for view in invoiced if view["name"] == "Daily Invoiced")
+    assert daily["owner_email"] == "preview@achimonline.com"
+    assert daily["owner_name"] == "Preview Admin"
+    page = client.get("/reports/invoiced").text
+    assert 'data-user-email="preview@achimonline.com"' in page
+    assert "presets-list" in page
+    assert "presets-open" in client.get("/static/js/report.js").text
+
+
 def test_delete_named_view(client):
     login(client)
     created = client.post(

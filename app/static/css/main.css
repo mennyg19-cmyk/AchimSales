@@ -25,3 +25,10 @@ summary.settings-subhead{cursor:pointer}
 .group-pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .group-pill{display:inline-flex;align-items:center;gap:4px;background:var(--primary-light);color:var(--text);border-radius:999px;padding:2px 8px;font-size:12px}
 .group-pill-x{border:0;background:transparent;cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1}
+.inline-form{display:inline;margin:0}
+.ps-sched-table td{padding:6px 8px}
+.ps-sched-table .row-actions{flex-wrap:nowrap;white-space:nowrap;align-items:center}
+.ps-sched-table .row-actions .btn{padding:2px 7px;font-size:12px;line-height:1.2}
+.ps-owner-row td{padding-top:8px;padding-bottom:8px}
+.presets-list{gap:0}
+.presets-list .presets-open,.presets-list a{color:var(--text);text-decoration:none}

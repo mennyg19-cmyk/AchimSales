@@ -64,8 +64,9 @@
 | Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
 | POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
 | Legacy `params_json` sqlite | migrate copies into columns then drops the blob |
-| precious import | copies every assemble table the old GUI/clock read (`views` + `view_*` + `layout_*` + `report_schedules` + weekday/monthday/recipient/salesman children); does not read JSON blob tables and drops them on dest; schedule `window_*` stays on the schedule (shared views keep distinct periods); live admin wins over seed `preview@`; flash lists live→here counts; two schedules on the same view+time both land; admins see Owner + Name + paused |
-| Admin `/schedules` | heading All schedules; other users' imported rows listed |
+| precious import | copies every assemble table the old GUI/clock read (`views` + `view_*` + `layout_*` + `report_schedules` + weekday/monthday/recipient/salesman children); does not read JSON blob tables and drops them on dest; schedule `window_*` stays on the schedule (shared views keep distinct periods); live admin wins over seed `preview@`; flash lists live→here counts; two schedules on the same view+time both land; admins see owner group headings + compact `ps-sched-table` |
+| Admin `/schedules` | heading All schedules; rows grouped by owner (`ps-owner-row`); wizard stays behind Add a schedule |
+| Saved views popup | `/api/views` includes `owner_name`; JS renders `presets-fold` / `presets-open` grouped by user, not blue `<a>` links |
 
 Never set `REPORTING_API_KEY` in CI.
 

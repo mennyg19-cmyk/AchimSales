@@ -49,6 +49,12 @@ def test_due_now_weekly_uses_mon_tue_names():
     assert cadence.due_now(cad, None, tuesday) is False
 
 
+def test_describe_schedule_cadence():
+    assert cadence.describe({"freq": "daily", "run_time": "08:00"}) == "Daily 08:00"
+    assert cadence.describe({"freq": "weekly", "run_time": "09:15", "weekdays": "mon,wed"}) == "Weekly Mon, Wed 09:15"
+    assert cadence.describe({"freq": "monthly", "run_time": "07:00", "monthday": 1}) == "Monthly day 1 07:00"
+
+
 def test_inside_a_shabbos_window_is_restricted():
     items = [
         {"category": "candles", "date": "2026-06-19T20:00:00-04:00", "memo": ""},

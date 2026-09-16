@@ -25,6 +25,7 @@
 
 <div class="report-controls" id="reportControls"
      data-report-key="{{ report_key }}"
+     data-user-email="{{ user.email }}"
      data-filters="{{ filters|join(',') }}"
      data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'
      data-view-layout='{{ (loaded_view.layout if loaded_view else {}) | tojson }}'
@@ -186,7 +187,7 @@
     <div class="modal" role="dialog">
         <div class="modal-head"><h3>Saved views</h3>
             <button type="button" class="modal-close" id="savedViewsClose">&times;</button></div>
-        <div class="modal-body" id="savedViewsList"></div>
+        <div class="modal-body presets-list" id="savedViewsList"></div>
     </div>
 </div>
 

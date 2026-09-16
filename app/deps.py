@@ -58,7 +58,7 @@ def ctx(request: Request, **extra):
         "theme_class": THEME_BODY_CLASS[current],
         "theme_names": ",".join(THEME_BODY_CLASS),
         "theme_color": config.THEME_COLOR,
-        "asset_v": "home5",
+        "asset_v": "home6",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
