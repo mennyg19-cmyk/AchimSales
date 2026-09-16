@@ -38,8 +38,16 @@ def list_users() -> list[dict]:
 
 def get_user(email: str) -> dict | None:
     with db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower(),)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM users WHERE lower(email) = ?",
+            ((email or "").strip().lower(),),
+        ).fetchone()
     return dict(row) if row else None
+
+
+def user_count() -> int:
+    with db() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
 
 
 _ACHIM_MAIL = "@achimonline.com"

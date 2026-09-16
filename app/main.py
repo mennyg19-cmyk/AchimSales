@@ -109,15 +109,21 @@ def create_app() -> FastAPI:
             return RedirectResponse("/login", status_code=302)
         row = store.get_user_for_login(result["email"])
         if row is None:
-            return JSONResponse(
-                {
-                    "error": (
-                        "No People row for that Microsoft account "
-                        f"({result['email']}). An admin must add you first."
-                    )
-                },
-                status_code=403,
-            )
+            if store.user_count() == 0:
+                detail = (
+                    "No People row for that Microsoft account "
+                    f"({result['email']}). This site's database is empty "
+                    "(Azure /tmp was wiped). Import into the file the website "
+                    "reads: python3 import-precious.py "
+                    "/home/LogFiles/home-precious.db "
+                    "--dest /tmp/homedata/home.sqlite"
+                )
+            else:
+                detail = (
+                    "No People row for that Microsoft account "
+                    f"({result['email']}). An admin must add you first."
+                )
+            return JSONResponse({"error": detail}, status_code=403)
         if not row["is_active"]:
             return JSONResponse({"error": "This account is disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)

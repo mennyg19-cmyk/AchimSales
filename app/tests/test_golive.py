@@ -1107,6 +1107,22 @@ def test_root_import_precious_script(tmp_path, monkeypatch):
     assert row["role"] == "manager"
 
 
+def test_import_default_dest_follows_app_db_path(tmp_path, monkeypatch):
+    from import_precious import default_dest_path
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    assert default_dest_path() == dest
+
+
+def test_import_default_dest_on_azure_without_env(monkeypatch):
+    from import_precious import default_dest_path
+
+    monkeypatch.delenv("APP_DB_PATH", raising=False)
+    monkeypatch.setattr("import_precious._on_azure", lambda: True)
+    assert default_dest_path() == Path("/tmp/homedata/home.sqlite")
+
+
 def test_deliver_expands_chips_and_mocks_upload(home_db, monkeypatch):
     from deliver import deliver_schedule
 

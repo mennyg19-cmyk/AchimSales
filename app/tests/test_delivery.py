@@ -223,6 +223,22 @@ def test_entra_callback_accepts_ad_achimonline_upn(tmp_path, monkeypatch):
         assert "Preview Admin" in home
 
 
+def test_get_user_matches_mixed_case_stored_email(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    init_db()
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO users (email, display_name, role, is_active, is_external)
+               VALUES ('MennyG@AchimOnline.com', 'Menny', 'admin', 1, 0)"""
+        )
+    row = home_store.get_user("mennyg@achimonline.com")
+    assert row is not None
+    assert row["display_name"] == "Menny"
+    assert home_store.get_user_for_login("mennyg@ad.achimonline.com")["email"] == (
+        "MennyG@AchimOnline.com"
+    )
+
+
 def test_entra_callback_names_missing_email(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
     monkeypatch.setattr(
@@ -233,6 +249,27 @@ def test_entra_callback_names_missing_email(tmp_path, monkeypatch):
         res = client.get("/auth/callback")
         assert res.status_code == 403
         assert "nobody@achimonline.com" in res.json()["error"]
+        assert "An admin must add you first" in res.json()["error"]
+
+
+def test_entra_callback_empty_db_says_import_path(tmp_path, monkeypatch):
+    monkeypatch.setattr("config.PRODUCTION", True)
+    monkeypatch.setattr("db.PRODUCTION", True)
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.setenv("SESSION_SECRET", "a-real-production-secret")
+    monkeypatch.setenv("LITESTREAM_AZURE_ACCOUNT_KEY", "not-a-real-key")
+    monkeypatch.setattr(
+        "entra.complete_login",
+        lambda request: {"email": "mennyg@achimonline.com", "name": "Menny"},
+    )
+    with TestClient(create_app()) as client:
+        res = client.get("/auth/callback")
+        assert res.status_code == 403
+        body = res.json()["error"]
+        assert "mennyg@achimonline.com" in body
+        assert "database is empty" in body
+        assert "/tmp/homedata/home.sqlite" in body
+        assert "An admin must add you first" not in body
 
 
 def test_magic_consume_expired_token(tmp_path, monkeypatch):

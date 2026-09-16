@@ -95,6 +95,13 @@ ls import-precious.py /home/LogFiles/home-precious.db
 python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite
 ```
 
+On Azure Kudu, omitting `--dest` now writes `/tmp/homedata/home.sqlite` (the file
+gunicorn reads). Locally it still writes `app/data/home.sqlite`. If the
+command prints a WARNING about dest, the website is not reading that file.
+
+The last line of a good import is `into /tmp/homedata/home.sqlite`. If it says
+`into .../app/data/home.sqlite`, login will still 403.
+
 That destination is the new site’s database (`APP_DB_PATH`). You should see a
 line like `People N added… Views… Schedules… into /tmp/homedata/home.sqlite`.
 Wait a couple of seconds so Litestream can replicate, then Restart. People

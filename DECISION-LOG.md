@@ -1,3 +1,11 @@
+## 2026-09-16 Import dest on Azure is /tmp/homedata/home.sqlite
+**What I had to decide:** Upsert Menny on Entra callback vs keep People-required and fix the empty sqlite.
+**Options I considered:** Upsert on callback; auto-import LogFiles on boot (rejected at go-live); default Kudu import dest to the gunicorn path.
+**What I chose:** Hotfix deviation (no Sol/Fable). No upsert. `get_user` matches `lower(email)`. Import without `--dest` on Azure writes `/tmp/homedata/home.sqlite`. Empty-db 403 tells you to import that file. Being in Flask/source precious.db is not the website sqlite.
+**Why:** 403 named `mennyg@achimonline.com` — Entra identity is right. Production does not seed People. Kudu has no `APP_DB_PATH`, so import defaulted to `app/data/home.sqlite` while gunicorn reads `/tmp`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Re-enable Litestream so Azure Restart keeps People
 **What I had to decide:** Put sqlite on /home vs keep /tmp + restore/replicate; stay on direct gunicorn after the 503.
 **Options I considered:** Write sqlite on /home (persists, WAL-unsafe on Azure SMB); leave /tmp with no replica (Restart wipes People); wrap `python -m gunicorn` in Litestream again.

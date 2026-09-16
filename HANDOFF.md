@@ -38,9 +38,9 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## What's next
 
-1. After the Litestream hotfix deploy is green, Kudu from `/home/site/wwwroot`:
-   `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`.
-   Reuse `home-precious.db` already in LogFiles. Wait a couple seconds, then Restart.
+1. After this import-dest hotfix deploys, Kudu from `/home/site/wwwroot`:
+   `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`
+   (or omit `--dest` — Azure default is now that path). Last line must say `into /tmp/homedata/home.sqlite`. Wait a couple seconds, then Achim User Login. Do not Restart first unless Litestream has replicated.
 2. Entra Achim User Login (AD UPN aliases to `@achimonline.com`). Dummy emails are stripped on import.
 3. Still not in this app: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
 4. Rollback: Azure Deployment Center last Flask deploy, or revert `main`, then restore LogFiles copy to `/tmp/betadata/precious.db`.

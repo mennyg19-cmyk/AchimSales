@@ -262,7 +262,7 @@ def _import_users(src: sqlite3.Connection, dest: sqlite3.Connection) -> dict:
                JOIN users u ON u.id = p.user_id"""
         ):
             themes[row["email"].lower()] = row["theme"] or "light"
-    dest_emails = {row["email"] for row in dest.execute("SELECT email FROM users")}
+    dest_emails = {(row["email"] or "").lower() for row in dest.execute("SELECT email FROM users")}
     inserted = 0
     skipped = 0
     for row in src.execute("SELECT * FROM users ORDER BY id"):
@@ -308,7 +308,10 @@ def _import_users(src: sqlite3.Connection, dest: sqlite3.Connection) -> dict:
                 )
         dest_emails.add(email)
         inserted += 1
-    email_to_id = {row["email"]: row["id"] for row in dest.execute("SELECT id, email FROM users")}
+    email_to_id = {
+        (row["email"] or "").lower(): row["id"]
+        for row in dest.execute("SELECT id, email FROM users")
+    }
     for email, report_key, allowed in report_access:
         uid = email_to_id.get(email)
         if not uid:
@@ -756,6 +759,20 @@ def summarize(result: dict) -> str:
     return text
 
 
+def _on_azure() -> bool:
+    return Path("/home/site/wwwroot").is_dir()
+
+
+def default_dest_path() -> Path:
+    """Kudu SSH has no APP_DB_PATH; gunicorn does. Same file the website reads."""
+    env = (os.environ.get("APP_DB_PATH") or "").strip()
+    if env:
+        return Path(env)
+    if _on_azure():
+        return Path("/tmp/homedata/home.sqlite")
+    return config.db_path()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Import People, views, and schedules from a v3 precious.db"
@@ -765,13 +782,20 @@ def main(argv: list[str] | None = None) -> int:
         "--dest",
         type=Path,
         default=None,
-        help="Destination sqlite (default APP_DB_PATH / app/data/home.sqlite)",
+        help="Destination sqlite (default APP_DB_PATH, or /tmp/homedata/home.sqlite on Azure)",
     )
     args = parser.parse_args(argv)
     if not args.precious.is_file():
         print(f"No file at {args.precious}", file=sys.stderr)
         return 2
-    dest = args.dest or config.db_path()
+    dest = args.dest or default_dest_path()
+    azure_live = Path("/tmp/homedata/home.sqlite")
+    if _on_azure() and dest.resolve() != azure_live.resolve():
+        print(
+            f"WARNING: writing {dest}; the website reads {azure_live}. "
+            f"Pass --dest {azure_live}.",
+            file=sys.stderr,
+        )
     result = import_precious(args.precious, dest)
     print(f"{summarize(result)} into {dest}")
     return 0
