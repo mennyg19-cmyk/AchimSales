@@ -737,3 +737,20 @@ def test_sales_by_state_calls_three_catalog_keys():
     assert svc.client.params_calls[0][1] == {
         "FromDate": "2025-01-01", "ToDate": "2025-12-31",
     }
+
+
+def test_customer_transaction_detail_keeps_duplicate_recids_and_post_filters():
+    svc = _svc({"customertransactiondetail": [
+        {"RecId": "1", "AccountNum": "9017", "OffsetRecId": "A"},
+        {"RecId": "1", "AccountNum": "9017", "OffsetRecId": "B"},
+        {"RecId": "2", "AccountNum": "9999", "OffsetRecId": "C"},
+    ]})
+    out = svc.builder_for("customer_transaction_detail")(
+        {"customers": ["9017", "1000"]}, None)
+    assert out["report_key"] == "customer_transaction_detail"
+    assert svc.client.calls == ["customertransactiondetail"]
+    rows = out["tabs"][0]["rows"]
+    assert len(rows) == 2
+    assert [r["OffsetRecId"] for r in rows] == ["A", "B"]
+    assert "AccountNum" not in svc.client.params_calls[0][1]
+

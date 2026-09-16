@@ -15,6 +15,7 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("customer_last_order") == "customer_last_orders"
     assert P.report_id_for("sales_by_state") == "sales_by_state_summary"
     assert P.SALES_BY_STATE_DETAIL_SP == "sales_by_state_filtered"
+    assert P.report_id_for("customer_transaction_detail") == "customertransactiondetail"
 
 
 def test_unknown_report_raises():
@@ -173,3 +174,26 @@ def test_sales_by_state_year_becomes_from_to_dates():
     assert custom["ToDate"] == "2025-03-31"
     with_co = P.translate("sales_by_state", {"year": 2025, "Company": "achm"})
     assert with_co["Company"] == "achm"
+
+
+def test_customer_transaction_detail_filters():
+    empty = P.translate("customer_transaction_detail", {})
+    assert empty == {}
+    out = P.translate("customer_transaction_detail", {
+        "period": "custom",
+        "start_date": "2026-01-01",
+        "end_date": "2026-09-16",
+        "customers": ["9017"],
+        "invoice": "IN1",
+        "open_balance": "1",
+    })
+    assert out["CreatedDateTimeFrom"] == "2026-01-01 00:00:00"
+    assert out["CreatedDateTimeTo"] == "2026-09-16 23:59:59"
+    assert out["AccountNum"] == "9017"
+    assert out["Invoice"] == "IN1"
+    assert out["RemainAmountCurMin"] == 0.01
+    multi = P.translate("customer_transaction_detail", {
+        "customers": ["9017", "9018"],
+    })
+    assert "AccountNum" not in multi
+

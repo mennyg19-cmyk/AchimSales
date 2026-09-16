@@ -218,6 +218,13 @@ function applySavedViewFromSelect(): void {
   if (periodEl) periodEl.value = String(params.period || "");
   const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
   if (yearEl) yearEl.value = params.year != null ? String(params.year) : "";
+  const invoiceEl = form.elements.namedItem("invoice") as HTMLInputElement | null;
+  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
+  const openEl = document.getElementById("msOpenBalance") as HTMLInputElement | null;
+  if (openEl) {
+    const flag = String(params.open_balance ?? "").trim().toLowerCase();
+    openEl.checked = ["1", "true", "on", "yes"].includes(flag);
+  }
   ensurePickers();
   statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);
@@ -326,6 +333,14 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
     const v = (form.elements.namedItem("year") as HTMLSelectElement).value.trim();
     if (v) out.year = v;
   }
+  if (needed.includes("invoice")) {
+    const v = (form.elements.namedItem("invoice") as HTMLInputElement | null)?.value.trim();
+    if (v) out.invoice = v;
+  }
+  if (needed.includes("open_balance")) {
+    const el = document.getElementById("msOpenBalance") as HTMLInputElement | null;
+    if (el?.checked) out.open_balance = "1";
+  }
   return out;
 }
 
@@ -377,6 +392,8 @@ function fillReview(form: HTMLFormElement): void {
   }
   if (params.customers) paramBits.push("customers " + listLabel(params.customers));
   if (params.year) paramBits.push("year " + params.year);
+  if (params.invoice) paramBits.push("invoice " + String(params.invoice));
+  if (params.open_balance) paramBits.push("open only");
 
   const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
   const sp = (document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "";
@@ -750,6 +767,13 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   customerPicker?.setSelected(pendingCustomers);
   (form.elements.namedItem("year") as HTMLSelectElement).value =
     params.year != null ? String(params.year) : "";
+  const invoiceEl = form.elements.namedItem("invoice") as HTMLInputElement | null;
+  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
+  const openEl = document.getElementById("msOpenBalance") as HTMLInputElement | null;
+  if (openEl) {
+    const flag = String(params.open_balance ?? "").trim().toLowerCase();
+    openEl.checked = ["1", "true", "on", "yes"].includes(flag);
+  }
 
   (form.elements.namedItem("recipients") as HTMLInputElement).value = row.dataset.recipients || "";
   const folderKind = String(params.folder_kind || "");

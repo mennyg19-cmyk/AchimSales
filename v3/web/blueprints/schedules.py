@@ -1101,6 +1101,7 @@ _MASTER_REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "number_4": (),
     "customer_activity": ("salesman",),
     "sales_by_state": ("year",),
+    "customer_transaction_detail": ("period", "customers", "invoice", "open_balance"),
 }
 
 _PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -1146,6 +1147,10 @@ def _params_label(params: dict | None) -> str:
         bits.append("customers " + " ".join(customers))
     if year := p.get("year"):
         bits.append(f"year {year}")
+    if invoice := str(p.get("invoice") or "").strip():
+        bits.append(f"invoice {invoice}")
+    if str(p.get("open_balance") or "").strip().lower() in ("1", "true", "on", "yes"):
+        bits.append("open only")
     return ", ".join(bits) if bits else "defaults"
 
 

@@ -1,3 +1,10 @@
+## 2026-09-16 Customer Transaction Detail on live v3
+**What I had to decide:** Expose every DBA filter vs the same filter bar as other home reports; salesman-default vs inherit-hidden.
+**Options I considered:** Dump all 20+ SP params on the form; period + customer + invoice + remaining-amount only (other params stay on developer API preview); salesman-default with customer-book filtering (no salesman column on the SP).
+**What I chose:** One Transactions tab, no row collapsing. Form: period (original CreatedDateTime, default last 7 days), customers, invoice, open-only (`RemainAmountCurMin` 0.01). Catalog id `customertransactiondetail`. Not a salesman-default report (same as Sales by State). Excel uses the existing tab export, not the DBA `/export` endpoint.
+**Why:** DBA examples are no-filter, customer+dates, and remaining amount. The SP has no salesman field. Live site is Flask v3 after the FastAPI rollback.
+**Status:** DECIDED
+
 ## 2026-09-16 Roll production back to Flask; FastAPI parked
 **What I had to decide:** Azure Deployment Center redeploy vs put the last Flask tree on `main`.
 **Options I considered:** Redeploy only (next `main` push would ship FastAPI again); `reset --hard` + force-push; new commit whose tree is Flask `4f94afc`.

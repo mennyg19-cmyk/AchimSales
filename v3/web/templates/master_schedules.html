@@ -152,6 +152,15 @@
                         {% endfor %}
                     </select>
                 </label>
+                <label class="ms-field ms-field-block" data-param="invoice" hidden>
+                    <span>Invoice number (optional)</span>
+                    <input type="text" name="invoice" id="msInvoice" autocomplete="off">
+                    <span class="ms-field-hint">Exact invoice. Leave empty for all.</span>
+                </label>
+                <label class="ms-choice" data-param="open_balance" hidden>
+                    <input type="checkbox" name="open_balance" id="msOpenBalance" value="1">
+                    Only rows with remaining amount
+                </label>
             </div>
             <label class="ms-field ms-field-block" id="msSavedViewBox">
                 <span>View</span>

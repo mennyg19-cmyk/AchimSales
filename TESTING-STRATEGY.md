@@ -1,5 +1,19 @@
 # Testing Strategy
 
+## Customer Transaction Detail (v3 home, SQL)
+
+**What to test:**
+- Catalog id is `customertransactiondetail`. Empty filters send `{}`.
+- Custom period becomes `CreatedDateTimeFrom`/`To`. Single customer becomes `AccountNum`; two customers are not pushed to the SP and are post-filtered.
+- Open-only sends `RemainAmountCurMin` 0.01.
+- Two settlements for one RecId stay two rows, including through POST /api/reports/customer_transaction_detail/run.
+- Report is built, SQL-only, not a salesman default. Admin list shows it; salesman inherit list does not.
+- Viewer has period, invoice, open-only. Default period is last 7 days.
+
+**Expected behavior:** Run from Reports. Grid shows every settlement row. Export is the on-screen tab workbook.
+
+**Test files:** `v3/tests/test_report_customer_transaction_detail.py`, `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
 ## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
 
 **What to test:**
