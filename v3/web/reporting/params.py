@@ -255,7 +255,10 @@ def translate_customer_transaction_detail(p: dict) -> dict[str, Any]:
         out["AccountNum"] = cust[0]
     if v := _csv(p.get("invoice") or p.get("Invoice")):
         out["Invoice"] = v
-    flag = str(p.get("open_balance") or "").strip().lower()
+    raw_open = p.get("open_balance")
+    if isinstance(raw_open, (list, tuple)):
+        raw_open = raw_open[0] if raw_open else ""
+    flag = str(raw_open or "").strip().lower()
     if flag in ("1", "true", "on", "yes"):
         out["RemainAmountCurMin"] = 0.01
     return out

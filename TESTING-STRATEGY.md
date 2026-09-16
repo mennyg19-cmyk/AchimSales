@@ -5,8 +5,9 @@
 **What to test:**
 - Catalog id is `customertransactiondetail`. Empty filters send `{}`.
 - Custom period becomes `CreatedDateTimeFrom`/`To`. Single customer becomes `AccountNum`; two customers are not pushed to the SP and are post-filtered.
-- Open-only sends `RemainAmountCurMin` 0.01.
+- Open-only sends `RemainAmountCurMin` 0.01, including when the value is a one-item list.
 - Two settlements for one RecId stay two rows, including through POST /api/reports/customer_transaction_detail/run.
+- Excel/grid do not sum Amount or Remaining (those copy on every settlement row). Settle amount and Offset amount still sum.
 - Report is built, SQL-only, not a salesman default. Admin list shows it; salesman inherit list does not.
 - Viewer has period, invoice, open-only. Default period is last 7 days.
 
