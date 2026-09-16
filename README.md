@@ -1,5 +1,9 @@
 # Achim Sales Reports
 
+**Paused 2026-09-16:** this FastAPI rebuild is parked on branch
+`cursor/fastapi-rebuild-parked-0a24`. Production `main` is the Flask site until
+cutover is tried again. Resume from that branch, not from Flask `main`.
+
 FastAPI home site. Nightly work is the in-app schedules (one-minute clock), not
 Azure Automation. Report rows come from the office Reporting API
 (`POST /api/reports/{id}/run`) when `REPORTING_API_KEY` is set.
@@ -160,7 +164,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
-| Home site rebuild (`app/`) | **FastAPI-only home on `main`.** Nightly work is site schedules. Do not merge leftover Flask PR #35. |
+| Home site rebuild (`app/`) | **Parked.** FastAPI lives on `cursor/fastapi-rebuild-parked-0a24`. Production `main` is Flask until Menny cuts over again. Do not merge leftover Flask PR #35 onto the FastAPI branch. |
 | Rebuild review models | Cutover skipped Sol/Fable loops by Menny order (logged). Later whole-app premier loops still Fable/Sol. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Two agents at once → two PRs. |
 | Unrelated dirty tree | Stage only the files for this change; leave scratch/other WIP alone. |

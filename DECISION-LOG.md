@@ -1,3 +1,11 @@
+## 2026-09-16 Park FastAPI rebuild; put Flask back on production
+**What I had to decide:** Drop the FastAPI git history vs keep it on a branch and point `main` at Flask.
+**Options I considered:** Azure Deployment Center redeploy only (main stays FastAPI and the next push would overwrite Flask); `reset --hard` Flask on `main`; park FastAPI then commit a Flask tree on `main`.
+**What I chose:** Hotfix/rollback deviation. FastAPI stays on `cursor/fastapi-rebuild-parked-0a24`. `main` gets the last Flask tree (`4f94afc`) so Azure deploys the old site. Do not force-push. Flask CI vendors `webapp/requirements.txt` into `deps` and boots `python3 -m gunicorn` because live Azure has no pip (same reason FastAPI vendored deps).
+**Why:** Menny: rebuild did not finish on time; reset to Flask; save FastAPI to continue later.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Report tab switch must virtualize rows like the old site
 **What I had to decide:** Keep fitData + virtual-horizontal vs restore the old Tabulator constructor (fixed height, fitDataTable).
 **Options I considered:** Pagination; keep painting every row; match v3 `height` + `fitDataTable` + `nestedFieldSeparator: false`.
