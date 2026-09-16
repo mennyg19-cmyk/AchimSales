@@ -1,3 +1,11 @@
+## 2026-09-16 Home site reads BETA_PRECIOUS_DB_PATH, not /tmp/v3data
+**What I had to decide:** Keep telling Menny to copy `/tmp/v3data/precious.db` vs the home-site env var.
+**Options I considered:** Same path as /test; `BETA_PRECIOUS_DB_PATH` (`/tmp/betadata`).
+**What I chose:** Home (`is_beta`) uses `BETA_PRECIOUS_DB_PATH`. `/tmp/v3data` is `/test` (`PRECIOUS_DB_PATH`), 620K / 9 views. His SSH screenshot is that file. The 8KB `/home/LogFiles/precious.db` is an empty leftover (wrong case `Logfiles`, or sqlite create). Copy `/tmp/betadata` to `home-precious.db`.
+**Why:** Explorer 97 views vs dummy 9 is two different sqlite files on the same box, not a failed importer.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Live precious.db is 97 views / 58 schedules, not the 9/13 seed
 **What I had to decide:** Treat Menny's explorer list as a request to import JSON `schedules`/`saved_reports` too vs still assemble-only from a fresh live copy.
 **Options I considered:** Import every table including JSON and jobs/outbox; assemble-only from the live file; keep using the seed he already uploaded.

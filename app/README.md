@@ -23,12 +23,10 @@ Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` i
 ## Copy live precious.db
 
 Exact Azure download + import steps are in the repo-root README
-(“Copy live data”). Short version: download `/tmp/v3data/precious.db` from
-Kudu on `achim-sales-reports` to `Downloads\precious.db`, then import (do not
-overwrite `home.sqlite`). Settings → People upload works on this dummy.
-Import copies the assemble column tables the old GUI/clock read, not JSON blob
-backups, and drops leftover JSON tables here. After production
-cutover, run `import-precious.py` on the box with
+(“Copy live data”). Short version: SSH on `achim-sales-reports`, copy
+`BETA_PRECIOUS_DB_PATH` (`/tmp/betadata/precious.db`, about 97 views) — not
+`/tmp/v3data` (`/test`, about 9 views) — then Settings → People upload.
+After production cutover, run `import-precious.py` on the box with
 `--dest /tmp/homedata/home.sqlite`.
 
 ## Azure

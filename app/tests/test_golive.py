@@ -482,7 +482,8 @@ def test_import_ignores_json_blob_tables(tmp_path, monkeypatch):
     flash = summarize(result)
     assert "views 0→" in flash
     assert "report_schedules 0→" in flash
-    assert "Azure seed/freeze" in flash
+    assert "/tmp/v3data" in flash
+    assert "BETA_PRECIOUS_DB_PATH" in flash
 
 
 def test_summarize_warns_on_seed_counts_not_live():
@@ -511,7 +512,8 @@ def test_summarize_warns_on_seed_counts_not_live():
         }
     )
     assert "views 9→9" in seed
-    assert "Azure seed/freeze" in seed
+    assert "/tmp/v3data" in seed
+    assert "BETA_PRECIOUS_DB_PATH" in seed
     live = summarize(
         {
             "users_inserted": 3,
@@ -537,6 +539,7 @@ def test_summarize_warns_on_seed_counts_not_live():
     assert "views 97→97" in live
     assert "report_schedules 58→58" in live
     assert "Azure seed/freeze" not in live
+    assert "/tmp/v3data" not in live
 
 
 def test_import_every_normalized_view_skips_json_blobs(tmp_path, monkeypatch):

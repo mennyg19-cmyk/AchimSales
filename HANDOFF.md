@@ -40,6 +40,6 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
 2. Menny sets `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` / `EMAIL_FROM` / `SP_SITE_URL` if he wants real mail, Entra, and SharePoint (and adds the preview URL as a redirect URI)
-3. Menny downloads **live** `/tmp/v3data/precious.db` from **SSH** on `achim-sales-reports` (WAL-safe backup into `/home/LogFiles`, then Kudu download). Live explorer counts: **97 views, 58 report_schedules, 592 layout_tabs**. A file that imports as 9 views / 13 schedules is the Azure seed/freeze (`/home/site/v3data` or an old copy). JSON `schedules` 44 + `master_schedules` 14 are already inside `report_schedules` 58. Then import on dummy or after cutover.
+3. Menny downloads **home** sqlite via SSH: `BETA_PRECIOUS_DB_PATH` (usually `/tmp/betadata/precious.db`), not `/tmp/v3data` (`/test`, ~9 views / 620K). Counts must print **97 58 592**. Copy to `/home/LogFiles/home-precious.db` (not an 8KB leftover named `precious.db`). JSON `schedules` 44 + `master_schedules` 14 are already inside `report_schedules` 58. Then import on dummy or after cutover.
 4. Cutover still needs: Entra redirect URI, then merge
 5. Still not in this app: P4.I8 salesman map, Customer Aging, Azure create, DNS, merge to `main`

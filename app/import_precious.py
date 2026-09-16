@@ -581,8 +581,8 @@ JSON_GARBAGE_TABLES = (
 )
 # Live GUI/clock reads views via assemble_params + assemble_layout, and
 # schedules via report_schedules plus these four children. JSON tables are leftover.
-# Fingerprint of live /tmp/v3data/precious.db (2026-09-16 explorer). Below this
-# is the Azure seed/freeze, not the real file.
+# Fingerprint of live home sqlite (BETA_PRECIOUS_DB_PATH /tmp/betadata).
+# /tmp/v3data is the /test seed, not the home site.
 LIVE_ASSEMBLE_MIN = {
     "views": 50,
     "report_schedules": 30,
@@ -748,9 +748,10 @@ def summarize(result: dict) -> str:
         or tables.get("layout_tabs", 0) < LIVE_ASSEMBLE_MIN["layout_tabs"]
     ):
         text += (
-            " This file looks like the Azure seed/freeze, not live "
-            "/tmp/v3data/precious.db (about 97 views, 58 report_schedules, "
-            "592 layout_tabs). SSH-backup that file and import again."
+            " This file looks like /test /tmp/v3data (about 9 views), not the "
+            "home site BETA_PRECIOUS_DB_PATH /tmp/betadata/precious.db (about "
+            "97 views, 58 report_schedules, 592 layout_tabs). SSH-backup that "
+            "file and import again."
         )
     return text
 

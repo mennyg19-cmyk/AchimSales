@@ -23,29 +23,33 @@ Do not copy `precious.db` over `home.sqlite`.
 
 ### 1. Download from Azure onto your PC
 
+The home site (`reports.achimonline.com` `/`) reads **`BETA_PRECIOUS_DB_PATH`**,
+usually `/tmp/betadata/precious.db`. `/tmp/v3data/precious.db` is the **`/test`**
+app (`PRECIOUS_DB_PATH`) — about 620K and ~9 views. Do not import that one.
+
 1. Open [portal.azure.com](https://portal.azure.com) and search **achim-sales-reports**
    (resource group `AchimReportsApp`).
-2. Left menu: **Development Tools** → **Advanced Tools** → **Go** (Kudu).
-   Direct: `https://achim-sales-reports.scm.azurewebsites.net`
-3. Top menu: **Debug console** → **Bash**.
-4. Confirm the live path (should be `/tmp/v3data/precious.db`). If empty, check
-   **Settings** → **Environment variables** for `PRECIOUS_DB_PATH`.
+2. Left menu: **SSH** (not Kudu Bash — Kudu cannot see `/tmp`).
+3. Print the path and counts. Must be about **97 views, 58 report_schedules, 592 layout_tabs**. If you see 9 and 13, you are on `/tmp/v3data` (the `/test` seed).
 
 ```
-ls -lh /tmp/v3data/precious.db
+printenv BETA_PRECIOUS_DB_PATH PRECIOUS_DB_PATH
+ls -lh "${BETA_PRECIOUS_DB_PATH:-/tmp/betadata/precious.db}"
+python3 -c "import os,sqlite3; p=os.environ.get('BETA_PRECIOUS_DB_PATH') or '/tmp/betadata/precious.db'; c=sqlite3.connect('file:'+p+'?mode=ro', uri=True); print(p, c.execute('select count(*) from views').fetchone()[0], c.execute('select count(*) from report_schedules').fetchone()[0], c.execute('select count(*) from layout_tabs').fetchone()[0])"
 ```
 
-Do **not** use `/home/site/v3data/precious.db` — that is a June 2026 freeze.
+Do **not** use `sqlite3.connect` without `mode=ro` on a missing path — that creates an empty 8KB file. Do **not** use `/tmp/v3data/precious.db` or `/home/site/v3data/precious.db`.
 
-5. Make a consistent copy (WAL-safe; a raw `cp` can be incomplete):
+4. WAL-safe copy onto `/home` so Kudu can download it (Linux paths are case-sensitive: `LogFiles` not `Logfiles`):
 
 ```
-python3 -c "import sqlite3; s=sqlite3.connect('/tmp/v3data/precious.db'); d=sqlite3.connect('/home/LogFiles/precious.db'); s.backup(d); s.close(); d.close()"
-ls -lh /home/LogFiles/precious.db
+python3 -c "import os,sqlite3; p=os.environ.get('BETA_PRECIOUS_DB_PATH') or '/tmp/betadata/precious.db'; s=sqlite3.connect('file:'+p+'?mode=ro', uri=True); d=sqlite3.connect('/home/LogFiles/home-precious.db'); s.backup(d); s.close(); d.close()"
+ls -lh /home/LogFiles/home-precious.db
 ```
 
-6. In the Kudu file list, go to `/home/LogFiles` and click the download icon on
-   `precious.db`. Save it as:
+That copy must be **much larger than 620K**. An 8KB `precious.db` in LogFiles is an empty leftover — ignore it.
+
+5. Kudu Debug console → `/home/LogFiles` → download **`home-precious.db`**. Save as:
 
 `C:\Users\<you>\Downloads\precious.db`
 
@@ -62,14 +66,12 @@ children. Schedule run windows stay on the schedule (`window_period` /
 `window_start` / `window_end`), not smashed onto a shared view. Leftover JSON
 tables (`saved_reports`, `company_views`, `report_defaults`, `master_schedules`,
 `view_workbook_parity`) are not read and are dropped on this site. The flash
-lists live→here counts for those assemble tables. Live `/tmp/v3data/precious.db`
-is about **97 views, 58 report_schedules, 592 layout_tabs** (plus 37 salesmen /
-18 statuses / 15 customers on views, and 77 recipients / 19 monthdays on
-schedules). JSON leftovers in that file (`saved_reports` 52, `company_views` 10,
-`report_defaults` 4, JSON `schedules` 44, `master_schedules` 14) are already
-projected into those column tables — 44+14=58 — and are not imported. A download
-with ~9 views / 13 schedules is the Azure seed/freeze, not live. Admins and
-developers see every imported schedule, including paused ones.
+lists live→here counts for those assemble tables. Live home sqlite
+(`BETA_PRECIOUS_DB_PATH`, usually `/tmp/betadata/precious.db`) is about **97 views,
+58 report_schedules, 592 layout_tabs**. `/tmp/v3data/precious.db` is `/test` (~9
+views). JSON leftovers (`saved_reports` 52, JSON `schedules` 44, `master_schedules`
+14) are already inside those column tables — 44+14=58 — and are not imported.
+Admins and developers see every imported schedule, including paused ones.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**
