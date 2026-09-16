@@ -48,6 +48,38 @@ def test_chips_expand_subject_and_html_button():
     assert chips.still_has_chips("Daily Ordered") is False
 
 
+def test_filename_date_chips_are_eastern_not_api():
+    when = datetime(2026, 8, 17, 22, 30, tzinfo=cadence.EASTERN)
+    name = chips.expand_filename(
+        "",
+        schedule_name="Daily 9am",
+        report_name="Ordered Report",
+        when=when,
+    )
+    assert name == "Daily_9am_08-17-2026.xlsx"
+    named = chips.expand_filename(
+        "{Schedule}_{Report}_{YYYY}{MM}{DD}_{Weekday}",
+        schedule_name="Daily Ordered",
+        report_name="Ordered Report",
+        params={"period": "last_7_days"},
+        when=when,
+    )
+    assert named == "Daily_Ordered_Ordered_Report_20260817_Monday.xlsx"
+    folder = chips.expand_folder(
+        "Salesman Report/Customer Activity/{Month} {YYYY}",
+        report_name="Customer Activity",
+        when=when,
+    )
+    assert folder == "Salesman Report/Customer Activity/August 2026"
+    subject = chips.expand(
+        "{Schedule} {Month} {YYYY}",
+        schedule_name="Daily Ordered",
+        report_name="Ordered Report",
+        when=when,
+    )
+    assert subject == "Daily Ordered August 2026"
+
+
 def test_clock_ready_ignores_weekday():
     cad = {"freq": "weekly", "time": "08:00", "weekdays": [4]}  # Friday
     monday = datetime(2026, 6, 22, 16, 0, tzinfo=timezone.utc)

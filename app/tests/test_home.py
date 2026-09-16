@@ -620,6 +620,8 @@ def test_schedule_delivery_fields_land_in_outbox(client):
     assert 'href="/schedules/runs/' in sched
     assert "Step 1 of 3" in sched
     assert "OneDrive folder" in sched
+    assert "{YYYY}" in sched
+    assert "{Month} {YYYY}" in sched
 
 
 def test_master_schedule_history_and_diagnostics(client):

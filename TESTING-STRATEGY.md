@@ -3,7 +3,7 @@
 ## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
 
 **What to test:**
-- `{Schedule}` / `{Period}` / `{SharePointUrl}` / `{DownloadButton}` expand in subject (URL) and HTML body (Outlook table button).
+- `{Schedule}` / `{Period}` / `{SharePointUrl}` / `{DownloadButton}` plus date/name chips `{YYYY}` `{YY}` `{MM}` `{Month}` `{DD}` `{Weekday}` `{HH}` `{mm}` `{Report}` expand in subject, filename (slugged), and folder paths (spaces kept). Values are Eastern clock + saved view, not the Reporting API.
 - Weekly Friday `last_7_days` skip on Shabbos sets `catch_up_pending`; Monday 08:00 Eastern makeup delivers with overlay params. Daily Saturday skip still marks skipped and does not retry the same minute.
 - Hebcal hold returns 0 and does not claim, including owed catch-up.
 - SharePoint/OneDrive upload mocks when Graph is unset; production without Graph raises.

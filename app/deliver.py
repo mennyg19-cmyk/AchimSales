@@ -22,18 +22,38 @@ from reports import build_payload
 log = logging.getLogger(__name__)
 
 
-def _filename(template: str, view_name: str, period: str = "", sharepoint_url: str = "") -> str:
-    raw = (template or "").strip() or f"{view_name}.xlsx"
-    name = chips.expand(
-        raw,
+def _filename(
+    template: str,
+    view_name: str,
+    *,
+    report_name: str = "",
+    params: dict | None = None,
+    when: datetime | None = None,
+) -> str:
+    return chips.expand_filename(
+        template,
         schedule_name=view_name,
-        period=period,
-        sharepoint_url=sharepoint_url,
-        download_url=sharepoint_url,
+        report_name=report_name,
+        params=params,
+        when=when,
     )
-    if not name.lower().endswith(".xlsx"):
-        name += ".xlsx"
-    return name[:180]
+
+
+def _folder(
+    template: str,
+    view_name: str,
+    *,
+    report_name: str = "",
+    params: dict | None = None,
+    when: datetime | None = None,
+) -> str:
+    return chips.expand_folder(
+        template,
+        schedule_name=view_name,
+        report_name=report_name,
+        params=params,
+        when=when,
+    )
 
 
 def _extras(schedule: dict) -> str:
@@ -99,10 +119,32 @@ def _run_params(schedule: dict, at: datetime | None) -> dict:
     )
 
 
-def _upload_folders(schedule: dict, filename: str, content: bytes, owner: dict) -> str:
+def _upload_folders(
+    schedule: dict,
+    filename: str,
+    content: bytes,
+    owner: dict,
+    *,
+    report_name: str,
+    params: dict,
+    when: datetime | None,
+) -> str:
     url = ""
-    sp_folder = (schedule.get("sharepoint_folder") or "").strip()
-    od_folder = (schedule.get("onedrive_folder") or "").strip()
+    view_name = schedule.get("view_name") or ""
+    sp_folder = _folder(
+        schedule.get("sharepoint_folder") or "",
+        view_name,
+        report_name=report_name,
+        params=params,
+        when=when,
+    )
+    od_folder = _folder(
+        schedule.get("onedrive_folder") or "",
+        view_name,
+        report_name=report_name,
+        params=params,
+        when=when,
+    )
     if sp_folder:
         uploaded = drive.upload_sharepoint(sp_folder, filename, content)
         url = str(uploaded.get("webUrl") or "")
@@ -144,10 +186,25 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
     if extra:
         detail += " " + extra
     period = chips.period_label(params)
+    report_title = spec.get("title") or schedule["report_key"]
     xlsx = workbook_bytes(payload)
-    name = _filename(schedule.get("filename") or "", schedule["view_name"], period)
+    name = _filename(
+        schedule.get("filename") or "",
+        schedule["view_name"],
+        report_name=report_title,
+        params=params,
+        when=at,
+    )
     try:
-        file_url = _upload_folders(schedule, name, xlsx, user)
+        file_url = _upload_folders(
+            schedule,
+            name,
+            xlsx,
+            user,
+            report_name=report_title,
+            params=params,
+            when=at,
+        )
     except drive.DriveError as err:
         store.mark_schedule_run(schedule["id"], "failure", str(err), at=at)
         return "failure"
@@ -161,6 +218,10 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
         sharepoint_url=file_url,
         download_url=file_url,
         html_button=False,
+        report_name=report_title,
+        params=params,
+        when=at,
+        filename=name,
     )
     body_text = chips.expand(
         detail,
@@ -168,6 +229,10 @@ def deliver_schedule(schedule: dict, user: dict, at: datetime | None = None) -> 
         period=period,
         sharepoint_url=file_url,
         download_url=file_url,
+        report_name=report_title,
+        params=params,
+        when=at,
+        filename=name,
     )
     if file_url:
         body_text += f"\n{file_url}"

@@ -66,24 +66,48 @@
                 <input name="bcc" type="text" placeholder="optional"></label>
             {% endif %}
             <label class="auth-field"><span class="auth-label">Subject</span>
-                <input name="subject" id="schedSubject" type="text" placeholder="{Schedule} {Period}"></label>
+                <input name="subject" id="schedSubject" type="text" placeholder="{Schedule} {Period} {Month} {YYYY}"></label>
             <p class="form-hint">Insert:
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Report}">Report</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Period}">Period</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Month}">Month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{DD}">DD</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Weekday}">Weekday</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{SharePointUrl}">SharePointUrl</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{DownloadButton}">DownloadButton</button>
             </p>
             <label class="auth-field"><span class="auth-label">Filename</span>
-                <input name="filename" id="schedFilename" type="text" placeholder="{Schedule}-{Period}.xlsx"></label>
+                <input name="filename" id="schedFilename" type="text" value="{Schedule}_{MM}-{DD}-{YYYY}" placeholder="{Schedule}_{MM}-{DD}-{YYYY}"></label>
             <p class="form-hint">Insert:
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Report}">Report</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Period}">Period</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YY}">YY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{MM}">MM</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Month}">Month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{DD}">DD</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Weekday}">Weekday</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{HH}">HH</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{mm}">mm</button>
             </p>
             {% if is_privileged or user.sharepoint_access %}
             <label class="auth-field"><span class="auth-label">SharePoint folder</span>
-                <input name="sharepoint_folder" type="text" placeholder="folder under Direct Reports"></label>
+                <input name="sharepoint_folder" id="schedSharepoint" type="text" placeholder="Salesman Report/Customer Activity/{Month} {YYYY}"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Period}">Period</button>
+            </p>
             <label class="auth-field"><span class="auth-label">OneDrive folder</span>
-                <input name="onedrive_folder" type="text" placeholder="folder in the owner's OneDrive"></label>
+                <input name="onedrive_folder" id="schedOnedrive" type="text" placeholder="folder in the owner's OneDrive"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{YYYY}">YYYY</button>
+            </p>
             {% endif %}
         </div>
         <div class="modal-foot">
