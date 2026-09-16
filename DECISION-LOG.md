@@ -1,3 +1,10 @@
+## 2026-09-16 CTD totals and open-only list param
+**What I had to decide:** Sum repeated original Amount/Remaining on settlement rows vs leave those footers blank; treat JSON `open_balance: ["1"]` as checked.
+**Options I considered:** Keep default money sums (Excel showed $200/$80 for one $100 invoice); `sum: False` on AmountMST and RemainAmountCur only; disable every money total; leave list `open_balance` as form-only.
+**What I chose:** `sum: False` on AmountMST and RemainAmountCur. SettleAmountCur and OffsetAmountMST still sum. Translator accepts list `open_balance` the same way the viewer restore path does. CSV-string `customers` stays as other reports do.
+**Why:** Loop B F1: repeating the original on each settlement is required, but totaling those copies is math the DBA said this report does not do. F2 is one branch. F3 matches Ordered.
+**Status:** DECIDED
+
 ## 2026-09-16 Customer Transaction Detail on live v3
 **What I had to decide:** Expose every DBA filter vs the same filter bar as other home reports; salesman-default vs inherit-hidden.
 **Options I considered:** Dump all 20+ SP params on the form; period + customer + invoice + remaining-amount only (other params stay on developer API preview); salesman-default with customer-book filtering (no salesman column on the SP).

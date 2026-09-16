@@ -192,6 +192,8 @@ def test_customer_transaction_detail_filters():
     assert out["AccountNum"] == "9017"
     assert out["Invoice"] == "IN1"
     assert out["RemainAmountCurMin"] == 0.01
+    listed = P.translate("customer_transaction_detail", {"open_balance": ["1"]})
+    assert listed["RemainAmountCurMin"] == 0.01
     multi = P.translate("customer_transaction_detail", {
         "customers": ["9017", "9018"],
     })
