@@ -1,3 +1,11 @@
+## 2026-09-16 Report customer pills no longer sit on the selector
+**What I had to decide:** Keep nowrap + shrinking fields vs let the filter row wrap and stop shrinking the picker.
+**Options I considered:** Absolute-position pills; keep them inside the customers column; sibling flex with `flex:0 1 auto` on the fields (current, overlaps).
+**What I chose:** Hotfix deviation. `.filter-fields` is `flex:0 0 auto` so the Customers input cannot shrink under the chips. The row wraps. Dark-theme chips use primary + white text so they are not the same color as the bar.
+**Why:** Menny screenshot: selected names ghosted on top of “All customers”, empty gap to Run report.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Restore old-site report cell formats
 **What I had to decide:** Port v3 report_engine vs stamp a static field→type map and infer the rest.
 **Options I considered:** Heuristic-only money in report-grid.js; full engine port; typed `tabs[].columns` plus JS/Excel formatters.
