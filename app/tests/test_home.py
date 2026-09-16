@@ -150,6 +150,11 @@ def test_settings_hub_admin_sections(client):
     assert "Schedule test mode" in html
     assert "Report run log" in html
     assert "Monochrome Dark" in html
+    people = html.index("<summary>People</summary>")
+    developer = html.index("<summary>Developer</summary>")
+    upload = html.index('action="/settings/import-precious"')
+    assert people < developer < upload
+    assert "Copy from live precious.db" in html
 
 
 def test_add_user_no_self_register(client):

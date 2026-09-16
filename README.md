@@ -74,7 +74,7 @@ views). JSON leftovers (`saved_reports` 52, JSON `schedules` 44, `master_schedul
 Admins and developers see every imported schedule, including paused ones.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
-**Achim User Login** → **Settings** → **People** → **Copy from live precious.db**
+**Achim User Login** → **Settings** → **Developer** → **Copy from live precious.db**
 → choose `Downloads\precious.db` → **Import**. Live
 https://reports.achimonline.com does **not** have this form until this PR merges.
 

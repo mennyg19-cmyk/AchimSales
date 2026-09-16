@@ -25,7 +25,7 @@ Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` i
 Exact Azure download + import steps are in the repo-root README
 (“Copy live data”). Short version: SSH on `achim-sales-reports`, copy
 `BETA_PRECIOUS_DB_PATH` (`/tmp/betadata/precious.db`, about 97 views) — not
-`/tmp/v3data` (`/test`, about 9 views) — then Settings → People upload.
+`/tmp/v3data` (`/test`, about 9 views) — then Settings → Developer upload.
 After production cutover, run `import-precious.py` on the box with
 `--dest /tmp/homedata/home.sqlite`.
 

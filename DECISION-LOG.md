@@ -1,3 +1,11 @@
+## 2026-09-16 precious.db upload lives in Settings → Developer
+**What I had to decide:** Keep Copy from live on Settings → People vs move it into Developer.
+**Options I considered:** People (next to Users & access); Developer accordion; developer-role-only POST.
+**What I chose:** Cut the form from People. Paste it at the top of Developer. POST `/settings/import-precious` stays `_guard_admin` (privileged), so Preview Admin can still import.
+**Why:** Menny asked to move the upload to the developer section. Dummy preview login is admin, not a seeded developer.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Column filters live in the header ⋮ menu, not search bars
 **What I had to decide:** Keep the toolbar Group by dropdown + Tabulator header search inputs vs the old header ⋮ menu (group + Excel-style filter).
 **Options I considered:** Leave both; funnel button in the header (old v3); filter form inside the ⋮ menu.

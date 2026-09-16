@@ -197,7 +197,7 @@ Skipped as bolted-on (Menny: not every extra from the beginning of time): tab cl
 | P6.7 | Delivery → schedule test mode + test email chips | KEEP |
 | P6.8 | Delivery → Company schedules link (hidden unless `SHOW_COMPANY_SCHEDULE_SETUP`) | KEEP (flag) |
 | P6.9 | History → Report run log, Scheduled run history | KEEP |
-| P6.10 | Developer → Database explorer, Notification diagnostic | KEEP |
+| P6.10 | Developer → Database explorer, Notification diagnostic, precious.db upload | KEEP |
 | P6.11 | Developer → Beta SQL/OData sources | **DROP** (locked: no OData in new app) |
 
 ---

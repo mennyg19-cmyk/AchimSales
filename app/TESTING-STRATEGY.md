@@ -47,6 +47,7 @@
 | Schedule CC/filename/SharePoint | mock outbox body |
 | `/master-schedules/{id}/history` | 200 for admin |
 | `/dev/diagnostics` | P4.I8 blocked copy |
+| Settings `/settings` | People is Users & access only; Copy from live is under Developer; POST still privileged |
 | PWA icons 192/512 | PNG magic |
 | Dashboard flag | badge on Users, no Dashboard bottom nav |
 | Delete own login | refused |

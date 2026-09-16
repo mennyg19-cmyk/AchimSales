@@ -54,16 +54,6 @@
     <section class="settings-card">
         <p class="flag-desc">Roles, report access, salesman assignment. No self-register.</p>
         <a class="btn btn-outline btn-sm" href="/admin/users">Users &amp; access</a>
-        <h2 class="section-title">Copy from live precious.db</h2>
-        <p class="flag-desc">Upload the home-site sqlite from Azure SSH <code>BETA_PRECIOUS_DB_PATH</code> (usually <code>/tmp/betadata/precious.db</code> — about 97 views, 58 report schedules, 592 layout tabs). <code>/tmp/v3data/precious.db</code> is the /test app (~9 views) and will not bring personal views. Adds People. Clears dummy views and schedules, then copies those assemble column tables. JSON leftovers are already inside <code>views</code> / <code>report_schedules</code> and are not read. Admins and developers see every imported schedule, including paused ones.</p>
-        <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <label class="filter-field">
-                <span>precious.db</span>
-                <input type="file" name="file" accept=".db,application/octet-stream" required>
-            </label>
-            <button type="submit" class="btn btn-primary btn-sm mt-12">Import</button>
-        </form>
     </section>
 </details>
 
@@ -154,6 +144,16 @@
 <details class="settings-cat">
     <summary>Developer</summary>
     <section class="settings-card">
+        <h2 class="section-title">Copy from live precious.db</h2>
+        <p class="flag-desc">Upload the home-site sqlite from Azure SSH <code>BETA_PRECIOUS_DB_PATH</code> (usually <code>/tmp/betadata/precious.db</code> — about 97 views, 58 report schedules, 592 layout tabs). <code>/tmp/v3data/precious.db</code> is the /test app (~9 views) and will not bring personal views. Adds People. Clears dummy views and schedules, then copies those assemble column tables. JSON leftovers are already inside <code>views</code> / <code>report_schedules</code> and are not read. Admins and developers see every imported schedule, including paused ones.</p>
+        <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label class="filter-field">
+                <span>precious.db</span>
+                <input type="file" name="file" accept=".db,application/octet-stream" required>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm mt-12">Import</button>
+        </form>
         <div class="admin-links">
             <a class="btn btn-outline btn-sm" href="/dev/db-explorer">Database explorer</a>
             <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>

@@ -1,6 +1,6 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (Automation removed; precious.db import is People + views + schedules)
+Last updated: 2026-09-16 (precious.db upload is Settings → Developer)
 
 **Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock/drive turn on when `GRAPH_*` + `EMAIL_FROM` (+ `SP_SITE_URL` for SharePoint) are set; otherwise outbox + mock drive URLs + preview login. No production cutover.
 
@@ -22,7 +22,7 @@ Login (preview unless Entra secrets; magic-link emails a 15-minute token when Gr
 Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 
 Copy from live: `python import-precious.py path/to/precious.db` or
-`.\\import-precious.ps1 -Precious path\\to\\precious.db`, or Settings → People
+`.\\import-precious.ps1 -Precious path\\to\\precious.db`, or Settings → Developer
 upload. Import wipes dummy views/schedules, copies People plus the assemble
 column tables (`views` / `view_*` / `layout_*` / `report_schedules` + weekday,
 monthday, recipient, and email-salesman children). JSON blob tables are not
