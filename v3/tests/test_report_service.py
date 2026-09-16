@@ -753,4 +753,3 @@ def test_customer_transaction_detail_keeps_duplicate_recids_and_post_filters():
     assert len(rows) == 2
     assert [r["OffsetRecId"] for r in rows] == ["A", "B"]
     assert "AccountNum" not in svc.client.params_calls[0][1]
-
