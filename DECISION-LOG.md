@@ -1,3 +1,11 @@
+## 2026-09-16 Live precious.db is 97 views / 58 schedules, not the 9/13 seed
+**What I had to decide:** Treat Menny's explorer list as a request to import JSON `schedules`/`saved_reports` too vs still assemble-only from a fresh live copy.
+**Options I considered:** Import every table including JSON and jobs/outbox; assemble-only from the live file; keep using the seed he already uploaded.
+**What I chose:** Assemble-only still. Live `/tmp/v3data` is ~97 views, 58 `report_schedules`, 592 layout tabs. JSON `schedules` 44 + `master_schedules` 14 already equal those 58. Flash warns when the upload looks like the 9/13 Azure seed.
+**Why:** He pasted the live explorer counts. Dummy 9→9 is the wrong file, not a missed table. Dest cannot keep a JSON `schedules` table — that name is the column table here.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Import reads assemble tables only; drop leftover JSON tables
 **What I had to decide:** Keep filling dest columns from leftover JSON (`saved_reports` / `company_views` / `master_schedules`) vs follow the old GUI/clock read path and delete those tables here.
 **Options I considered:** JSON fill (previous); assemble-only copy; also smash `window_period` onto the shared view.

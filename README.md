@@ -62,8 +62,14 @@ children. Schedule run windows stay on the schedule (`window_period` /
 `window_start` / `window_end`), not smashed onto a shared view. Leftover JSON
 tables (`saved_reports`, `company_views`, `report_defaults`, `master_schedules`,
 `view_workbook_parity`) are not read and are dropped on this site. The flash
-lists live→here counts for those assemble tables. Admins and developers see
-every imported schedule, including paused ones.
+lists live→here counts for those assemble tables. Live `/tmp/v3data/precious.db`
+is about **97 views, 58 report_schedules, 592 layout_tabs** (plus 37 salesmen /
+18 statuses / 15 customers on views, and 77 recipients / 19 monthdays on
+schedules). JSON leftovers in that file (`saved_reports` 52, `company_views` 10,
+`report_defaults` 4, JSON `schedules` 44, `master_schedules` 14) are already
+projected into those column tables — 44+14=58 — and are not imported. A download
+with ~9 views / 13 schedules is the Azure seed/freeze, not live. Admins and
+developers see every imported schedule, including paused ones.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**
