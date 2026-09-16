@@ -92,12 +92,19 @@
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Weekday}">Weekday</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{HH}">HH</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{mm}">mm</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Month-1}">Month-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{DD-1}">DD-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Weekday-1}">Weekday-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{HH-1}">HH-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YYYY-1}">YYYY-1</button>
             </p>
+            <p class="form-hint">Math: <code>{Month-1}</code> last month, <code>{{ '{{Month-1 YYYY}}' }}</code> last month and its year, <code>{Weekday-1}</code> yesterday, <code>{HH-1}</code> an hour earlier. Same for +.</p>
             {% if is_privileged or user.sharepoint_access %}
             <label class="auth-field"><span class="auth-label">SharePoint folder</span>
                 <input name="sharepoint_folder" id="schedSharepoint" type="text" placeholder="Salesman Report/Customer Activity/{Month} {YYYY}"></label>
             <p class="form-hint">Insert:
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{YYYY}">YYYY</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Schedule}">Schedule</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Period}">Period</button>
@@ -106,6 +113,7 @@
                 <input name="onedrive_folder" id="schedOnedrive" type="text" placeholder="folder in the owner's OneDrive"></label>
             <p class="form-hint">Insert:
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{YYYY}">YYYY</button>
             </p>
             {% endif %}

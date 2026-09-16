@@ -80,6 +80,27 @@ def test_filename_date_chips_are_eastern_not_api():
     assert subject == "Daily Ordered August 2026"
 
 
+def test_chip_math_shifts_eastern_clock():
+    august = datetime(2026, 8, 17, 22, 30, tzinfo=cadence.EASTERN)
+    assert chips.expand("{Month-1}", when=august) == "July"
+    assert chips.expand("{{month-1}}", when=august) == "July"
+    assert chips.expand("{{Month-1 YYYY}}", when=august) == "July 2026"
+    assert chips.expand("{Weekday-1}", when=august) == "Sunday"
+    assert chips.expand("{MM}", when=august) == "08"
+    assert chips.expand("{mm}", when=august) == "30"
+    assert chips.expand("{DD-1}", when=august) == "16"
+    january = datetime(2026, 1, 5, 9, 0, tzinfo=cadence.EASTERN)
+    assert chips.expand("{Month-1}", when=january) == "December"
+    assert chips.expand("{{Month-1 YYYY}}", when=january) == "December 2025"
+    folder = chips.expand_folder(
+        "Salesman Report/Customer Activity/{{Month-1 YYYY}}",
+        when=january,
+    )
+    assert folder == "Salesman Report/Customer Activity/December 2025"
+    name = chips.expand_filename("{Schedule}_{Month-1}_{YYYY}", schedule_name="Daily", when=january)
+    assert name == "Daily_December_2026.xlsx"
+
+
 def test_clock_ready_ignores_weekday():
     cad = {"freq": "weekly", "time": "08:00", "weekdays": [4]}  # Friday
     monday = datetime(2026, 6, 22, 16, 0, tzinfo=timezone.utc)
