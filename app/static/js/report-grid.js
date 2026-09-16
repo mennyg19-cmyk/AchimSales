@@ -408,6 +408,7 @@ function columnsFromRows(rows, v, key) {
       width: v.widths[field],
       hozAlign: isNumber ? "right" : "left",
       headerMenu: headerMenu(key),
+      headerMenuIcon: "⋮",
       formatter: isNumber && moneyName ? "money" : "plaintext",
       bottomCalc: isNumber ? "sum" : undefined,
     };
