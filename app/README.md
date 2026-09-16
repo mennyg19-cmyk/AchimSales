@@ -4,7 +4,7 @@ Achim sales-report website. Looks like the old Flask home. Runs on FastAPI.
 
 `v3/`, `webapp/`, `rebuild/`, and Azure Automation (`run.py` / `runbooks/`)
 are not in this repo anymore. Nightly work is the in-app schedules. Repo-root
-`startup.sh` execs `app/startup.sh`. **Do not merge to `main` until Menny says cut over.**
+`startup.sh` execs `app/startup.sh`. Production is this FastAPI tree on `main`.
 
 ## Dummy preview (what this branch serves)
 
@@ -31,16 +31,11 @@ After production cutover, run `import-precious.py` on the box with
 
 ## Azure
 
-Merging this branch to `main` deploys FastAPI onto `achim-sales-reports`
-because root `startup.sh` now starts this folder. Until that merge, use a
-second Web App if you want an Azure preview:
+Merging to `main` deploys FastAPI onto `achim-sales-reports`
+because root `startup.sh` starts this folder.
 
-```
-bash create-azure-webapp.sh achim-sales-home-preview
-.\deploy.ps1 -Name achim-sales-home-preview
-```
-
-`app/deploy.ps1` still refuses the live app name. Repo-root `deploy.ps1` targets live — cutover only.
+`app/deploy.ps1` still refuses the live app name. Repo-root `deploy.ps1` is the
+manual zip fallback if the GitHub Action cannot run.
 
 App settings: `APP_ENV=preview` on a preview app; production needs `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM` or `EMAIL_FROM_ADDRESS`.
 
@@ -49,4 +44,3 @@ App settings: `APP_ENV=preview` on a preview app; production needs `SESSION_SECR
 - Commit `REPORTING_API_KEY` or cookies
 - Point `REPORTING_API_BASE_URL` at reports.achimonline.com
 - Merge leftover PR https://github.com/mennyg19-cmyk/AchimSales/pull/35
-- Merge this PR to `main` until Menny says cut over

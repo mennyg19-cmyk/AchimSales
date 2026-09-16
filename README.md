@@ -10,16 +10,14 @@ The website lives in `app/`. Azure Startup Command is
 OData Automation CLI (`run.py`, `runbooks/`) are gone from this tree.
 GitHub history on `main` still has every old commit.
 
-**Production branch is `main`.** This branch does not auto-deploy. Do **not**
-merge until Menny says cut over (precious.db copy, secrets, Entra redirect).
-Leftover Flask PR #35 stays parked.
+**Production branch is `main`.** Cutover is this merge: FastAPI boots on
+`achim-sales-reports`. Leftover Flask PR #35 stays parked.
 
 ## Copy live data (precious.db)
 
-Do this **now**, while the old Flask site is still running. `/tmp` is wiped when
-Azure recycles. After merge the new site does **not** read `precious.db`; it
-reads `home.sqlite`. You download the old file to your PC, then **import** it.
-Do not copy `precious.db` over `home.sqlite`.
+Do this **immediately after cutover**. `/tmp` is wiped when Azure recycles. The
+new site does **not** read `precious.db`; it reads `home.sqlite`. Import the
+LogFiles copy. Do not copy `precious.db` over `home.sqlite`.
 
 ### 1. Download from Azure onto your PC
 
@@ -78,11 +76,11 @@ Admins and developers see every imported schedule, including paused ones.
 → choose `Downloads\precious.db` → **Import**. Live
 https://reports.achimonline.com does **not** have this form until this PR merges.
 
-**After cutover, on the Azure box** (production login needs People first, so use
-Kudu instead of the website). Do **not** run this while the live site is still
-Flask — `import-precious.py` is in this PR and only lands at
-`/home/site/wwwroot/import-precious.py` **after** merge. If Bash says that file
-does not exist, you are still on the old site, or you are not in `wwwroot`.
+**On the Azure box after this deploy** (production login needs People first, so
+use Kudu instead of the website). `import-precious.py` lands at
+`/home/site/wwwroot/import-precious.py` when FastAPI is deployed. If Bash says
+that file does not exist, the deploy is still running, or you are not in
+`wwwroot`.
 
 The `home-precious.db` already in `/home/LogFiles/` is enough. You do not need
 to upload the PC copy unless that file is gone. Ignore a tiny `precious.db` in
@@ -149,7 +147,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
-| Home site rebuild (`app/`) | **Stay off `main` until Menny says cut over.** FastAPI-only home. Merge to `main` will boot FastAPI on the existing Azure app. Nightly work is site schedules. Do not merge leftover Flask PR #35. |
-| Rebuild review models until cutover | **Cheap/Everyday only (Grok, Composer, Terra).** Do not spawn Fable or Sol until Menny asks for go-live / whole-app premier loops. |
+| Home site rebuild (`app/`) | **FastAPI-only home on `main`.** Nightly work is site schedules. Do not merge leftover Flask PR #35. |
+| Rebuild review models | Cutover skipped Sol/Fable loops by Menny order (logged). Later whole-app premier loops still Fable/Sol. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Two agents at once → two PRs. |
 | Unrelated dirty tree | Stage only the files for this change; leave scratch/other WIP alone. |

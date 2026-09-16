@@ -1,8 +1,33 @@
+## 2026-09-16 Cut over FastAPI home to production
+**What I had to decide:** Run Sol/Fable production-merge loops first vs merge now; port Flask companion-xlsx OOM spill into FastAPI first.
+**Options I considered:** Block merge for premier review; port companion spill; merge immediately as Menny ordered.
+**What I chose:** Merge PR #68 to `main` now. Skip Sol/Fable loops (Menny ordered cutover after dummy verify + rollback plan). FastAPI `export_xlsx.py` still builds one in-memory workbook — Flask companion spill from 2026-09-15 is not in this tree; huge B1 Full Data can OOM until that is ported. `v3/` stays deleted; those hotfixes remain in Git history on pre-cutover `main`.
+**Why:** Menny said cut over. Rollback is revert `main` + restore `/home/LogFiles/home-precious.db` into `/tmp/betadata/precious.db`. Login stays dead until Kudu import into `/tmp/homedata/home.sqlite`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Strip dummy People before cutover; chrome tables are Tabulator
 **What I had to decide:** Delete preview/loop users from the dummy sqlite vs keep preview@ for Cloudflare login; whether Schedule N views are junk.
 **Options I considered:** Keep preview@ forever; delete dummy People and fall Achim User Login back to the first live admin; rename Schedule N views.
 **What I chose:** Dummy emails (preview@, manager@/salesman@ seeds, @example.com, @local.test, @test.local, loopa-/loopb-) are purged on import and never re-seeded once live People exist. Production never seeds them. Achim User Login uses preview@ if present, else the first active admin. Schedule N views stay — they are live auto-named views from the old site, not dummy rows. Chrome tables (schedules, users, run logs, Last Order, …) use Tabulator with ⋮ sort/filter/hide/freeze/group and nowrap cells. Last run shows Eastern `YYYY-MM-DD HH:MM`. `EMAIL_FROM_ADDRESS` already aliases `EMAIL_FROM`.
 **Why:** Menny asked to drop dummy db rows before cutover, asked what Schedule N is, and circled wrapping Actions on the schedules table plus sortable/filterable.
+**Status:** DECIDED
+
+
+## 2026-09-15 Companion OOM: spill + chunk + ungroup
+**What you asked for:** Companion build still dying; why rebuild for Excel after screen shape; brother's site works.
+**What I had to decide:** One-shot API→Excel rewrite vs keep shared tab builder and harden companion writes.
+**What I chose:** Keep shared builder (schedules reuse the same tabs as the viewer). Harden companions: spill huge tabs to temp JSON (largest first), write smallest spill first in ≤100k chunks, force `group=[]` on companions. Failures retrying the whole job is why logs look "twice."
+**Why:** B1 dies holding Full Data + By Order + group-key set. Brother's export likely had more free RAM or a smaller period/view. True stream-to-Excel is a separate delivery builder — not this hotfix. (Pickle spill rejected by Semgrep; JSON spill instead.)
+**Status:** DECIDED
+
+
+## 2026-09-15 Oversized tabs → companion xlsx (no merge)
+**What you asked for:** Separate file when Full Data is too big, then merge as a new sheet?
+**What I had to decide:** Merge companions back into one workbook on the B1 worker vs leave them as sibling files in the same folder.
+**What I chose:** Companion `.xlsx` per sheet over 100k rows (largest first, clear rows after each). Main workbook keeps a one-row stub pointing at `…__Full_Data.xlsx`. Uploaded next to the main file; email body lists companions. Do **not** merge on this box — reloading 330k rows into an open multi-sheet book OOMs after By Order.
+**Why:** Log died at `sheet Full Data: 331495 rows` after By Order already finished (~4 min). Merge would re-open that memory wall.
+**Craft deferral:** Loop C Finding 5 — extract companion block from `export.py` into `export_bundle.py` after go-live (god-file tidy, not a behavior change).
 **Status:** DECIDED
 
 

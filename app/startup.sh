@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # FastAPI home boot. Repo-root startup.sh execs this file, so Azure's existing
 # Startup Command (`bash /home/site/wwwroot/startup.sh`) starts this site.
-# Do not merge to main until Menny says cut over.
 #
 # No `set -e`: Litestream download/restore is fail-open. Production still
 # refuses to boot without LITESTREAM_AZURE_ACCOUNT_KEY (config.validate_boot).

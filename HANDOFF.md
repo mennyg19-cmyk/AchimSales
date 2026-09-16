@@ -2,13 +2,13 @@
 
 Last updated: 2026-09-16 (precious.db upload is Settings → Developer)
 
-**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock/drive turn on when `GRAPH_*` + `EMAIL_FROM` or `EMAIL_FROM_ADDRESS` (+ `SP_SITE_URL` for SharePoint) are set; otherwise outbox + mock drive URLs + preview login. No production cutover.
+**Status:** Cutover in progress. Merging this branch to `main` boots FastAPI on `achim-sales-reports` / https://reports.achimonline.com. Login stays dead until Kudu import into `/tmp/homedata/home.sqlite`.
 
 ## Working tree
 
 - **Branch:** `cursor/brother-stack-rebuild-0a24`
 - **Repo:** AchimSales
-- **Prod URL:** https://reports.achimonline.com (still the old Flask deploy on `main` until this PR merges)
+- **Prod URL:** https://reports.achimonline.com (FastAPI after this merge; login needs Kudu import)
 - **Preview:** https://core-finished-stuffed-updating.trycloudflare.com/login (Cloudflare quick tunnel in front of uvicorn `:8080`; URL changes if the tunnel restarts)
 
 ## Website vs leftover
@@ -30,7 +30,7 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## Locked (do not reopen)
 
-- Stay off AchimSales `main` until Menny says cut over (merge now *would* boot FastAPI)
+- Cutover to `main` is this run; do not reopen Flask on this app
 - PR #35 parked
 - Testers = admin until salesman vs SalesGroup map (P4.I8)
 - REPORTING_API must never be reports.achimonline.com
@@ -38,9 +38,9 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## What's next
 
-1. Merge when Menny says. After merge, SSH/Kudu Bash from `/home/site/wwwroot`:
+1. After Azure deploy is green, SSH/Kudu Bash from `/home/site/wwwroot`:
    `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`.
-   That script is not on the live Flask box. Reuse `home-precious.db` already in LogFiles.
-2. Dummy People (preview@, loop users) are stripped on import; Achim User Login falls back to the first live admin.
-3. Graph on Azure uses `EMAIL_FROM_ADDRESS` (already aliased). Entra redirect URI is done. `FLASK_SECRET` is accepted as `SESSION_SECRET`.
-4. Still not in this app: P4.I8 salesman map, Customer Aging. No new Azure app or DNS if this merge boots `achim-sales-reports`.
+   Reuse `home-precious.db` already in LogFiles.
+2. Entra login should then work (People exist). Dummy emails are stripped on import.
+3. Still not in this app: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
+4. Rollback: Azure Deployment Center last Flask deploy, or revert `main`, then restore LogFiles copy to `/tmp/betadata/precious.db`.
