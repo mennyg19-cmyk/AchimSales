@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{% if master %}Master schedules{% else %}Company schedules{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">{% if master %}Master schedules{% else %}Company schedules{% endif %}</h1>
+    <p class="page-subtitle">Company list. Clock skips Shabbos/Yom Tov via Brooklyn Hebcal; Run now still sends.</p>
+</div>
+<section class="settings-card">
+    {% if schedules %}
+    <table class="simple-table js-site-table">
+        <thead><tr><th>View</th><th>Owner</th><th>When</th><th>Where</th><th></th></tr></thead>
+        <tbody>
+        {% for s in schedules %}
+        <tr>
+            <td>{{ s.view_name }}</td>
+            <td>{{ s.owner_email }}</td>
+            <td>{{ s.freq }} {{ s.run_time }}</td>
+            <td>{{ s.recipients }}</td>
+            <td>
+                {% if master %}
+                <a class="btn btn-sm btn-outline" href="/master-schedules/{{ s.id }}/history">History</a>
+                {% else %}
+                <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>None yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

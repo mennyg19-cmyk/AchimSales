@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Sign in &mdash; Sales Reports{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 class="auth-title">Sales Reports</h1>
+    <p class="auth-sub">Sign in to continue</p>
+    {% if entra_configured %}
+    <a class="btn btn-primary btn-lg btn-block" href="/login/entra?next={{ (next_url or '/')|urlencode }}">Achim User Login</a>
+    {% elif not production %}
+    <form method="post" action="/login/preview">
+      <input type="hidden" name="next" value="{{ next_url or '/' }}">
+      <button type="submit" class="btn btn-primary btn-lg btn-block">Achim User Login</button>
+    </form>
+    {% else %}
+    <p class="auth-modal-copy">Microsoft sign-in is not configured on this app (GRAPH_TENANT_ID / CLIENT_ID / CLIENT_SECRET).</p>
+    {% endif %}
+    <button type="button" id="externalLoginBtn" class="btn btn-outline btn-lg btn-block auth-extra-btn">
+      External Rep Login
+    </button>
+  </div>
+</div>
+<div id="externalLoginModal" class="modal-overlay" hidden
+     onclick="if(event.target===this) closeExternalLogin()">
+  <div class="modal" role="dialog" aria-labelledby="extLoginTitle">
+    <button type="button" class="modal-close" onclick="closeExternalLogin()" aria-label="Close">&times;</button>
+    <h2 id="extLoginTitle">External Rep Login</h2>
+    {% if graph_configured %}
+    <p class="auth-modal-copy">
+      This sends a 15-minute link from
+      <strong>reports@achimonline.com</strong>
+      to an active External People row.
+    </p>
+    {% else %}
+    <p class="auth-modal-copy">
+      On the live site this sends a 15-minute link from
+      <strong>reports@achimonline.com</strong>.
+      <strong>This preview does not send mail.</strong>
+      If your email is an active External People row, you will be signed in now.
+    </p>
+    {% endif %}
+    <form method="POST" action="/login/magic-link">
+      <input type="hidden" name="next" value="{{ next_url or '/' }}">
+      <input type="email" name="email" required autofocus placeholder="you@company.com" class="auth-field-input">
+      <div class="auth-modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeExternalLogin()">Cancel</button>
+        {% if graph_configured %}
+        <button type="submit" class="btn btn-primary">Send sign-in link</button>
+        {% else %}
+        <button type="submit" class="btn btn-primary">Continue (no mail)</button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function() {
+    var btn = document.getElementById('externalLoginBtn');
+    var modal = document.getElementById('externalLoginModal');
+    btn.addEventListener('click', function() {
+        modal.hidden = false;
+        var email = modal.querySelector('input[name="email"]');
+        setTimeout(function() { email.focus(); }, 50);
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.hidden) closeExternalLogin();
+    });
+    window.closeExternalLogin = function() { modal.hidden = true; };
+})();
+</script>
+{% endblock %}

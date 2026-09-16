@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Report run log{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Report run log</h1>
+</div>
+<section class="settings-card">
+    {% if jobs %}
+    <table class="simple-table js-site-table">
+        <thead><tr><th>When</th><th>Report</th><th>Status</th><th>Kept</th></tr></thead>
+        <tbody>
+        {% for j in jobs %}
+        <tr>
+            <td>{{ j.created_at|stamp }}</td>
+            <td>{{ j.title }} ({{ j.report_key }})</td>
+            <td>{{ j.status }}</td>
+            <td>{% if j.kept %}{{ j.keep_name }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No runs yet. Open a report and click Run.</p>
+    {% endif %}
+</section>
+{% endblock %}

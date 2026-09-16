@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Diagnostics</h1>
+    <p class="page-subtitle">{% if doorway_on %}Office doorway is configured. Reconciles still use catalog tab names until SQL returns finished tabs.{% else %}Dummy catalog until REPORTING_API_KEY is set. These are not office-API reconciles.{% endif %}</p>
+</div>
+<section class="settings-card">
+    <h2 class="section-title">Salesman mock</h2>
+    <p class="flag-desc">Tabs in the dummy JSON: {{ salesman_tabs|join(', ') }}.</p>
+    <h2 class="section-title">Number 4 mock</h2>
+    <p class="flag-desc">Tabs in the dummy JSON: {{ number4_tabs|join(', ') }}.</p>
+    <h2 class="section-title">Claim-once / precious-repair</h2>
+    <p class="flag-desc">Not run here. This preview has no precious DB and does not write live cache.</p>
+    <p class="alert alert-warn">{{ blocked }}</p>
+</section>
+{% endblock %}

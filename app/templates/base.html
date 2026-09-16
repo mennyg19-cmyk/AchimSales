@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Sales">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="{{ theme_color }}">
+    <title>{% block title %}Sales Reports{% endblock %}</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+    <link rel="stylesheet" href="/static/css/main.css?v={{ asset_v }}">
+    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    {% if user %}
+    <link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+    {% endif %}
+    {% block head %}{% endblock %}
+</head>
+<body class="{{ theme_class }}" data-themes="{{ theme_names }}"
+      data-csrf="{{ csrf }}" data-can-company="{{ '1' if is_privileged else '0' }}">
+    {% if user %}
+    <header class="app-header">
+        <div class="header-left">
+            <a href="/" class="header-logo">Sales Reports</a>
+        </div>
+        <div class="header-right">
+            <span class="user-name">{{ user.name }}</span>
+            <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% elif user.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">
+                {{ user.role|title }}
+            </span>
+            {% if impersonating %}
+            <form method="post" action="/impersonate/stop" class="inline-form">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button type="submit" class="btn btn-sm btn-outline" title="Stop viewing as {{ user.email }}">Stop View as</button>
+            </form>
+            {% endif %}
+            <button type="button" id="prevRunsBtn" class="header-text-link" title="Recent and kept report runs">
+                <span class="prev-runs-full">Recent Reports</span><span class="prev-runs-short">Recent</span>
+            </button>
+            <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
+                    title="Switch theme (light / dark / monochrome)"
+                    data-url="/api/settings/theme">
+                <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture', 'monochrome_dark': 'disc'}.get(theme, 'sun') }}" class="header-icon"></i>
+            </button>
+            <form method="post" action="/logout" class="inline-form">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button type="submit" class="btn btn-sm btn-outline">Sign Out</button>
+            </form>
+        </div>
+    </header>
+    {% endif %}
+
+    <main class="container {% block container_class %}{% endblock %}">
+        {% if flash %}
+        <div class="flash-messages">
+            <div class="alert alert-{{ flash_kind }}">{{ flash }}</div>
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if user %}
+    <nav class="bottom-nav">
+        <a href="/" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="file-text"></i></div>
+            <span class="bottom-nav-label">Reports</span>
+        </a>
+        <a href="/schedules" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="clock"></i></div>
+            <span class="bottom-nav-label">Schedules</span>
+        </a>
+        <a href="/settings" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="settings"></i></div>
+            <span class="bottom-nav-label">Settings</span>
+        </a>
+    </nav>
+    {% endif %}
+
+    <div id="recentPanel" class="recent-panel" hidden>
+        <div class="recent-panel-head">
+            <strong>Recent Reports</strong>
+            <button type="button" class="modal-close" id="recentClose">&times;</button>
+        </div>
+        <div id="recentBody" class="recent-panel-body">Loading…</div>
+    </div>
+    <script src="/static/js/csrf.js?v={{ asset_v }}"></script>
+    <script src="/static/js/shell.js?v={{ asset_v }}"></script>
+    <script src="/static/js/site-table.js?v={{ asset_v }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

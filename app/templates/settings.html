@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">Your account{% if is_privileged %}, access, delivery, and history{% endif %}.</p>
+</div>
+
+<div id="settingsHub" class="settings-hub">
+<details class="settings-cat" open>
+    <summary>You</summary>
+    <section class="settings-card">
+        <h2 class="section-title">Profile</h2>
+        <dl class="profile-list">
+            <dt>Name</dt><dd>{{ user.name }}</dd>
+            <dt>Email</dt><dd>{{ user.email }}</dd>
+            <dt>Role</dt><dd>{{ user.role|title }}</dd>
+        </dl>
+    </section>
+    <section class="settings-card">
+        <h2 class="section-title">Appearance</h2>
+        <p class="flag-desc">Same four themes as the header button (light, dark, monochrome, monochrome dark).</p>
+        <label class="filter-field">
+            <span>Theme</span>
+            <select id="settingsTheme">
+                <option value="light" {% if theme == 'light' %}selected{% endif %}>Light</option>
+                <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
+                <option value="monochrome" {% if theme == 'monochrome' %}selected{% endif %}>Monochrome</option>
+                <option value="monochrome_dark" {% if theme == 'monochrome_dark' %}selected{% endif %}>Monochrome Dark</option>
+            </select>
+        </label>
+        <button type="button" id="settingsThemeSave" class="btn btn-primary btn-sm mt-12">Save</button>
+    </section>
+    <section class="settings-card">
+        <h2 class="section-title">Customer exclusions</h2>
+        <p class="flag-desc">Hide these accounts from your own Last Order list and dashboard leftovers. Dummy list only.</p>
+        <div id="exclPills" class="customer-pills">
+            {% for c in customers %}
+            <label class="access-item">
+                <input type="checkbox" class="excl-box" value="{{ c.account }}" {% if c.account in excluded %}checked{% endif %}>
+                {{ c.name }}
+            </label>
+            {% endfor %}
+        </div>
+        <button type="button" id="exclSave" class="btn btn-outline btn-sm mt-12">Save exclusions</button>
+    </section>
+</details>
+
+{% if is_privileged %}
+<details class="settings-cat">
+    <summary>People</summary>
+    <section class="settings-card">
+        <p class="flag-desc">Roles, report access, salesman assignment. No self-register.</p>
+        <a class="btn btn-outline btn-sm" href="/admin/users">Users &amp; access</a>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>Reports</summary>
+    <section class="settings-card">
+        <h2 class="section-title">Global report visibility</h2>
+        <p class="flag-desc">Off hides the report from everyone unless that person has an explicit Allow.</p>
+        <ul class="flag-list">
+            {% for r in reports %}
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" class="vis-toggle" data-key="{{ r.key }}" {% if r.enabled %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">{{ r.title }}</span>
+                    <span class="flag-desc">{{ r.key }}</span>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        <h2 class="section-title">Feature flags</h2>
+        <ul class="flag-list">
+            {% for f in flags %}
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" class="flag-toggle" data-key="{{ f.key }}" {% if f.enabled %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">{{ f.key.replace('_', ' ') }}</span>
+                    <span class="flag-desc">{{ f.description }}</span>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>Delivery</summary>
+    <section class="settings-card">
+        {% if company_schedule_setup %}
+        <a class="btn btn-outline btn-sm" href="/settings/company-schedules">Company schedules</a>
+        {% endif %}
+        <h3 class="settings-subhead">Schedule test mode</h3>
+        <p class="flag-desc">While on, every schedule mail (Run now and the clock) goes only to the addresses below. Graph still sends when secrets are set; otherwise the outbox is the record.</p>
+        <ul class="flag-list">
+            <li class="flag-row">
+                <label class="switch">
+                    <input type="checkbox" id="scheduleTestToggle" {% if test_mode_on %}checked{% endif %}>
+                    <span class="switch-track"></span>
+                </label>
+                <span class="flag-meta">
+                    <span class="flag-name">Redirect schedule mail</span>
+                    <span class="flag-desc">Subject is tagged [MOCK]. Salesmen are not emailed.</span>
+                </span>
+            </li>
+        </ul>
+        <div id="testEmailChips" class="test-email-chips">
+            {% for e in test_emails %}
+            <button type="button" class="customer-chip js-test-email-remove" data-email="{{ e }}">{{ e }} ✕</button>
+            {% endfor %}
+        </div>
+        <form id="testEmailAdd" class="test-email-add">
+            <label class="filter-field">
+                <span>Add test email</span>
+                <input type="email" id="testEmailInput" placeholder="name@achimonline.com" autocomplete="off">
+            </label>
+            <button type="submit" class="btn btn-outline btn-sm">Add</button>
+        </form>
+    </section>
+</details>
+
+<details class="settings-cat">
+    <summary>History</summary>
+    <section class="settings-card">
+        <div class="admin-links">
+            <a class="btn btn-outline btn-sm" href="/admin/run-log">Report run log</a>
+            <a class="btn btn-outline btn-sm" href="/admin/schedule-runs">Scheduled run history</a>
+        </div>
+    </section>
+</details>
+{% endif %}
+
+{% if is_privileged %}
+<details class="settings-cat">
+    <summary>Developer</summary>
+    <section class="settings-card">
+        <h2 class="section-title">Copy from live precious.db</h2>
+        <p class="flag-desc">Upload the home-site sqlite from Azure SSH <code>BETA_PRECIOUS_DB_PATH</code> (usually <code>/tmp/betadata/precious.db</code> — about 97 views, 58 report schedules, 592 layout tabs). <code>/tmp/v3data/precious.db</code> is the /test app (~9 views) and will not bring personal views. Adds People. Clears dummy views and schedules, then copies those assemble column tables. JSON leftovers are already inside <code>views</code> / <code>report_schedules</code> and are not read. Admins and developers see every imported schedule, including paused ones.</p>
+        <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <label class="filter-field">
+                <span>precious.db</span>
+                <input type="file" name="file" accept=".db,application/octet-stream" required>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm mt-12">Import</button>
+        </form>
+        <div class="admin-links">
+            <a class="btn btn-outline btn-sm" href="/dev/db-explorer">Database explorer</a>
+            <a class="btn btn-outline btn-sm" href="/dev/notif-diagnostic">Notification diagnostic</a>
+            <a class="btn btn-outline btn-sm" href="/dev/diagnostics">Salesman / Number 4 diagnostics</a>
+            <a class="btn btn-outline btn-sm" href="/dev/role-picker">Role picker / View as</a>
+            <a class="btn btn-outline btn-sm" href="/master-schedules">Master schedules</a>
+        </div>
+        <p class="flag-desc">OData vs SQL source picker is retired. This app talks to the office Reporting API when REPORTING_API_KEY is set; otherwise catalog mock JSON. POST /api/dev/reporting/&lt;id&gt;/run returns 501 without the key, or live rows when it is set.</p>
+    </section>
+</details>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/settings.js?v={{ asset_v }}"></script>
+{% endblock %}

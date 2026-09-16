@@ -2,6 +2,10 @@
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+app/data/
 __pycache__/
 .pytest_cache/
 _report_output/
@@ -38,3 +42,5 @@ test/data/fixtures/*.csv
 # Rebuild app local databases (never committed)
 .rebuild-data/
 rebuild/.rebuild-data/
+app/.venv/
+app/deps/

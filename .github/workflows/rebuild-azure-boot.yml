@@ -1,0 +1,36 @@
+name: Rebuild FastAPI Azure boot
+
+# Does not deploy. Proves gunicorn + UvicornWorker (Azure Linux Python) serves /healthz.
+# Live site deploy stays on main → achim-sales-reports only.
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "startup.sh"
+      - ".github/workflows/rebuild-azure-boot.yml"
+  push:
+    paths:
+      - "app/**"
+      - "startup.sh"
+      - ".github/workflows/rebuild-azure-boot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gunicorn-healthz:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime deps
+        run: pip install -r requirements-dev.txt
+      - name: Azure-shaped gunicorn boot
+        run: python -m pytest -q

@@ -1,0 +1,18 @@
+# Litestream replication for the rebuild home sqlite -> Azure Blob.
+#
+# Loaded by app/startup.sh ONLY when LITESTREAM_AZURE_ACCOUNT_KEY is present.
+# Production refuses to boot without that key (config.validate_boot); download
+# and restore here stay fail-open so a bad binary never takes the site down.
+#
+# ${VAR} is expanded by Litestream from app settings.
+# Blob object is always home.sqlite — do not reuse Flask's LITESTREAM_AZURE_PATH
+# (precious.db). Restoring that replica into home.sqlite crashes boot
+# (schedule_runs has no message column) and wipes the FastAPI import.
+dbs:
+  - path: ${APP_DB_PATH}
+    replicas:
+      - type: abs
+        account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
+        account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
+        bucket: ${LITESTREAM_AZURE_CONTAINER}
+        path: home.sqlite

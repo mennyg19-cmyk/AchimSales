@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Schedules</h1>
+        <p class="page-subtitle">Recurring deliveries from a named saved view. Graph sends when secrets are set; otherwise the outbox.</p>
+    </div>
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-primary" id="psStartBtn"
+                {% if not views %}disabled title="Save a named view on a report first"{% endif %}>
+            Add a schedule
+        </button>
+    </div>
+</div>
+
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Schedule mail goes to {{ test_emails|join(', ') }}.
+    <a href="/settings">Settings</a>
+</div>
+{% endif %}
+<div class="alert alert-warn hebcal-banner" role="status">
+    Clock skips Shabbos and Yom Tov using the Brooklyn Hebcal calendar. If that calendar cannot be loaded, the clock holds (does not send) until it can. Run now still sends.
+</div>
+
+<section class="settings-card" id="schedWizardCard"{% if not preselect_view %} hidden{% endif %}>
+    <h2 class="section-title">Add a schedule</h2>
+    {% if views %}
+    <form method="post" action="/schedules/add" class="auth-form form-narrow" id="schedWizard">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <p class="flag-desc" id="wizHint">Step 1 of 3 — View</p>
+        <div class="wiz-step" data-step="1">
+            <label class="auth-field"><span class="auth-label">View</span>
+                <select name="view_id" required>
+                    {% for v in views %}
+                    <option value="{{ v.id }}" {% if preselect_view and preselect_view|string == v.id|string %}selected{% endif %}>
+                        {{ v.name }} ({{ v.report_key }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="wiz-step" data-step="2" hidden>
+            <label class="auth-field"><span class="auth-label">When</span>
+                <select name="freq" id="schedFreq">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </label>
+            <div class="sched-weekdays" id="weekdayRow" hidden>
+                {% for day, label in [("mon","Mon"),("tue","Tue"),("wed","Wed"),("thu","Thu"),("fri","Fri")] %}
+                <label class="sched-day"><input type="checkbox" name="weekdays" value="{{ day }}"> {{ label }}</label>
+                {% endfor %}
+            </div>
+            <label class="auth-field" id="monthdayRow" hidden>
+                <span class="auth-label">Day of month</span>
+                <input name="monthday" type="number" min="1" max="31" value="1">
+            </label>
+            <label class="auth-field"><span class="auth-label">Time (America/New_York)</span>
+                <input name="run_time" type="time" value="08:00"></label>
+        </div>
+        <div class="wiz-step" data-step="3" hidden>
+            <label class="auth-field"><span class="auth-label">Where (email)</span>
+                <input name="recipients" type="text" value="{{ user.email }}" placeholder="one@x.com, two@x.com"></label>
+            {% if is_privileged %}
+            <label class="auth-field"><span class="auth-label">CC</span>
+                <input name="cc" type="text" placeholder="optional"></label>
+            <label class="auth-field"><span class="auth-label">BCC</span>
+                <input name="bcc" type="text" placeholder="optional"></label>
+            {% endif %}
+            <label class="auth-field"><span class="auth-label">Subject</span>
+                <input name="subject" id="schedSubject" type="text" placeholder="{Schedule} {Period} {Month} {YYYY}"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Report}">Report</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Period}">Period</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Month}">Month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{DD}">DD</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Weekday}">Weekday</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{SharePointUrl}">SharePointUrl</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{DownloadButton}">DownloadButton</button>
+            </p>
+            <label class="auth-field"><span class="auth-label">Filename</span>
+                <input name="filename" id="schedFilename" type="text" value="{Schedule}_{MM}-{DD}-{YYYY}" placeholder="{Schedule}_{MM}-{DD}-{YYYY}"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Report}">Report</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Period}">Period</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YY}">YY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{MM}">MM</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Month}">Month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{DD}">DD</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Weekday}">Weekday</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{HH}">HH</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{mm}">mm</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Month-1}">Month-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{DD-1}">DD-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Weekday-1}">Weekday-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{HH-1}">HH-1</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YYYY-1}">YYYY-1</button>
+            </p>
+            <p class="form-hint">Math: <code>{Month-1}</code> last month, <code>{{ '{{Month-1 YYYY}}' }}</code> last month and its year, <code>{Weekday-1}</code> yesterday, <code>{HH-1}</code> an hour earlier. Same for +.</p>
+            {% if is_privileged or user.sharepoint_access %}
+            <label class="auth-field"><span class="auth-label">SharePoint folder</span>
+                <input name="sharepoint_folder" id="schedSharepoint" type="text" placeholder="Salesman Report/Customer Activity/{Month} {YYYY}"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Period}">Period</button>
+            </p>
+            <label class="auth-field"><span class="auth-label">OneDrive folder</span>
+                <input name="onedrive_folder" id="schedOnedrive" type="text" placeholder="folder in the owner's OneDrive"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{YYYY}">YYYY</button>
+            </p>
+            {% endif %}
+        </div>
+        <div class="modal-foot">
+            <button type="button" class="btn btn-outline" id="wizBack" hidden>Back</button>
+            <button type="button" class="btn btn-primary" id="wizNext">Next</button>
+            <button type="submit" class="btn btn-primary" id="wizSave" hidden>Save schedule</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="flag-desc">Save a named view on a report first, then come back here.</p>
+    {% endif %}
+</section>
+
+<section id="personal">
+    <h2 class="section-title">{% if is_privileged %}All schedules{% else %}Your schedules{% endif %}</h2>
+    {% if schedules %}
+    <div class="table-wrap">
+    <table class="data-table ps-sched-table js-site-table">
+        <colgroup>
+            <col class="ps-col-report">
+            <col class="ps-col-view">
+            <col class="ps-col-cadence">
+            <col class="ps-col-recipients">
+            <col class="ps-col-folder">
+            <col class="ps-col-lastrun">
+            <col class="ps-col-active">
+            <col class="ps-col-actions">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>Folder</th>
+                <th>Last run</th><th>Active</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in schedule_groups %}
+            {% if is_privileged %}
+            <tr class="ps-owner-row">
+                <td colspan="8">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></td>
+            </tr>
+            {% endif %}
+            {% for s in g.schedules %}
+            <tr>
+                <td>{{ s.report_title }}</td>
+                <td>{{ s.name or s.view_name or '—' }}</td>
+                <td>{{ s.cadence }}</td>
+                <td>{{ s.recipients or '—' }}</td>
+                <td>{{ s.folder or '—' }}</td>
+                <td>{{ s.last_run }}</td>
+                <td>
+                    <form method="post" action="/schedules/{{ s.id }}/toggle" class="inline-form">
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <button class="btn btn-sm {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}" type="submit">
+                            {{ 'On' if s.is_active else 'Off' }}
+                        </button>
+                    </form>
+                </td>
+                <td class="row-actions">
+                    <form method="post" action="/schedules/{{ s.id }}/run-now" class="inline-form">
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <button class="btn btn-sm btn-outline" type="submit">Run now</button>
+                    </form>
+                    <form method="post" action="/schedules/{{ s.id }}/copy" class="inline-form">
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <button class="btn btn-sm btn-outline" type="submit">Copy</button>
+                    </form>
+                    <a class="btn btn-sm btn-outline" href="/schedules/{{ s.id }}/history">History</a>
+                    <form method="post" action="/schedules/{{ s.id }}/delete" class="inline-form" onsubmit="return confirm('Delete this schedule?');">
+                        <input type="hidden" name="csrf" value="{{ csrf }}">
+                        <button class="btn btn-sm btn-outline" type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="run-log-empty">No schedules yet.</p>
+    {% endif %}
+</section>
+
+<details class="run-log-panel" open>
+    <summary class="run-log-summary">Recent run log</summary>
+    {% if is_privileged %}
+    <form method="post" action="/api/schedules/clear-stuck" onsubmit="event.preventDefault(); fetch(this.action,{method:'POST',headers:csrfHeaders()}).then(function(){ location.reload(); });">
+        <button type="submit" class="btn btn-sm btn-outline">Clear stuck runs</button>
+    </form>
+    {% endif %}
+    {% if recent_runs %}
+    <table class="simple-table js-site-table">
+        <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th><th></th></tr></thead>
+        <tbody>
+        {% for r in recent_runs %}
+        <tr>
+            <td>{{ r.started_at|stamp }}</td>
+            <td>{{ r.view_name }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.message }}</td>
+            <td><a class="btn btn-sm btn-outline" href="/schedules/runs/{{ r.id }}">Log</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="run-log-empty">No schedule runs yet. Use Run now.</p>
+    {% endif %}
+</details>
+<script>
+(function () {
+  var freq = document.getElementById("schedFreq");
+  var week = document.getElementById("weekdayRow");
+  var month = document.getElementById("monthdayRow");
+  function sync() {
+    var value = freq ? freq.value : "daily";
+    if (week) week.hidden = value !== "weekly";
+    if (month) month.hidden = value !== "monthly";
+  }
+  if (freq) freq.addEventListener("change", sync);
+  sync();
+  var start = document.getElementById("psStartBtn");
+  var card = document.getElementById("schedWizardCard");
+  if (start && card) {
+    start.addEventListener("click", function () {
+      card.hidden = !card.hidden;
+    });
+  }
+  var labels = ["View", "When", "Where"];
+  var step = 1;
+  var hint = document.getElementById("wizHint");
+  var back = document.getElementById("wizBack");
+  var next = document.getElementById("wizNext");
+  var save = document.getElementById("wizSave");
+  function show() {
+    document.querySelectorAll(".wiz-step").forEach(function (el) {
+      el.hidden = Number(el.getAttribute("data-step")) !== step;
+    });
+    if (hint) hint.textContent = "Step " + step + " of 3 — " + labels[step - 1];
+    if (back) back.hidden = step === 1;
+    if (next) next.hidden = step === 3;
+    if (save) save.hidden = step !== 3;
+  }
+  if (next) next.addEventListener("click", function () { step = Math.min(3, step + 1); show(); });
+  if (back) back.addEventListener("click", function () { step = Math.max(1, step - 1); show(); });
+  document.querySelectorAll(".chip-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var field = document.getElementById(btn.getAttribute("data-target"));
+      if (!field) return;
+      field.value = (field.value || "") + btn.getAttribute("data-chip");
+      field.focus();
+    });
+  });
+  show();
+})();
+</script>
+{% endblock %}

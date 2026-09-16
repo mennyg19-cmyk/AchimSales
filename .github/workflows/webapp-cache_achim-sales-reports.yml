@@ -32,23 +32,16 @@ jobs:
         with:
           python-version: '3.10'
 
-      # The webapp's real dependencies live in webapp/requirements.txt
-      # (Flask, gunicorn, azure-identity, azure-mgmt-automation, ...).
-      # The root requirements.txt is for the test/runbook side and is missing
-      # the webapp deps. Oryx on App Service runs `pip install -r requirements.txt`
-      # against whatever is at the artifact root, so we copy webapp's
-      # requirements.txt to the root before upload -- mirroring what
-      # `deploy.ps1` does for the manual zip-deploy path.
-      - name: Stage webapp/requirements.txt as root requirements.txt
-        run: cp webapp/requirements.txt requirements.txt
+      # Website deps live in app/requirements.txt (FastAPI, gunicorn, uvicorn).
+      # Oryx on App Service runs `pip install -r requirements.txt` at the
+      # artifact root, so copy the FastAPI list before upload.
+      - name: Stage app/requirements.txt as root requirements.txt
+        run: cp app/requirements.txt requirements.txt
 
-      # 🛠️ Local Build Section (Optional)
-      # Validates that the webapp's deps install cleanly before we ship.
-      - name: Create and Start virtual environment and Install dependencies
-        run: |
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install -r requirements.txt
+      # Ship site-packages in the zip. Live Azure python3 has no pip/ensurepip
+      # and no /opt/python, so Oryx antenv never appears.
+      - name: Vendor app deps into app/deps
+        run: python -m pip install -r app/requirements.txt -t app/deps
 
       # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size.
       - name: Upload artifact for deployment jobs
@@ -82,3 +75,4 @@ jobs:
           app-name: 'achim-sales-reports'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
+          clean: true

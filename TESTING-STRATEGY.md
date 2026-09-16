@@ -1,5 +1,26 @@
 # Testing Strategy
 
+**2026-09-16:** Flask home and Azure Automation CLI are gone from this
+branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
+`test_golive.py`. Sections below that cite `v3/tests/`, `run.py`, or
+`tests/test_wsgi_dispatch.py` are historical.
+
+## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
+
+**What to test:**
+- `{Schedule}` / `{Period}` / `{SharePointUrl}` / `{DownloadButton}` plus date/name chips `{YYYY}` `{YY}` `{MM}` `{Month}` `{DD}` `{Weekday}` `{HH}` `{mm}` `{Report}` expand in subject, filename (slugged), and folder paths (spaces kept). `{Month-1}` / `{{month-1}}` / `{{Month-1 YYYY}}` shift the Eastern clock (month/day/year/weekday/hour). Values are Eastern clock + saved view, not the Reporting API.
+- Weekly Friday `last_7_days` skip on Shabbos sets `catch_up_pending`; Monday 08:00 Eastern makeup delivers with overlay params. Daily Saturday skip still marks skipped and does not retry the same minute.
+- Hebcal hold returns 0 and does not claim, including owed catch-up.
+- SharePoint/OneDrive upload mocks when Graph is unset; production without Graph raises.
+- `SESSION_SECRET` accepts `FLASK_SECRET` / `FLASK_SECRET_KEY`. Production boot without `LITESTREAM_AZURE_ACCOUNT_KEY` raises.
+- Keep cap 5 per owner drops the oldest; theme POST writes `users.theme`.
+- `import_precious.py` copies People, views, and schedules from a v3 precious.db. Existing emails stay. Reads assemble column tables only (`views` / `layout_*` / `report_schedules` + children). JSON blob tables are not read and are dropped on dest.
+- `app/startup.sh` still gunicorn + UvicornWorker `main:app` and mentions litestream.
+
+**Expected behavior:** Dummy stays clickable without secrets. A new Azure Web App with production env refuses a missing session secret or Litestream key. Clock does not double-send (fcntl + claim_today_slot).
+
+**Test files:** `app/tests/test_golive.py`, `app/tests/test_delivery.py`, `app/tests/test_azure_boot.py`
+
 ## Normalized views round-trip (new tables vs old JSON)
 
 **What to test:** spec `v3/docs/normalized-views.md`

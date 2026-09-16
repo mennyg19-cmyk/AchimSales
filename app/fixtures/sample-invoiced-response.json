@@ -1,0 +1,143 @@
+{
+  "data": {
+    "report_key": "invoiced",
+    "title": "Invoiced",
+    "from_date": "2026-08-31",
+    "to_date": "2026-09-06",
+    "raw": [
+      {
+        "InvoiceNumber": "IN01008282",
+        "CustomerAccount": "C-1001",
+        "CustomerName": "HD SUPPLY",
+        "InvoiceDate": "2026-09-02",
+        "salesorder": "SO-88021",
+        "salesman": "DDweck",
+        "SalesmanName": "Dweck, David",
+        "SalesGroup": "SG01",
+        "Commission": 0.05,
+        "amount": 1000.0,
+        "Tariff Charges": 10.0,
+        "Freight Charges": 20.0,
+        "CC Charges": 0.0,
+        "Misc Charges": 5.0,
+        "Total Invoice": 1035.0,
+        "IsCredit": false
+      },
+      {
+        "InvoiceNumber": "FCRD-004181",
+        "CustomerAccount": "C-1002",
+        "CustomerName": "MAZER WHOLESALE",
+        "InvoiceDate": "2026-09-03",
+        "salesorder": "SO-88099",
+        "salesman": "DDweck",
+        "SalesmanName": "Dweck, David",
+        "SalesGroup": "SG01",
+        "Commission": 0.05,
+        "amount": -50.0,
+        "Total Invoice": -50.0,
+        "IsCredit": true
+      },
+      {
+        "InvoiceNumber": "IN01008290",
+        "CustomerAccount": "C-2001",
+        "CustomerName": "AMAZON.COM DEDC, LLC",
+        "InvoiceDate": "2026-09-04",
+        "salesorder": "SO-90110",
+        "salesman": "HKaufman",
+        "SalesmanName": "Kaufman, Herschel",
+        "SalesGroup": "SG02",
+        "Commission": 0.03,
+        "amount": 500.0,
+        "Freight Charges": 15.0,
+        "CC Charges": 5.0,
+        "Total Invoice": 520.0,
+        "IsCredit": false
+      }
+    ],
+    "tabs": {
+      "full_details": {
+        "name": "Full Details",
+        "rows": [
+          {
+            "InvoiceNumber": "IN01008282",
+            "CustomerName": "HD SUPPLY",
+            "Total Invoice": 1035.0,
+            "SalesmanName": "Dweck, David"
+          },
+          {
+            "InvoiceNumber": "FCRD-004181",
+            "CustomerName": "MAZER WHOLESALE",
+            "Total Invoice": -50.0,
+            "SalesmanName": "Dweck, David"
+          },
+          {
+            "InvoiceNumber": "IN01008290",
+            "CustomerName": "AMAZON.COM DEDC, LLC",
+            "Total Invoice": 520.0,
+            "SalesmanName": "Kaufman, Herschel"
+          }
+        ]
+      },
+      "credits": {
+        "name": "Credits",
+        "rows": [
+          {
+            "InvoiceNumber": "FCRD-004181",
+            "CustomerName": "MAZER WHOLESALE",
+            "Total Invoice": -50.0
+          }
+        ]
+      },
+      "invoices": {
+        "name": "Invoices",
+        "rows": [
+          {
+            "InvoiceNumber": "IN01008282",
+            "Total Invoice": 1035.0
+          },
+          {
+            "InvoiceNumber": "IN01008290",
+            "Total Invoice": 520.0
+          }
+        ]
+      },
+      "summary_by_customer": {
+        "name": "Summary by Customer",
+        "rows": [
+          {
+            "CustomerName": "HD SUPPLY",
+            "InvoiceCount": 1,
+            "Total Invoices": 1035.0
+          },
+          {
+            "CustomerName": "MAZER WHOLESALE",
+            "InvoiceCount": 1,
+            "Total Invoices": -50.0
+          },
+          {
+            "CustomerName": "AMAZON.COM DEDC, LLC",
+            "InvoiceCount": 1,
+            "Total Invoices": 520.0
+          }
+        ]
+      },
+      "commissions": {
+        "name": "Commissions",
+        "rows": [
+          {
+            "SalesmanName": "Dweck, David",
+            "Percent": 0.05,
+            "NetCommission": 965.0,
+            "CommissionDollars": 48.25
+          },
+          {
+            "SalesmanName": "Kaufman, Herschel",
+            "Percent": 0.03,
+            "NetCommission": 500.0,
+            "CommissionDollars": 15.0
+          }
+        ]
+      }
+    }
+  }
+}

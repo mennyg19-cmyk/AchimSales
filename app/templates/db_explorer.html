@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Database explorer{% endblock %}
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Database explorer</h1>
+    <p class="page-subtitle">One statement. DROP / ALTER / ATTACH / CREATE are blocked. Writes need Confirm. Views live in columns (<code>layout_tabs</code>, <code>layout_columns</code>) — there is no JSON blob editor.</p>
+</div>
+<section class="settings-card">
+    <form method="post" action="/dev/db-explorer">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="auth-field"><span class="auth-label">SQL</span>
+            <textarea name="sql" rows="6" class="api-preview" style="width:100%;font-family:monospace;">{{ sql or "SELECT name FROM sqlite_master" }}</textarea>
+        </label>
+        <label class="access-item">
+            <input type="checkbox" name="confirm_write" value="1"> Confirm write (required for UPDATE/INSERT/DELETE)
+        </label>
+        <button class="btn btn-primary" type="submit">Run</button>
+    </form>
+    {% if error %}<p class="alert alert-error">{{ error }}</p>{% endif %}
+    {% if rows is not none %}
+    <label class="filter-field" style="margin-top:16px;">
+        <span>Column filter</span>
+        <input type="text" id="colFilter" placeholder="Hide columns that don't match…">
+    </label>
+    <div class="table-wrap" style="margin-top:16px;overflow:auto;">
+        <table class="simple-table" id="explorerTable">
+            {% if rows %}
+            <thead><tr>{% for col in rows[0].keys() %}<th data-col="{{ col }}">{{ col }}</th>{% endfor %}</tr></thead>
+            <tbody>
+            {% for row in rows %}
+            <tr>{% for col in row.keys() %}<td data-col="{{ col }}">{{ row[col] }}</td>{% endfor %}</tr>
+            {% endfor %}
+            </tbody>
+            {% else %}
+            <tr><td>No rows</td></tr>
+            {% endif %}
+        </table>
+    </div>
+    {% endif %}
+</section>
+<script>
+(function () {
+  var input = document.getElementById("colFilter");
+  var table = document.getElementById("explorerTable");
+  if (!input || !table) return;
+  input.addEventListener("input", function () {
+    var term = (input.value || "").toLowerCase();
+    table.querySelectorAll("[data-col]").forEach(function (cell) {
+      var col = (cell.getAttribute("data-col") || "").toLowerCase();
+      cell.hidden = !!(term && col.indexOf(term) === -1);
+    });
+  });
+})();
+</script>
+{% endblock %}
