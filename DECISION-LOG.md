@@ -1,4 +1,11 @@
-## 2026-09-16 Hotfix: Azure 503 — gunicorn not on PATH
+## 2026-09-16 Hotfix: skip leftover Litestream wrap; vendor deps
+**What I had to decide:** Keep `litestream replicate -exec gunicorn` vs boot gunicorn directly.
+**What I chose:** Direct `python -m gunicorn`. Leftover `/home/bin/litestream` (Oct 2023) wraps a system python with no packages and exits. CI vendors `app/deps` with Python 3.11 (matches Azure 3.11.2). Re-enable Litestream after the site answers `/healthz`.
+**Why:** Portal Running + 503. No pip, no ensurepip, PEP 668, no /opt/python.
+**Status:** DECIDED
+
+
+
 **What I had to decide:** Push another `main` deploy vs patch startup to `python3 -m gunicorn` / `python3 -m pip`.
 **What I chose:** Hotfix deviation (no Sol/Fable). Boot-diag: python `boot ok`, no `gunicorn` binary, leftover `/home/bin/litestream`. `startup.sh` now uses the same interpreter as `python3 -c import main`. Kudu can apply the same two-line change without waiting for git.
 **Why:** Portal Running ≠ gunicorn bound. `pip`/`gunicorn` were not on PATH; `|| echo warning` then `exec gunicorn` exited.
