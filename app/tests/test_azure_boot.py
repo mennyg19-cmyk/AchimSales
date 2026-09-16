@@ -17,8 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_startup_script_is_azure_shaped():
     text = (ROOT / "startup.sh").read_text(encoding="utf-8")
     assert "uvicorn.workers.UvicornWorker" in text
-    assert "python3 -m gunicorn" in text
-    assert "python3 -m pip" in text
+    assert "-m gunicorn" in text
+    assert "-m pip" in text
+    assert "/opt/python" in text
     assert "0.0.0.0" in text
     assert "${PORT" in text
     assert "main:app" in text
