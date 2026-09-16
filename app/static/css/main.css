@@ -44,7 +44,8 @@ summary.settings-subhead{cursor:pointer}
 .filter-bar-row .filter-fields{flex:0 1 auto}
 .filter-bar-row .filter-run-group{margin-left:auto}
 .filter-bar-row>.customer-pills{flex:1 1 8rem;min-width:8rem;padding-bottom:0}
-.customer-picker .customer-options{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:240px}
+.customer-picker .customer-options{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:240px;z-index:1300}
+.settings-hub .customer-picker{position:relative;z-index:30;overflow:visible}
 @media (max-width: 600px){
   .filter-bar-row>.customer-pills{flex:1 1 100%;width:100%;min-width:0}
 }
