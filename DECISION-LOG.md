@@ -5,6 +5,12 @@
 **Why:** Loop B F1: repeating the original on each settlement is required, but totaling those copies is math the DBA said this report does not do. F2 is one branch. F3 matches Ordered.
 **Status:** DECIDED
 
+## 2026-09-16 Loop C defer money helper
+**What I had to decide:** Move `_money` next to sales_by_state's `_money_or_blank` in lib vs leave two copies.
+**What I chose:** Leave both. Rule of 2 is met but a shared helper is more lines than it saves until a third builder needs it.
+**Why:** Loop C F7 optional. Protocol-safe deferral.
+**Status:** DECIDED
+
 ## 2026-09-16 Customer Transaction Detail on live v3
 **What I had to decide:** Expose every DBA filter vs the same filter bar as other home reports; salesman-default vs inherit-hidden.
 **Options I considered:** Dump all 20+ SP params on the form; period + customer + invoice + remaining-amount only (other params stay on developer API preview); salesman-default with customer-book filtering (no salesman column on the SP).

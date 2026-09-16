@@ -218,13 +218,7 @@ function applySavedViewFromSelect(): void {
   if (periodEl) periodEl.value = String(params.period || "");
   const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
   if (yearEl) yearEl.value = params.year != null ? String(params.year) : "";
-  const invoiceEl = form.elements.namedItem("invoice") as HTMLInputElement | null;
-  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
-  const openEl = document.getElementById("msOpenBalance") as HTMLInputElement | null;
-  if (openEl) {
-    const flag = String(params.open_balance ?? "").trim().toLowerCase();
-    openEl.checked = ["1", "true", "on", "yes"].includes(flag);
-  }
+  applyInvoiceOpenParams(form, params);
   ensurePickers();
   statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);
@@ -299,6 +293,18 @@ function asStringList(raw: unknown): string[] {
   if (!s) return [];
   if (s.includes(",")) return s.split(",").map((p) => p.trim()).filter(Boolean);
   return s.split(/\s+/).map((p) => p.trim()).filter(Boolean);
+}
+
+function isOnFlag(raw: unknown): boolean {
+  const flag = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
+  return ["1", "true", "on", "yes"].includes(flag.trim().toLowerCase());
+}
+
+function applyInvoiceOpenParams(form: HTMLFormElement, params: Record<string, unknown>): void {
+  const invoiceEl = form.elements.namedItem("invoice") as HTMLInputElement | null;
+  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
+  const openEl = document.getElementById("msOpenBalance") as HTMLInputElement | null;
+  if (openEl) openEl.checked = isOnFlag(params.open_balance);
 }
 
 function collectParams(form: HTMLFormElement): Record<string, unknown> {
@@ -767,13 +773,7 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   customerPicker?.setSelected(pendingCustomers);
   (form.elements.namedItem("year") as HTMLSelectElement).value =
     params.year != null ? String(params.year) : "";
-  const invoiceEl = form.elements.namedItem("invoice") as HTMLInputElement | null;
-  if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
-  const openEl = document.getElementById("msOpenBalance") as HTMLInputElement | null;
-  if (openEl) {
-    const flag = String(params.open_balance ?? "").trim().toLowerCase();
-    openEl.checked = ["1", "true", "on", "yes"].includes(flag);
-  }
+  applyInvoiceOpenParams(form, params);
 
   (form.elements.namedItem("recipients") as HTMLInputElement).value = row.dataset.recipients || "";
   const folderKind = String(params.folder_kind || "");

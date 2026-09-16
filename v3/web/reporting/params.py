@@ -37,6 +37,18 @@ def _csv(value: Any) -> str | None:
     return s or None
 
 
+def _one_customer(params: dict) -> str | None:
+    """Exact-match SPs take one account. Multi-select is post-filtered by the orchestrator."""
+    customers = params.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        accounts = [str(c).strip() for c in customers if str(c).strip()]
+    elif customers:
+        accounts = [str(customers).strip()]
+    else:
+        accounts = []
+    return accounts[0] if len(accounts) == 1 else None
+
+
 def _resolve_window(params: dict) -> tuple[date | None, date | None]:
     """Resolve the filter form's period/custom-range into (start, end) dates.
 
@@ -103,15 +115,8 @@ def translate_ordered(p: dict) -> dict[str, Any]:
     multi-select is post-filtered by the orchestrator (same as invoiced).
     """
     out = _date_range(p, "CreatedDateTimeFrom", "CreatedDateTimeTo")
-    customers = p.get("customers")
-    if isinstance(customers, (list, tuple, set)):
-        cust = [str(c).strip() for c in customers if str(c).strip()]
-    elif customers:
-        cust = [str(customers).strip()]
-    else:
-        cust = []
-    if len(cust) == 1:
-        out["CustomerAccount"] = cust[0]
+    if acct := _one_customer(p):
+        out["CustomerAccount"] = acct
     if v := _csv(p.get("salesman")):
         out["SalesGroup"] = v
     if v := _csv(p.get("status")):
@@ -131,15 +136,8 @@ def translate_invoiced(p: dict) -> dict[str, Any]:
     by the caller.
     """
     out = _date_range(p, "InvoiceDateFrom", "InvoiceDateTo")
-    customers = p.get("customers")
-    if isinstance(customers, (list, tuple, set)):
-        cust = [str(c).strip() for c in customers if str(c).strip()]
-    elif customers:
-        cust = [str(customers).strip()]
-    else:
-        cust = []
-    if len(cust) == 1:
-        out["CustomerAccount"] = cust[0]
+    if acct := _one_customer(p):
+        out["CustomerAccount"] = acct
     if v := _csv(p.get("salesman")):
         out["Salesman"] = v
     return out
@@ -244,15 +242,8 @@ def translate_customer_transaction_detail(p: dict) -> dict[str, Any]:
     post-filtered. Open-balance checkbox becomes RemainAmountCurMin 0.01.
     """
     out = _date_range(p, "CreatedDateTimeFrom", "CreatedDateTimeTo")
-    customers = p.get("customers")
-    if isinstance(customers, (list, tuple, set)):
-        cust = [str(c).strip() for c in customers if str(c).strip()]
-    elif customers:
-        cust = [str(customers).strip()]
-    else:
-        cust = []
-    if len(cust) == 1:
-        out["AccountNum"] = cust[0]
+    if acct := _one_customer(p):
+        out["AccountNum"] = acct
     if v := _csv(p.get("invoice") or p.get("Invoice")):
         out["Invoice"] = v
     raw_open = p.get("open_balance")

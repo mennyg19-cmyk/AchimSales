@@ -1149,7 +1149,7 @@ def _params_label(params: dict | None) -> str:
         bits.append(f"year {year}")
     if invoice := str(p.get("invoice") or "").strip():
         bits.append(f"invoice {invoice}")
-    if str(p.get("open_balance") or "").strip().lower() in ("1", "true", "on", "yes"):
+    if _as_bool(p.get("open_balance")):
         bits.append("open only")
     return ", ".join(bits) if bits else "defaults"
 

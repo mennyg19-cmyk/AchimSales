@@ -11,8 +11,6 @@ from typing import Iterable, Sequence
 
 from report_engine.lib import first_of, num, text
 
-SP_NAME = "customertransactiondetail"
-
 _COLS = [
     {"field": "Company", "header": "Company", "type": "text"},
     {"field": "AccountNum", "header": "Account", "type": "text"},
@@ -44,13 +42,6 @@ def _money(row: dict, *names: str):
     return round(num(raw), 2)
 
 
-def _stamp(row: dict, *names: str) -> str:
-    raw = _cell(row, *names)
-    if raw is None:
-        return ""
-    return str(raw).strip()
-
-
 def clean_rows(rows: Iterable[dict]) -> list[dict]:
     """Keep every SP row. Multiple settlements against one RecId stay multiple rows."""
     out: list[dict] = []
@@ -63,14 +54,14 @@ def clean_rows(rows: Iterable[dict]) -> list[dict]:
             "RemainAmountCur": _money(row, "RemainAmountCur", "RemainAmount"),
             "Voucher": text(_cell(row, "Voucher")),
             "RecId": text(_cell(row, "RecId")),
-            "CreatedDateTime": _stamp(row, "CreatedDateTime"),
+            "CreatedDateTime": text(_cell(row, "CreatedDateTime")),
             "TransType": text(_cell(row, "TransType")),
             "OffsetTransVoucher": text(_cell(row, "OffsetTransVoucher")),
             "SettleAmountCur": _money(row, "SettleAmountCur"),
             "OffsetRecId": text(_cell(row, "OffsetRecId")),
             "OffsetAmountMST": _money(row, "OffsetAmountMST"),
             "OffsetVoucher": text(_cell(row, "OffsetVoucher")),
-            "OffsetCreatedDateTime": _stamp(row, "OffsetCreatedDateTime"),
+            "OffsetCreatedDateTime": text(_cell(row, "OffsetCreatedDateTime")),
             "OffsetCreatedBy": text(_cell(row, "OffsetCreatedBy")),
         })
     return out
