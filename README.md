@@ -4,6 +4,9 @@
 rebuild is saved on `cursor/fastapi-rebuild-parked-0a24` (tag
 `fastapi-rebuild-parked-2026-09-16`). Do not delete that branch.
 
+**Next rebuild agent:** paste [`rebuild-handoff/NEW-AGENT-PROMPT.md`](rebuild-handoff/NEW-AGENT-PROMPT.md).
+Do not merge FastAPI to `main` until Menny signs off.
+
 Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
 scheduled Azure Automation jobs, on demand via a Flask web app, or locally
 from the CLI.
