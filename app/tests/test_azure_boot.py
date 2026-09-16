@@ -25,7 +25,12 @@ def test_startup_script_is_azure_shaped():
     assert "${PORT" in text
     assert "main:app" in text
     assert "GUNICORN_TIMEOUT:-180" in text
-    assert "litestream" in text
+    assert "restore -config" in text
+    assert "-if-replica-exists" in text
+    assert "-if-db-not-exists" in text
+    assert "replicate -config" in text
+    assert "-exec" in text
+    assert "/home/bin/litestream" in text
     assert (ROOT / "litestream.yml").is_file()
     yml = (ROOT / "litestream.yml").read_text(encoding="utf-8")
     assert "path: home.sqlite" in yml

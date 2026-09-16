@@ -1,3 +1,11 @@
+## 2026-09-16 Re-enable Litestream so Azure Restart keeps People
+**What I had to decide:** Put sqlite on /home vs keep /tmp + restore/replicate; stay on direct gunicorn after the 503.
+**Options I considered:** Write sqlite on /home (persists, WAL-unsafe on Azure SMB); leave /tmp with no replica (Restart wipes People); wrap `python -m gunicorn` in Litestream again.
+**What I chose:** Hotfix deviation (no Sol/Fable). Keep `/tmp/homedata/home.sqlite`. Restore `-if-replica-exists -if-db-not-exists`, then `litestream replicate -exec` of `python -m gunicorn` with `PYTHONPATH=app/deps`. Blob path stays `home.sqlite`, not Flask `precious.db`. First boot after this deploy is empty until one import; later recycles restore.
+**Why:** Azure `/tmp` is the recycle wipe. The 503 was Flask `precious.db` restore + missing `schedule_runs.message`, not replicate wrapping `python -m gunicorn`. Leaving Litestream off made every Restart a re-import.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Entra AD UPN maps to @achimonline.com People row
 **What I had to decide:** Upsert on Entra callback vs match `user@ad.achimonline.com` to `user@achimonline.com`.
 **What I chose:** No upsert. Login aliases AD UPN ↔ mailbox. Session uses the People email. 403 names the Microsoft email.

@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (precious.db upload is Settings → Developer)
+Last updated: 2026-09-16 (Litestream restore/replicate re-enabled)
 
-**Status:** Cutover in progress. Merging this branch to `main` boots FastAPI on `achim-sales-reports` / https://reports.achimonline.com. Login stays dead until Kudu import into `/tmp/homedata/home.sqlite`.
+**Status:** FastAPI is live on `achim-sales-reports`. `/tmp` sqlite is ephemeral; Litestream blob `home.sqlite` is the durable copy. After this hotfix deploys, import once into `/tmp/homedata/home.sqlite`, wait a couple seconds, Restart, then Achim User Login.
 
 ## Working tree
 
@@ -38,9 +38,9 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## What's next
 
-1. After Azure deploy is green, SSH/Kudu Bash from `/home/site/wwwroot`:
+1. After the Litestream hotfix deploy is green, Kudu from `/home/site/wwwroot`:
    `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`.
-   Reuse `home-precious.db` already in LogFiles.
-2. Entra login should then work (People exist). Dummy emails are stripped on import.
+   Reuse `home-precious.db` already in LogFiles. Wait a couple seconds, then Restart.
+2. Entra Achim User Login (AD UPN aliases to `@achimonline.com`). Dummy emails are stripped on import.
 3. Still not in this app: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
 4. Rollback: Azure Deployment Center last Flask deploy, or revert `main`, then restore LogFiles copy to `/tmp/betadata/precious.db`.

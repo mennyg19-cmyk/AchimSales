@@ -15,9 +15,12 @@ GitHub history on `main` still has every old commit.
 
 ## Copy live data (precious.db)
 
-Do this **immediately after cutover**. `/tmp` is wiped when Azure recycles. The
-new site does **not** read `precious.db`; it reads `home.sqlite`. Import the
-LogFiles copy. Do not copy `precious.db` over `home.sqlite`.
+Do this **immediately after cutover**, and again after any deploy that
+recycles `/tmp` before Litestream has a `home.sqlite` replica. Azure `/tmp`
+is wiped on Restart. sqlite stays on `/tmp` (WAL is unsafe on `/home` SMB);
+`startup.sh` restores from blob `home.sqlite` then replicates. Import once,
+wait a couple of seconds, then Restart should keep People. The new site does
+**not** read `precious.db`. Do not copy `precious.db` over `home.sqlite`.
 
 ### 1. Download from Azure onto your PC
 
@@ -94,6 +97,9 @@ python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/
 
 That destination is the new site’s database (`APP_DB_PATH`). You should see a
 line like `People N added… Views… Schedules… into /tmp/homedata/home.sqlite`.
+Wait a couple of seconds so Litestream can replicate, then Restart. People
+should still be there. If Restart is empty, the replica was not written yet —
+import once more and wait longer.
 
 **Your PC only** (local clone of this repo, does not update Azure):
 
