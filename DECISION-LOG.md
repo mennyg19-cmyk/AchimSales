@@ -1,3 +1,11 @@
+## 2026-09-16 Strip Flask home from this PR
+**What I had to decide:** Delete `v3/` / `webapp/` / `rebuild/` now so merge cannot boot Flask, vs leave them until after live FastAPI works; whether Azure Automation OData (`run.py`, `reports/`, `runbooks/`) counts as “old site.”
+**Options I considered:** Dual-stack until cutover; FastAPI-only home, keep Automation; delete Automation too.
+**What I chose:** Remove the Flask websites and point repo-root `startup.sh` at FastAPI. Keep Azure Automation CLI. GitHub history on `main` is the backup. Still do not merge until Menny says cut over.
+**Why:** Menny expected this PR to be the new site with no old-site remnant. Azure already runs `bash startup.sh`; leaving Flask there is why merge would have opened the old site.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Go-live slice: chips, Graph drive, catch-up, Litestream, People import
 **What I had to decide:** Which remaining cutover gaps to build in-app vs leave for Menny (Azure create, DNS, P4.I8, secrets); whether production Litestream is fail-open like live startup.sh or fail-closed at boot; whether People import copies views/schedules.
 **Options I considered:** Port every v3 overlay window and email HTML sanitizer; skip drive until Azure; require Graph at production boot; auto-import precious.db on startup.

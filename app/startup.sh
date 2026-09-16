@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Azure App Service startup. Set Startup Command to:
-#   bash /home/site/wwwroot/startup.sh
-#
-# This is the NEW rebuild site only. Never point achim-sales-reports at this
-# script. That app still runs the old Flask site from repo-root startup.sh.
+# FastAPI home boot. Repo-root startup.sh execs this file, so Azure's existing
+# Startup Command (`bash /home/site/wwwroot/startup.sh`) starts this site.
+# Do not merge to main until Menny says cut over.
 #
 # No `set -e`: Litestream download/restore is fail-open. Production still
 # refuses to boot without LITESTREAM_AZURE_ACCOUNT_KEY (config.validate_boot).

@@ -61,21 +61,27 @@ universal_runbook.py ordered --period daily
 
 ### Web App (on-demand)
 
-The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
+The website is FastAPI under `app/`, Azure App Service `achim-sales-reports`
+(https://reports.achimonline.com). Azure's Startup Command is still
+`bash /home/site/wwwroot/startup.sh`. That file now starts FastAPI
+(`gunicorn` + `UvicornWorker` + `main:app`). There is no Flask leftover:
+`v3/`, `webapp/`, `rebuild/`, and `wsgi:application` are gone from this tree.
+GitHub history on `main` still has every old commit.
 
-**Production branch is `main`.** Pushing `main` deploys
-https://reports.achimonline.com. Side branches (including Cloud Agent
-`cursor/**` work) do **not** auto-deploy; they wait for a pull request into
-`main`. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
-`v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
-`p/default`, but skips rules that do not match this Flask + SQLite app
-(Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
-dynamic urllib, SHA1 cache fingerprints).
+**Production branch is `main`.** Pushing `main` deploys the live Web App.
+This branch does **not** auto-deploy. Do **not** merge until Menny says cut
+over (People copy, secrets, Entra redirect). Leftover Flask PR #35 stays
+parked. Manual zip deploy is `deploy.ps1`. Agent Guardrails Semgrep scans
+`app/`.
 
-**Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
-it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New
-Azure Web App first (`app/startup.sh` + `app/deploy.ps1`), DNS last. Leftover
-Flask PR #35 stays parked. Graph mail, SharePoint/OneDrive upload, the in-app minute clock (Shabbos skip + weekday catch-up), Brooklyn Hebcal skip, and Entra login turn on when `GRAPH_*` / `EMAIL_FROM` / `SP_SITE_URL` are set; without them the dummy stays clickable (outbox, mock drive URLs, preview login). Production boot needs `SESSION_SECRET` (or live's `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Opt-in People copy: `python3 app/import_precious.py /path/to/precious.db`.
+Reports call the office Reporting API (`POST /api/reports/{id}/run`) when
+`REPORTING_API_KEY` is set; otherwise catalog mock JSON. Graph mail,
+SharePoint/OneDrive upload, the in-app minute clock (Shabbos skip + weekday
+catch-up), Brooklyn Hebcal skip, and Entra login turn on when `GRAPH_*` /
+`EMAIL_FROM` / `SP_SITE_URL` are set. Production boot needs `SESSION_SECRET`
+(or live's `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Opt-in People
+copy: `python3 app/import_precious.py /path/to/precious.db`. Site details:
+`app/README.md`.
 
 **Git in one minute:** `main` is the official copy. A **branch** is a photocopy
 you can mess with. A **pull request** is “please copy this photocopy into
@@ -83,61 +89,9 @@ you can mess with. A **pull request** is “please copy this photocopy into
 `main` and then merge. GitHub keeps every old version of `main`, so you can
 roll back. The old name `webapp-cache` was retired after `main` became default.
 
-Users authenticate with Microsoft Entra ID and can run any report on demand.
-
-The salesman master is the `salesmen_master` SP (`rpt.usp_salesmen_master`,
-`POST /api/reports/salesmen_master/run`: `Salesman`, `SalesmanName`, `Email`,
-`CommissionPercentage`). `SalesmanDirectory` (`v3/web/reporting/salesman_directory.py`)
-reads it once an hour per process and feeds every salesman dropdown (report
-filters, Users & access SalesGroup, company schedule wizard, Customer's Last
-Order), split-by-salesman email addresses, the Users & access email auto-grant,
-and the commission fallback on the Invoiced commissions cards. A new hire
-appears before they own a customer. **There is no salesman table in v3** (the
-old `salesmen` table and its `salesman_map.xlsx` seed are gone). To add, rename,
-retire, or re-address a salesman, change D365. The last good SP list is kept in
-`cache.db` (`salesmen_master_cache`) so a worker that boots while the Reporting
-API is down still has it. Salesman numbers are not used anywhere; salesmen are
-identified by SalesGroup. Users & access does not list D365 salesmen; that
-master is only the SalesGroup dropdown and manager checkboxes. A
-customer SalesGroup missing from the master is still appended to dropdowns. On
-Users & access, a **salesman** login picks a **SalesGroup** from that list;
-that primary group plus any additional checked SalesGroups controls the data
-they can see. Managers use the same per-salesman checkboxes (also from D365).
-
-Each report has a company **Default** view (the current tab/column layout)
-plus named **company views** (Daily Ordered, Heshy Open Orders). Opening a
-saved view (the name or Edit) loads that view’s filters and layout into the
-form and grid; **Save this view** updates the one you opened. A refresh with
-a report already on screen keeps your current layout and does not slam the
-company Default back on top. Admins and developers always see and can create, edit, and delete those views (Save for
-**Company**, or Edit/Delete in Saved views). Other roles need the Company
-views flag (off by default; developers on, unused for admins). Toggle it on
-Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),
-By Customer by salesman only (customers A-Z inside, not grouped), and leaves
-By Order ungrouped. Company views can store a date window when you check
-that box on Save this view; they can still be saved without one. Boot does not
-reset those params. A personal named-view send uses the live view’s period when
-the view has one; if the view has no window it keeps the schedule’s
-this_week / last_7_days / yesterday. Company schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
-them from Saved views. Personal schedules send a **named saved view** (3
-steps: view, when, where). The Where step can set an email subject and HTML
-body with the same `{Schedule}` / `{Period}` chips as the filename, plus
-`{SharePointUrl}` and `{DownloadButton}` (Outlook-safe). Leave them blank for
-the usual auto subject and note. Admins and developers can also schedule **Default**
-and named **company views** (Daily Ordered, Heshy Open Orders) from More →
-Schedule or the personal wizard Company group. Company schedules stay on the
-old 5-step wizard under Settings (admins and developers) but that add/edit UI is
-hidden for now (`SHOW_COMPANY_SCHEDULE_SETUP`); existing company rows still run. While a report or
-schedule job is running, the status line (and Run now) shows the live step:
-Reporting API, workbook, SharePoint/OneDrive, email. Each recent run has a
-Log page (Time, Step, Detail for that job only). The schedule row History
-button still lists every run for that schedule. First SharePoint use of a
-worker looks up `SP_SITE_URL` only; a
-bad URL fails instead of searching every site in the tenant.
-
 ```powershell
-.\deploy.ps1              # build zip and deploy to Azure
-python app.py             # run locally on port 5001
+.\deploy.ps1              # zip-deploy FastAPI home (cutover only)
+cd app; python -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
 ### Local CLI
@@ -146,48 +100,6 @@ python app.py             # run locally on port 5001
 pip install -r requirements.txt
 cp .env.example .env      # fill in credentials
 python run.py ordered
-```
-
-### Live vs /test vs /legacy vs /test-next
-
-| Mount | Code | Role |
-|-------|------|------|
-| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
-| `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
-| `/test` | `v3/` | SQL sandbox — direct link only |
-| `/beta` | — | Redirects to `/` (old bookmarks) |
-| `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
-
-Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
-
-On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
-asks for an optional name; the bottom-right pill can be minimized.
-
-On the home site, **Settings** is the control panel (same ~800px width as Live): You,
-People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. The explorer can run one
-SELECT (or a confirmed INSERT/UPDATE/DELETE), filter a column (e.g. `saved_reports.report_key` contains `ordered`), and open `layout_json` / `params_json` in a pretty-print editor. JSON and SQL are checked before they save: a tab in `views` must keep `group` as an array (`[]` to ungroup). Omitting `group` is blocked because export then uses the report’s default grouping. DROP / ALTER / ATTACH / CREATE stay blocked. Live Email Distributions
-stay on Live only. Developers can also see any Reporting API SP's raw response
-at `/api/dev/reporting/<report_id>/run` (query string = SP params, e.g.
-`/api/dev/reporting/salesmen_master/run`); nothing is dropped or scoped.
-Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
-and is restored/replicated by Litestream (same as `/test`), so Settings like
-schedule test mode survive an App Service recycle.
-
-### Live vs /test parity
-
-Compares Excel from legacy live (`/legacy`, OData) and `/test` (Reporting API) with the same
-params. Writes a per-report diff under `.scratch/parity/<stamp>/`.
-
-```powershell
-# After signing in in the browser, copy cookie values:
-#   session     -> PARITY_LIVE_COOKIE
-#   v3_session  -> PARITY_TEST_COOKIE
-$env:PARITY_LIVE_COOKIE = "..."
-$env:PARITY_TEST_COOKIE = "..."
-python -m tools.parity
-python -m tools.parity --report invoiced
 ```
 
 ### OneDrive deployment mirror
@@ -216,77 +128,27 @@ See `.env.example` for all required variables. Key groups:
   - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
   A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
-- **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
+- **Web App (FastAPI `app/`)**: `SESSION_SECRET` (or `FLASK_SECRET` / `FLASK_SECRET_KEY`), `REPORTING_API_KEY`. See `app/.env.example`.
 
 ## Directory Structure
 
 ```
-scripts/
-  app.py                    # Azure App Service / local entry point (gunicorn)
-  run.py                    # CLI entry point for all reports
-  deploy.ps1                # Deploy webapp to Azure App Service
-  requirements.txt          # Python deps for CLI / runbooks
-  report_registry.json      # Report definitions for universal_runbook
-  .env.example              # Environment variable template
+startup.sh                  # Azure boot: execs app/startup.sh (FastAPI)
+run.py                      # CLI entry for Azure Automation reports
+deploy.ps1                  # Zip-deploy FastAPI home (cutover only)
+requirements.txt            # CLI / runbook deps (not the website)
+report_registry.json        # Report definitions for universal_runbook
+.env.example                # Automation env template; website is app/.env.example
 
-  config/
-    settings.py             # Central config (Azure Automation vars + .env)
-    paths.py                # Output path resolution
-    salesman_map.py         # Salesman lookup (delegates to Excel)
-    salesman_excel.py       # Loads salesman data from salesman_map.xlsx
-    salesman_map.xlsx       # Editable salesman/subscription data
-    commission_map.py       # Commission rates by salesman
+app/                        # FastAPI home site
+  main.py                   # create_app() / gunicorn main:app
+  startup.sh                # gunicorn + UvicornWorker + Litestream
+  requirements.txt          # FastAPI / gunicorn / uvicorn
+  import_precious.py        # Opt-in People copy from live precious.db
 
-  core/
-    auth.py                 # MSAL auth (D365 + Graph tokens)
-    odata.py                # OData v4 client with pagination
-    http.py                 # Shared HTTP session with retries
-    dates.py                # US Eastern date utilities + period parsing
-    columns.py              # Column detection + numeric conversion
-    excel_styles.py         # Shared Excel styling constants
-    excel_writer.py         # Shared Excel writing utilities
-    email_report.py         # Send reports by email (Graph or SMTP)
-    logging.py              # Structured logging setup
-    validation.py           # DataFrame validation before Excel write
-
-  data/
-    field_maps.py           # OData field rename maps + $select lists
-    d365_entities.py        # Entity-specific D365 fetch functions
-
-  reports/
-    base.py                 # Abstract base runner with CLI arg parsing
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report
-    customer_activity/      # Customer Activity Report
-    customer_aging/         # Customer Aging Report
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced / Shipped Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report (By Item + By Customer)
-    customer_activity/      # Customer Activity Report
-
-  runbooks/
-    universal_runbook.py    # Self-contained Azure Automation runbook
-
-  tests/
-    conftest.py             # Shared pytest fixtures
-    test_ordered_builder.py
-    test_invoiced_loader.py
-    test_salesman_builder.py
-    compare_reports.py      # Cell-by-cell Excel comparison tool
-
-  webapp/                   # Flask web app (deployed to Azure App Service)
-    app.py                  # Flask app factory
-    blueprints/             # Route handlers (auth, reports, dashboard, settings, api)
-    services/               # D365 data access, authorization
-    templates/              # Jinja2 HTML templates
-    static/                 # JS, CSS, manifest
-    db.py                   # SQLite database (users, settings, history)
-    config.py               # Web-specific config
-    report_api.py           # Bridge to report runners
-    requirements.txt        # Web app deps (adds Flask, gunicorn)
+config/ core/ data/ reports/ runbooks/
+                            # Azure Automation OData CLI (not the website)
+tests/                      # CLI / runbook tests
 ```
 
 ## Rule Preferences
@@ -296,7 +158,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
-| Home site rebuild (`app/`) | **Stay off `main` until Menny says cut over.** New Azure Web App, then DNS. Do not merge leftover Flask PR #35. Dummy Cloudflare preview first. |
+| Home site rebuild (`app/`) | **Stay off `main` until Menny says cut over.** This PR is FastAPI-only home (no Flask `v3/` / `webapp/`). Merge to `main` will boot FastAPI on the existing Azure app because `startup.sh` now starts it. Do not merge leftover Flask PR #35. Dummy Cloudflare preview first. |
 | Rebuild review models until cutover | **Cheap/Everyday only (Grok, Composer, Terra).** Do not spawn Fable or Sol until Menny asks for go-live / whole-app premier loops. User override of `review-protocol.mdc` premier table for this rebuild. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Do not open a new Cloud Agent branch and PR for the next small ask. Stack it on this agent's last open PR so it can merge together. **Two agents at once → two PRs** (do not share a branch). Details in `git-discipline.mdc`. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |

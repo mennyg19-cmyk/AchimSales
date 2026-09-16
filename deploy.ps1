@@ -1,5 +1,6 @@
-# Deploy the webapp to Azure App Service via zip.
-# Prod setup: built-in Python 3.10 runtime, gunicorn app:app.
+# Zip-deploy the FastAPI home to Azure App Service.
+# Prefer merging this branch to main (GitHub Action). Use this script only
+# when that Action cannot run. Do not run it until Menny says cut over.
 #
 # Usage:
 #   .\deploy.ps1   # build zip, deploy, wait for site to restart
@@ -52,9 +53,9 @@ try {
     }
 
     # Oryx builder expects requirements.txt at the zip root.
-    $webappReq = Join-Path $scriptDir "webapp\requirements.txt"
-    if (Test-Path $webappReq) {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $webappReq, "requirements.txt") | Out-Null
+    $homeReq = Join-Path $scriptDir "app\requirements.txt"
+    if (Test-Path $homeReq) {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $homeReq, "requirements.txt") | Out-Null
     }
 } finally {
     $zip.Dispose()

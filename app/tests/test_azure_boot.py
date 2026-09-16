@@ -20,10 +20,13 @@ def test_startup_script_is_azure_shaped():
     assert "0.0.0.0" in text
     assert "${PORT" in text
     assert "main:app" in text
-    assert "achim-sales-reports" in text  # warning to never point live at this
     assert "GUNICORN_TIMEOUT:-180" in text
     assert "litestream" in text
     assert (ROOT / "litestream.yml").is_file()
+    root_boot = (ROOT.parent / "startup.sh").read_text(encoding="utf-8")
+    assert "app/startup.sh" in root_boot
+    assert "exec bash" in root_boot
+    assert "wsgi:application" not in root_boot
 
 
 def test_gunicorn_worker_serves_healthz():

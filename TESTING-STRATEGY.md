@@ -1,5 +1,10 @@
 # Testing Strategy
 
+**2026-09-16:** Flask home (`v3/`, `webapp/`, `rebuild/`) is gone from this
+branch. Home-site tests are `app/tests/`. Sections below that cite `v3/tests/`
+or `tests/test_wsgi_dispatch.py` are historical. CLI/runbook tests stay under
+`tests/`.
+
 ## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
 
 **What to test:**
