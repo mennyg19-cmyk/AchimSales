@@ -541,6 +541,13 @@ function canSumColumn(col) {
   return col.type === "money" || col.type === "int";
 }
 
+function defaultColWidth(col) {
+  if (col.type === "money" || col.type === "int" || col.type === "percent") return 108;
+  if (col.type === "date") return 112;
+  const title = String(col.header || col.field || "");
+  return Math.min(240, Math.max(120, title.length * 8 + 36));
+}
+
 function typedColumns(rows, tab, v, key) {
   const specs = Array.isArray(tab && tab.columns) ? tab.columns.slice() : [];
   const first = rows[0] || {};
@@ -564,7 +571,7 @@ function typedColumns(rows, tab, v, key) {
       field: field,
       visible: !v.hidden.has(field),
       frozen: frozen,
-      width: v.widths[field],
+      width: v.widths[field] || defaultColWidth(col),
       headerMenu: headerMenu(key),
       headerMenuIcon: "⋮",
       hozAlign: fmt.hozAlign || "left",
@@ -681,6 +688,7 @@ function showTab(key) {
     movableColumns: true,
     resizableColumns: true,
     nestedFieldSeparator: false,
+    rowHeight: 32,
     height: tableHeight(),
     groupBy: v.group.length ? v.group : false,
     initialSort: (v.sorters || []).filter((s) => s && s.column).map((s) => ({ column: s.column, dir: s.dir })),

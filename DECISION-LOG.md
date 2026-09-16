@@ -1,7 +1,7 @@
 ## 2026-09-16 Report tab switch must virtualize rows like the old site
 **What I had to decide:** Keep fitData + virtual-horizontal vs restore the old Tabulator constructor (fixed height, fitDataTable).
 **Options I considered:** Pagination; keep painting every row; match v3 `height` + `fitDataTable` + `nestedFieldSeparator: false`.
-**What I chose:** Hotfix deviation. Tabulator gets a viewport height so only visible rows paint. Layout is `fitDataTable`. Field names like `Cust. #` are not nested paths. First column is frozen only when the user pins it. Tab clicks are not dropped while a table is building.
+**What I chose:** Hotfix deviation. Tabulator gets a viewport height so only visible rows paint. Layout is `fitDataTable`. Every column gets a numeric width (saved or `defaultColWidth`) so fitData does not scan every cell. Field names like `Cust. #` are not nested paths. First column is frozen only when the user pins it. Tab clicks are not dropped while a table is building.
 **Why:** Menny: still freezing on tab change after the home12 deploy. `fitData` without height renders every live row.
 **Status:** DECIDED
 

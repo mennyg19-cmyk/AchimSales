@@ -116,6 +116,9 @@ def test_report_grid_filters_live_in_header_menu(client):
     assert 'layout: "fitDataTable"' in js
     assert "nestedFieldSeparator: false" in js
     assert "function tableHeight(" in js
+    assert "function defaultColWidth(" in js
+    assert "v.widths[field] || defaultColWidth(col)" in js
+    assert "rowHeight: 32" in js
     assert 'renderHorizontal: "virtual"' not in js
     assert "if (tableBuilding) return" not in js
     assert "v.frozen.size ? v.frozen.has(field) : idx === 0" not in js
