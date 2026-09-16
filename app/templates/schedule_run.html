@@ -7,12 +7,12 @@
     <p class="page-subtitle">{{ run.status }} · {{ run.started_at }}</p>
 </div>
 <section class="settings-card">
-    <table class="simple-table">
+    <table class="simple-table js-site-table">
         <thead><tr><th>Time</th><th>Step</th><th>Detail</th></tr></thead>
         <tbody>
         {% for s in steps %}
         <tr>
-            <td>{{ s.time }}</td>
+            <td>{{ s.time|stamp }}</td>
             <td>{{ s.step }}</td>
             <td>{{ s.detail }}</td>
         </tr>

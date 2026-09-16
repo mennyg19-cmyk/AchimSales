@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from catalog import REPORTS
-from config import db_path
+from config import PRODUCTION, db_path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -199,6 +199,111 @@ SEED_USERS = (
     ("salesman@achimonline.com", "Preview Salesman", "salesman", 1, 0, "HKaufman", 0, 0),
     ("external@example.com", "Preview External", "salesman", 1, 1, "DDweck", 0, 0),
 )
+SEED_EMAILS = {row[0] for row in SEED_USERS}
+DUMMY_EMAIL_SUFFIXES = ("@local.test", "@test.local", "@example.com")
+
+
+def is_dummy_email(email: str) -> bool:
+    lower = (email or "").strip().lower()
+    if not lower:
+        return False
+    if lower in SEED_EMAILS or lower.startswith("preview@"):
+        return True
+    if lower.startswith("loopa-") or lower.startswith("loopb-"):
+        return True
+    return lower.endswith(DUMMY_EMAIL_SUFFIXES)
+
+
+def _in_clause(values: list) -> tuple[str, list]:
+    return ",".join("?" for _ in values), list(values)
+
+
+def _delete_views(conn: sqlite3.Connection, view_ids: list[int]) -> None:
+    if not view_ids:
+        return
+    placeholders, values = _in_clause(view_ids)
+    tab_ids = [
+        row[0]
+        for row in conn.execute(
+            f"SELECT id FROM layout_tabs WHERE view_id IN ({placeholders})",
+            values,
+        )
+    ]
+    if tab_ids:
+        tph, tvals = _in_clause(tab_ids)
+        for table in (
+            "layout_column_filters",
+            "layout_columns",
+            "layout_tab_groups",
+            "layout_tab_sorters",
+        ):
+            conn.execute(f"DELETE FROM {table} WHERE tab_id IN ({tph})", tvals)
+        conn.execute(f"DELETE FROM layout_tabs WHERE id IN ({tph})", tvals)
+    for table in ("view_salesmen", "view_statuses", "view_customers"):
+        conn.execute(f"DELETE FROM {table} WHERE view_id IN ({placeholders})", values)
+    conn.execute(f"DELETE FROM views WHERE id IN ({placeholders})", values)
+
+
+def _delete_schedules(conn: sqlite3.Connection, schedule_ids: list[int]) -> None:
+    if not schedule_ids:
+        return
+    placeholders, values = _in_clause(schedule_ids)
+    for table in (
+        "schedule_runs",
+        "schedule_weekdays",
+        "schedule_monthdays",
+        "schedule_recipients",
+        "schedule_email_salesmen",
+    ):
+        conn.execute(f"DELETE FROM {table} WHERE schedule_id IN ({placeholders})", values)
+    conn.execute(f"DELETE FROM schedules WHERE id IN ({placeholders})", values)
+
+
+def purge_dummy_people(conn: sqlite3.Connection) -> int:
+    """Remove preview/loop seed People and rows they own. Live company views stay."""
+    dummy = [
+        row
+        for row in conn.execute("SELECT id, email FROM users").fetchall()
+        if is_dummy_email(row["email"])
+    ]
+    if not dummy:
+        return 0
+    emails = [row["email"].lower() for row in dummy]
+    ids = [int(row["id"]) for row in dummy]
+    placeholders, values = _in_clause(emails)
+    view_ids = [
+        int(row[0])
+        for row in conn.execute(
+            f"SELECT id FROM views WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
+            values,
+        )
+    ]
+    schedule_ids = [
+        int(row[0])
+        for row in conn.execute(
+            f"SELECT id FROM schedules WHERE lower(ifnull(owner_email, '')) IN ({placeholders})",
+            values,
+        )
+    ]
+    _delete_schedules(conn, schedule_ids)
+    _delete_views(conn, view_ids)
+    conn.execute(f"DELETE FROM jobs WHERE lower(ifnull(owner_email, '')) IN ({placeholders})", values)
+    id_ph, id_vals = _in_clause(ids)
+    conn.execute(f"DELETE FROM user_sales_groups WHERE user_id IN ({id_ph})", id_vals)
+    conn.execute(f"DELETE FROM user_report_access WHERE user_id IN ({id_ph})", id_vals)
+    conn.execute(f"DELETE FROM users WHERE id IN ({id_ph})", id_vals)
+    row = conn.execute("SELECT value FROM app_settings WHERE key = 'test_emails'").fetchone()
+    if row:
+        kept = [
+            part.strip()
+            for part in (row["value"] or "").split(",")
+            if part.strip() and not is_dummy_email(part.strip())
+        ]
+        conn.execute(
+            "UPDATE app_settings SET value = ? WHERE key = 'test_emails'",
+            (",".join(kept),),
+        )
+    return len(ids)
 
 
 def _connect(path: Path | None = None) -> sqlite3.Connection:
@@ -265,18 +370,20 @@ def init_db() -> None:
             "view_workbook_parity",
         ):
             conn.execute(f"DROP TABLE IF EXISTS {name}")
-        for row in SEED_USERS:
-            conn.execute(
-                """INSERT OR IGNORE INTO users
-                   (email, display_name, role, is_active, is_external,
-                    sales_group, can_see_company_views, sharepoint_access)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                row,
-            )
+        can_seed = (not PRODUCTION) and conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+        if can_seed:
+            for row in SEED_USERS:
+                conn.execute(
+                    """INSERT OR IGNORE INTO users
+                       (email, display_name, role, is_active, is_external,
+                        sales_group, can_see_company_views, sharepoint_access)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    row,
+                )
         from views import migrate_params_json, save_filters_and_layout
 
         migrate_params_json(conn)
-        if conn.execute("SELECT COUNT(*) FROM views").fetchone()[0] == 0:
+        if can_seed and conn.execute("SELECT COUNT(*) FROM views").fetchone()[0] == 0:
             conn.execute(
                 """INSERT INTO views (owner_email, report_key, name, kind, include_period)
                    VALUES ('preview@achimonline.com', 'invoiced', 'Daily Invoiced', 'personal', 1)"""
@@ -298,12 +405,13 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('schedule_test_mode', '0')"
         )
         conn.execute(
-            "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('test_emails', 'preview@achimonline.com')"
+            "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+            ("test_emails", "preview@achimonline.com" if can_seed else ""),
         )
         conn.execute(
             "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('show_company_schedule_setup', '0')"
         )
-        if conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0:
+        if can_seed and conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0:
             view_id = conn.execute(
                 "SELECT id FROM views WHERE name = 'Daily Ordered' AND kind = 'company'"
             ).fetchone()

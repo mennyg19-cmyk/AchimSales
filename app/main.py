@@ -128,8 +128,8 @@ def create_app() -> FastAPI:
                 {"error": "Preview login is disabled when APP_ENV is production."},
                 status_code=403,
             )
-        row = store.get_user("preview@achimonline.com")
-        if row is None or not row["is_active"]:
+        row = store.preview_login_row()
+        if row is None:
             return JSONResponse({"error": "Preview admin is missing or disabled."}, status_code=403)
         request.session["user"] = session_from_row(row)
         request.session["theme"] = row.get("theme") or "light"

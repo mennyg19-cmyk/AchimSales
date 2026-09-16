@@ -8,12 +8,12 @@
 </div>
 <section class="settings-card">
     {% if runs %}
-    <table class="simple-table">
+    <table class="simple-table js-site-table">
         <thead><tr><th>When</th><th>Status</th><th>Detail</th><th></th></tr></thead>
         <tbody>
         {% for r in runs %}
         <tr>
-            <td>{{ r.started_at }}</td>
+            <td>{{ r.started_at|stamp }}</td>
             <td>{{ r.status }}</td>
             <td>{{ r.message }}</td>
             <td><a class="btn btn-sm btn-outline" href="/schedules/runs/{{ r.id }}">Log</a></td>

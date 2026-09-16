@@ -130,3 +130,15 @@ def _day_matches(c: dict, now: datetime) -> bool:
             return now.day == last
         return now.day == md
     return False
+
+
+def format_stamp(iso: str | None) -> str:
+    if not iso:
+        return "never"
+    try:
+        last = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return str(iso)
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return last.astimezone(EASTERN).strftime("%Y-%m-%d %H:%M")

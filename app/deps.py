@@ -14,8 +14,10 @@ import catalog
 import config
 import doorway
 import store
+import cadence
 
 templates = Jinja2Templates(directory=str(config.ROOT / "templates"))
+templates.env.filters["stamp"] = cadence.format_stamp
 
 THEME_BODY_CLASS = {
     "light": "",
@@ -58,7 +60,7 @@ def ctx(request: Request, **extra):
         "theme_class": THEME_BODY_CLASS[current],
         "theme_names": ",".join(THEME_BODY_CLASS),
         "theme_color": config.THEME_COLOR,
-        "asset_v": "home9",
+        "asset_v": "home10",
         "flash": flash,
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),

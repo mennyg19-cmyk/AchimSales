@@ -260,6 +260,21 @@ def test_production_preview_login_blocked(client, monkeypatch):
     assert res.status_code == 403
 
 
+def test_preview_login_falls_back_to_live_admin(client):
+    home_store.add_user("avig@achimonline.com", "Avi", "admin", 0, "")
+    from db import db, purge_dummy_people
+
+    with db() as conn:
+        purge_dummy_people(conn)
+    assert home_store.get_user("preview@achimonline.com") is None
+    res = client.post("/login/preview", follow_redirects=False)
+    assert res.status_code == 303
+    html = client.get("/").text
+    assert "Avi" in html
+    match = re.search(r'data-csrf="([^"]+)"', html)
+    assert match
+
+
 def test_reporting_api_refuses_website_host(monkeypatch):
     monkeypatch.setenv("REPORTING_API_BASE_URL", "https://reports.achimonline.com")
     from config import reporting_api_base
@@ -904,6 +919,7 @@ def test_schedules_page_groups_by_owner(client):
     login(client)
     html = client.get("/schedules").text
     assert "ps-sched-table" in html
+    assert "js-site-table" in html
     assert "ps-owner-row" in html
     assert "Preview Admin" in html
     assert "Add a schedule" in html

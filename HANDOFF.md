@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16 (precious.db upload is Settings → Developer)
 
-**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock/drive turn on when `GRAPH_*` + `EMAIL_FROM` (+ `SP_SITE_URL` for SharePoint) are set; otherwise outbox + mock drive URLs + preview login. No production cutover.
+**Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock/drive turn on when `GRAPH_*` + `EMAIL_FROM` or `EMAIL_FROM_ADDRESS` (+ `SP_SITE_URL` for SharePoint) are set; otherwise outbox + mock drive URLs + preview login. No production cutover.
 
 ## Working tree
 
@@ -38,8 +38,7 @@ read and are dropped here. Admins/devs see every schedule. Existing emails stay.
 
 ## What's next
 
-1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
-2. Menny sets `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` / `EMAIL_FROM` / `SP_SITE_URL` if he wants real mail, Entra, and SharePoint (and adds the preview URL as a redirect URI)
-3. Menny downloads **home** sqlite via SSH: `BETA_PRECIOUS_DB_PATH` (usually `/tmp/betadata/precious.db`), not `/tmp/v3data` (`/test`, ~9 views / 620K). Counts must print **97 58 592**. Copy to `/home/LogFiles/home-precious.db` (not an 8KB leftover named `precious.db`). JSON `schedules` 44 + `master_schedules` 14 are already inside `report_schedules` 58. Then import on dummy or after cutover.
-4. Cutover still needs: Entra redirect URI, then merge
-5. Still not in this app: P4.I8 salesman map, Customer Aging, Azure create, DNS, merge to `main`
+1. Merge when Menny says. After merge, Kudu-import into `/tmp/homedata/home.sqlite`.
+2. Dummy People (preview@, loop users) are stripped on import; Achim User Login falls back to the first live admin.
+3. Graph on Azure uses `EMAIL_FROM_ADDRESS` (already aliased). Entra redirect URI is done. `FLASK_SECRET` is accepted as `SESSION_SECRET`.
+4. Still not in this app: P4.I8 salesman map, Customer Aging. No new Azure app or DNS if this merge boots `achim-sales-reports`.

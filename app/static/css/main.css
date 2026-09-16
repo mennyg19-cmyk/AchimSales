@@ -35,3 +35,9 @@ summary.settings-subhead{cursor:pointer}
 .tabulator .tabulator-header-filter{display:none!important}
 .tabulator-col.has-col-filter .tabulator-col-title{font-weight:700;color:var(--primary)}
 .tabulator .tabulator-header .tabulator-col .tabulator-header-popup-button:hover,.tabulator .tabulator-header .tabulator-col .tabulator-header-menu-button:hover{background:var(--primary-light);color:var(--primary)}
+.ps-sched-table td,.ps-sched-table td:nth-child(2),.ps-sched-table td:nth-child(4),.ps-sched-table td:nth-child(5),.simple-table td,.data-table td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.ps-sched-table .row-actions,.simple-table .cell-actions,.tabulator .tabulator-cell .row-actions{display:flex;flex-wrap:nowrap;white-space:nowrap;overflow:visible;align-items:center;gap:4px}
+.site-table-host{width:100%;min-width:0}
+.site-table-host .tabulator-row .tabulator-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.site-table-host .tabulator-row .tabulator-cell .btn{white-space:nowrap}
+.tabulator-group{font-weight:700}

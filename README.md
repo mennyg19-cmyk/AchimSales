@@ -123,8 +123,8 @@ you can mess with. A **pull request** is “please copy this photocopy into
 
 See `app/.env.example`. Production needs `SESSION_SECRET` (or live's
 `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Graph/Entra/SharePoint:
-`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM`,
-`SP_SITE_URL`.
+`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM`
+or `EMAIL_FROM_ADDRESS`, `SP_SITE_URL`.
 
 ## Directory Structure
 

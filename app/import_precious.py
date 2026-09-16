@@ -21,7 +21,7 @@ from pathlib import Path
 import cadence
 import catalog
 import config
-from db import db, init_db
+from db import db, init_db, is_dummy_email, purge_dummy_people
 from store import hydrate_schedule_row
 
 ROLES = {"admin", "developer", "manager", "salesman"}
@@ -479,10 +479,7 @@ def _sync_schedule_csv(dest: sqlite3.Connection, schedule_id: int) -> None:
 
 
 def _is_dummy_owner(email: str) -> bool:
-    lower = (email or "").strip().lower()
-    if not lower or lower.startswith("preview@"):
-        return True
-    return lower.endswith(("@local.test", "@test.local", "@example.com"))
+    return is_dummy_email(email)
 
 
 def _fallback_owner(dest: sqlite3.Connection) -> str:
@@ -696,6 +693,7 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
                 schedules = _import_report_schedules(src, dest, view_map, by_handle)
             visibility = _import_visibility(src, dest)
             settings = _import_settings(src, dest)
+            dummy_removed = purge_dummy_people(dest)
             dropped = _drop_json_tables(dest)
             dest_tables = _assemble_counts(dest, dest=True)
     finally:
@@ -716,6 +714,7 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
         "dropped_json_tables": dropped,
         "visibility": visibility,
         "settings": settings,
+        "dummy_removed": dummy_removed,
     }
 
 
@@ -732,6 +731,7 @@ def summarize(result: dict) -> str:
         f"People {result['users_inserted']} added, {result['users_skipped']} already here. "
         f"Dummy views/schedules cleared. "
         f"Copied assemble tables (live→here): {bits}."
+        f" Removed {result.get('dummy_removed', 0)} dummy People."
     )
     dropped = result.get("dropped_json_tables") or []
     if dropped:

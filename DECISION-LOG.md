@@ -1,3 +1,11 @@
+## 2026-09-16 Strip dummy People before cutover; chrome tables are Tabulator
+**What I had to decide:** Delete preview/loop users from the dummy sqlite vs keep preview@ for Cloudflare login; whether Schedule N views are junk.
+**Options I considered:** Keep preview@ forever; delete dummy People and fall Achim User Login back to the first live admin; rename Schedule N views.
+**What I chose:** Dummy emails (preview@, manager@/salesman@ seeds, @example.com, @local.test, @test.local, loopa-/loopb-) are purged on import and never re-seeded once live People exist. Production never seeds them. Achim User Login uses preview@ if present, else the first active admin. Schedule N views stay — they are live auto-named views from the old site, not dummy rows. Chrome tables (schedules, users, run logs, Last Order, …) use Tabulator with ⋮ sort/filter/hide/freeze/group and nowrap cells. Last run shows Eastern `YYYY-MM-DD HH:MM`. `EMAIL_FROM_ADDRESS` already aliases `EMAIL_FROM`.
+**Why:** Menny asked to drop dummy db rows before cutover, asked what Schedule N is, and circled wrapping Actions on the schedules table plus sortable/filterable.
+**Status:** DECIDED
+
+
 ## 2026-09-16 precious.db upload lives in Settings → Developer
 **What I had to decide:** Keep Copy from live on Settings → People vs move it into Developer.
 **Options I considered:** People (next to Users & access); Developer accordion; developer-role-only POST.

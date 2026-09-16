@@ -7,12 +7,12 @@
 </div>
 <section class="settings-card">
     {% if runs %}
-    <table class="simple-table">
+    <table class="simple-table js-site-table">
         <thead><tr><th>When</th><th>View</th><th>Status</th><th>Detail</th></tr></thead>
         <tbody>
         {% for r in runs %}
         <tr>
-            <td>{{ r.started_at }}</td>
+            <td>{{ r.started_at|stamp }}</td>
             <td>{{ r.view_name }}</td>
             <td>{{ r.status }}</td>
             <td>{{ r.message }}</td>

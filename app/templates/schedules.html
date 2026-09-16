@@ -139,7 +139,7 @@
     <h2 class="section-title">{% if is_privileged %}All schedules{% else %}Your schedules{% endif %}</h2>
     {% if schedules %}
     <div class="table-wrap">
-    <table class="data-table ps-sched-table">
+    <table class="data-table ps-sched-table js-site-table">
         <colgroup>
             <col class="ps-col-report">
             <col class="ps-col-view">
@@ -170,7 +170,7 @@
                 <td>{{ s.cadence }}</td>
                 <td>{{ s.recipients or '—' }}</td>
                 <td>{{ s.folder or '—' }}</td>
-                <td>{{ s.last_run or 'never' }}</td>
+                <td>{{ s.last_run }}</td>
                 <td>
                     <form method="post" action="/schedules/{{ s.id }}/toggle" class="inline-form">
                         <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -213,12 +213,12 @@
     </form>
     {% endif %}
     {% if recent_runs %}
-    <table class="simple-table">
+    <table class="simple-table js-site-table">
         <thead><tr><th>When</th><th>View</th><th>Status</th><th>What happened</th><th></th></tr></thead>
         <tbody>
         {% for r in recent_runs %}
         <tr>
-            <td>{{ r.started_at }}</td>
+            <td>{{ r.started_at|stamp }}</td>
             <td>{{ r.view_name }}</td>
             <td>{{ r.status }}</td>
             <td>{{ r.message }}</td>

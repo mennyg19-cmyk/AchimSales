@@ -102,6 +102,11 @@ def test_chip_math_shifts_eastern_clock():
     assert name == "Daily_December_2026.xlsx"
 
 
+def test_format_stamp_eastern_short():
+    assert cadence.format_stamp(None) == "never"
+    assert cadence.format_stamp("2026-09-02T16:30:19.512041+00:00") == "2026-09-02 12:30"
+
+
 def test_clock_ready_ignores_weekday():
     cad = {"freq": "weekly", "time": "08:00", "weekdays": [4]}  # Friday
     monday = datetime(2026, 6, 22, 16, 0, tzinfo=timezone.utc)
@@ -243,9 +248,29 @@ def test_import_precious_users(tmp_path, monkeypatch):
     assert row["role"] == "manager"
     assert row["sales_group"] == "HKaufman"
     assert row["theme"] == "dark"
+    assert home_store.get_user("preview@achimonline.com") is None
+    assert home_store.get_user("manager@achimonline.com") is None
+    assert home_store.get_user("salesman@achimonline.com") is None
+    assert home_store.get_user("external@example.com") is None
     again = import_users(source, dest)
     assert again["inserted"] == 0
     assert again["skipped"] >= 1
+
+
+def test_purge_dummy_people_keeps_live_users(tmp_path, monkeypatch):
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    home_store.add_user("avig@achimonline.com", "Avi", "admin", 0, "")
+    home_store.add_user("loopa-reviewer@local.test", "LoopA", "salesman", 0, "")
+    from db import db, purge_dummy_people
+
+    with db() as conn:
+        removed = purge_dummy_people(conn)
+    assert removed >= 5
+    assert home_store.get_user("avig@achimonline.com") is not None
+    assert home_store.get_user("preview@achimonline.com") is None
+    assert home_store.get_user("loopa-reviewer@local.test") is None
 
 
 def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):

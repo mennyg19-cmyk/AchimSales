@@ -34,7 +34,7 @@
 
 <section class="settings-card">
   <input type="search" id="userSearch" class="user-search" placeholder="Search users by email or name…">
-  <table class="simple-table" id="userTable">
+  <table class="simple-table js-site-table" id="userTable">
     <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Flags</th><th></th></tr></thead>
     <tbody>
       {% for u in users %}
@@ -116,7 +116,19 @@
 {% block scripts %}
 <script>
 document.getElementById("userSearch").addEventListener("input", function () {
-  var term = this.value.toLowerCase();
+  var term = this.value.trim().toLowerCase();
+  var table = document.getElementById("userTable");
+  var grid = table && table.previousElementSibling && table.previousElementSibling._tabulator;
+  if (grid) {
+    grid.setFilter(function (data) {
+      if (!term) return true;
+      return Object.keys(data).some(function (key) {
+        if (key.charAt(0) === "_" || key.indexOf("_html") !== -1) return false;
+        return String(data[key] || "").toLowerCase().indexOf(term) !== -1;
+      });
+    });
+    return;
+  }
   document.querySelectorAll("#userTable tbody tr").forEach(function (row) {
     var hay = (row.getAttribute("data-email") + row.getAttribute("data-name")).toLowerCase();
     row.hidden = hay.indexOf(term) === -1;

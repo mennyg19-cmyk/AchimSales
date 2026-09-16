@@ -42,7 +42,7 @@ bash create-azure-webapp.sh achim-sales-home-preview
 
 `app/deploy.ps1` still refuses the live app name. Repo-root `deploy.ps1` targets live — cutover only.
 
-App settings: `APP_ENV=preview` on a preview app; production needs `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM`.
+App settings: `APP_ENV=preview` on a preview app; production needs `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Optional: `REPORTING_API_KEY` and `REPORTING_API_BASE_URL` (defaults to the West US 3 test doorway). Optional Graph/Entra: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `EMAIL_FROM` or `EMAIL_FROM_ADDRESS`.
 
 ## Do not
 

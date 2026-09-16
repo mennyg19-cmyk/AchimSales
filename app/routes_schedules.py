@@ -39,6 +39,7 @@ def _decorate_schedule(row: dict, users: dict[str, dict]) -> dict:
     out["owner_name"], out["owner_email"] = _owner_label(out.get("owner_email") or "", users)
     out["cadence"] = cadence.describe(out)
     out["folder"] = out.get("sharepoint_folder") or out.get("onedrive_folder") or ""
+    out["last_run"] = cadence.format_stamp(out.get("last_run"))
     return out
 
 

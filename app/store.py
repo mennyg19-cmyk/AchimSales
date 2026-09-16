@@ -42,6 +42,20 @@ def get_user(email: str) -> dict | None:
     return dict(row) if row else None
 
 
+def preview_login_row() -> dict | None:
+    row = get_user("preview@achimonline.com")
+    if row and row.get("is_active"):
+        return row
+    with db() as conn:
+        row = conn.execute(
+            """SELECT * FROM users
+               WHERE is_active = 1 AND role IN ('admin', 'developer')
+               ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, id
+               LIMIT 1"""
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def add_user(email: str, display_name: str, role: str, is_external: int, sales_group: str) -> None:
     with db() as conn:
         conn.execute(
