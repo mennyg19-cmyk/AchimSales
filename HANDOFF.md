@@ -37,6 +37,6 @@ upload. That copies People, views, and schedules. Existing emails stay.
 
 1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
 2. Menny sets `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` / `EMAIL_FROM` / `SP_SITE_URL` if he wants real mail, Entra, and SharePoint (and adds the preview URL as a redirect URI)
-3. Menny copies precious.db onto the dummy (Settings upload or CLI)
+3. Menny downloads `/tmp/v3data/precious.db` from Kudu on `achim-sales-reports` to `Downloads\precious.db` (do this while Flask is still live), then imports via Settings on the dummy or `python3 import-precious.py … --dest /tmp/homedata/home.sqlite` after cutover
 4. Cutover still needs: Entra redirect URI, then merge
 5. Still not in this app: P4.I8 salesman map, Customer Aging, Azure create, DNS, merge to `main`

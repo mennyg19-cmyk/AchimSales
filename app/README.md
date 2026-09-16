@@ -22,20 +22,12 @@ Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` i
 
 ## Copy live precious.db
 
-Settings → People → **Copy from live precious.db**, or:
-
-```
-python3 import_precious.py /path/to/precious.db
-```
-
-From the repo root (same importer):
-
-```
-python import-precious.py /path/to/precious.db
-.\import-precious.ps1 -Precious path\to\precious.db
-```
-
-That adds People, views, and schedules. Existing emails stay. Matching company view names get the live layout.
+Exact Azure download + import steps are in the repo-root README
+(“Copy live data”). Short version: download `/tmp/v3data/precious.db` from
+Kudu on `achim-sales-reports` to `Downloads\precious.db`, then import (do not
+overwrite `home.sqlite`). Settings → People upload works on this dummy.
+After production cutover, run `import-precious.py` on the box with
+`--dest /tmp/homedata/home.sqlite`.
 
 ## Azure
 

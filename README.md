@@ -16,21 +16,73 @@ Leftover Flask PR #35 stays parked.
 
 ## Copy live data (precious.db)
 
-The old site stored People, views, and schedules in `precious.db`. Copy that
-file off the live box, then:
+Do this **now**, while the old Flask site is still running. `/tmp` is wiped when
+Azure recycles. After merge the new site does **not** read `precious.db`; it
+reads `home.sqlite`. You download the old file to your PC, then **import** it.
+Do not copy `precious.db` over `home.sqlite`.
+
+### 1. Download from Azure onto your PC
+
+1. Open [portal.azure.com](https://portal.azure.com) and search **achim-sales-reports**
+   (resource group `AchimReportsApp`).
+2. Left menu: **Development Tools** → **Advanced Tools** → **Go** (Kudu).
+   Direct: `https://achim-sales-reports.scm.azurewebsites.net`
+3. Top menu: **Debug console** → **Bash**.
+4. Confirm the live path (should be `/tmp/v3data/precious.db`). If empty, check
+   **Settings** → **Environment variables** for `PRECIOUS_DB_PATH`.
+
+```
+ls -lh /tmp/v3data/precious.db
+```
+
+Do **not** use `/home/site/v3data/precious.db` — that is a June 2026 freeze.
+
+5. Make a consistent copy (WAL-safe; a raw `cp` can be incomplete):
+
+```
+python3 -c "import sqlite3; s=sqlite3.connect('/tmp/v3data/precious.db'); d=sqlite3.connect('/home/LogFiles/precious.db'); s.backup(d); s.close(); d.close()"
+ls -lh /home/LogFiles/precious.db
+```
+
+6. In the Kudu file list, go to `/home/LogFiles` and click the download icon on
+   `precious.db`. Save it as:
+
+`C:\Users\<you>\Downloads\precious.db`
+
+Keep that file. That is the only copy you need on your PC.
+
+### 2. Import into the new site (not a file copy)
+
+The importer writes People, views, and schedules into the new sqlite. Existing
+emails stay. Matching company view names get the live layout.
+
+**Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
+**Achim User Login** → **Settings** → **People** → **Copy from live precious.db**
+→ choose `Downloads\precious.db` → **Import**. Live
+https://reports.achimonline.com does **not** have this form until this PR merges.
+
+**After cutover, on the Azure box** (production login needs People first, so use
+Kudu instead of the website):
+
+1. Kudu Debug console → drag `Downloads\precious.db` into `/home/LogFiles/`
+   (or reuse the file already there from step 1).
+2. Bash:
+
+```
+cd /home/site/wwwroot
+python3 import-precious.py /home/LogFiles/precious.db --dest /tmp/homedata/home.sqlite
+```
+
+That destination is the new site’s database (`APP_DB_PATH`). You should see a
+line like `People N added… Views… Schedules… into /tmp/homedata/home.sqlite`.
+
+**Your PC only** (local clone of this repo, does not update Azure):
 
 ```powershell
-.\import-precious.ps1 -Precious C:\path\to\precious.db
+.\import-precious.ps1 -Precious C:\Users\<you>\Downloads\precious.db
 ```
 
-```
-python import-precious.py /path/to/precious.db
-```
-
-Or Settings → People → **Copy from live precious.db** (admin upload).
-
-Existing emails stay. Matching company view names get the live layout.
-Schedules attach to those views. Nightly sends after that are the site clock.
+That writes `app\data\home.sqlite` on the PC.
 
 ## Local preview
 
