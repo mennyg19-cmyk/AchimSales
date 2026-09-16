@@ -480,14 +480,26 @@ def _sync_schedule_csv(dest: sqlite3.Connection, schedule_id: int) -> None:
     )
 
 
+def _is_dummy_owner(email: str) -> bool:
+    lower = (email or "").strip().lower()
+    if not lower or lower.startswith("preview@"):
+        return True
+    return lower.endswith(("@local.test", "@test.local", "@example.com"))
+
+
 def _fallback_owner(dest: sqlite3.Connection) -> str:
-    row = dest.execute(
+    rows = dest.execute(
         """SELECT email FROM users
            WHERE role IN ('admin', 'developer') AND is_active = 1
-           ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, id
-           LIMIT 1"""
+           ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, id"""
+    ).fetchall()
+    for row in rows:
+        if not _is_dummy_owner(row["email"]):
+            return row["email"]
+    row = dest.execute(
+        """SELECT email FROM users WHERE is_active = 1 ORDER BY id"""
     ).fetchone()
-    if row:
+    if row and not _is_dummy_owner(row["email"]):
         return row["email"]
     row = dest.execute("SELECT email FROM users ORDER BY id LIMIT 1").fetchone()
     return row["email"] if row else "preview@achimonline.com"
@@ -498,10 +510,11 @@ def _import_report_schedules(
     dest: sqlite3.Connection,
     view_map: dict[str, int],
     by_handle: dict[str, str],
-) -> dict:
+) -> tuple[dict, dict[tuple[str, int], int]]:
     tables = _tables(src)
     cols = _cols(src, "report_schedules")
     counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    legacy_map: dict[tuple[str, int], int] = {}
     fallback = _fallback_owner(dest)
     for row in src.execute("SELECT * FROM report_schedules"):
         view_id = view_map.get(str(row["view_id"]))
@@ -549,8 +562,10 @@ def _import_report_schedules(
         )
         _copy_schedule_children(src, dest, row["id"], dest_id, tables)
         _sync_schedule_csv(dest, dest_id)
+        if "legacy_kind" in cols and "legacy_id" in cols and row["legacy_kind"] and row["legacy_id"] is not None:
+            legacy_map[(str(row["legacy_kind"]), int(row["legacy_id"]))] = dest_id
         counts["inserted"] += 1
-    return counts
+    return counts, legacy_map
 
 
 def _json_obj(raw) -> dict:
@@ -573,20 +588,33 @@ def _as_str_list(raw) -> list[str]:
     return []
 
 
-def _json_backup_counts(src: sqlite3.Connection) -> tuple[int, int]:
+SOURCE_COUNT_TABLES = (
+    "views",
+    "report_schedules",
+    "saved_reports",
+    "company_views",
+    "report_defaults",
+    "schedules",
+    "master_schedules",
+)
+
+
+def _source_table_counts(src: sqlite3.Connection) -> dict[str, int]:
     tables = _tables(src)
-    views = 0
-    schedules = 0
-    if "saved_reports" in tables:
-        views += src.execute("SELECT COUNT(*) FROM saved_reports").fetchone()[0]
-    if "company_views" in tables:
-        views += src.execute("SELECT COUNT(*) FROM company_views").fetchone()[0]
-    if "report_defaults" in tables:
-        views += src.execute("SELECT COUNT(*) FROM report_defaults").fetchone()[0]
-    if "schedules" in tables:
-        schedules += src.execute("SELECT COUNT(*) FROM schedules").fetchone()[0]
-    if "master_schedules" in tables:
-        schedules += src.execute("SELECT COUNT(*) FROM master_schedules").fetchone()[0]
+    out: dict[str, int] = {}
+    for name in SOURCE_COUNT_TABLES:
+        out[name] = (
+            int(src.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0])
+            if name in tables
+            else 0
+        )
+    return out
+
+
+def _json_backup_counts(src: sqlite3.Connection) -> tuple[int, int]:
+    counts = _source_table_counts(src)
+    views = counts["saved_reports"] + counts["company_views"] + counts["report_defaults"]
+    schedules = counts["schedules"] + counts["master_schedules"]
     return views, schedules
 
 
@@ -601,20 +629,6 @@ def _projected_view_keys(src: sqlite3.Connection) -> set[tuple[str, int]]:
     for row in src.execute("SELECT legacy_source, legacy_id FROM views"):
         if row["legacy_source"] and row["legacy_id"] is not None:
             out.add((str(row["legacy_source"]), int(row["legacy_id"])))
-    return out
-
-
-def _projected_schedule_keys(src: sqlite3.Connection) -> set[tuple[str, int]]:
-    tables = _tables(src)
-    if "report_schedules" not in tables:
-        return set()
-    cols = _cols(src, "report_schedules")
-    if "legacy_kind" not in cols or "legacy_id" not in cols:
-        return set()
-    out = set()
-    for row in src.execute("SELECT legacy_kind, legacy_id FROM report_schedules"):
-        if row["legacy_kind"] and row["legacy_id"] is not None:
-            out.add((str(row["legacy_kind"]), int(row["legacy_id"])))
     return out
 
 
@@ -805,13 +819,92 @@ def _find_view_for_json_schedule(
     return int(row["id"]) if row else None
 
 
+def _schedule_children_empty(dest: sqlite3.Connection, schedule_id: int) -> bool:
+    for table in (
+        "schedule_recipients",
+        "schedule_weekdays",
+        "schedule_monthdays",
+        "schedule_email_salesmen",
+    ):
+        if dest.execute(
+            f"SELECT 1 FROM {table} WHERE schedule_id = ? LIMIT 1",
+            (schedule_id,),
+        ).fetchone():
+            return False
+    return True
+
+
+def _overlay_json_schedule(
+    dest: sqlite3.Connection,
+    dest_id: int,
+    row,
+    cols: set[str],
+    by_id: dict[int, str],
+    fallback: str,
+) -> None:
+    current = dest.execute("SELECT * FROM schedules WHERE id = ?", (dest_id,)).fetchone()
+    if current is None:
+        return
+    params = _json_obj(row["params_json"] if "params_json" in cols else None)
+    freq, run_time, weekdays, monthday = _cadence_fields(
+        row["cadence"] if "cadence" in cols else None
+    )
+    recipients = row["recipients"] if "recipients" in cols else ""
+    cc = ", ".join(_as_str_list(params.get("email_cc")))
+    bcc = ", ".join(_as_str_list(params.get("email_bcc")))
+    salesmen = _as_str_list(params.get("email_salesman_keys"))
+    owner = current["owner_email"]
+    if _is_dummy_owner(owner) and "owner_user_id" in cols and row["owner_user_id"] is not None:
+        owner = by_id.get(int(row["owner_user_id"])) or fallback
+    elif _is_dummy_owner(owner) and not _is_dummy_owner(fallback):
+        owner = fallback
+    folder = row["sharepoint_path"] if "sharepoint_path" in cols else ""
+    folder_kind = str(params.get("folder_kind") or "").strip()
+    sharepoint = folder if folder_kind != "onedrive" else ""
+    onedrive = folder if folder_kind == "onedrive" else ""
+    dest.execute(
+        """UPDATE schedules SET
+               owner_email = ?,
+               freq = COALESCE(NULLIF(freq, ''), ?),
+               run_time = COALESCE(NULLIF(run_time, ''), ?),
+               subject = COALESCE(NULLIF(subject, ''), ?),
+               filename = COALESCE(NULLIF(filename, ''), ?),
+               sharepoint_folder = COALESCE(NULLIF(sharepoint_folder, ''), ?),
+               onedrive_folder = COALESCE(NULLIF(onedrive_folder, ''), ?)
+           WHERE id = ?""",
+        (
+            owner,
+            freq,
+            run_time,
+            str(params.get("email_subject") or ""),
+            row["filename_template"] if "filename_template" in cols else "",
+            sharepoint or "",
+            onedrive or "",
+            dest_id,
+        ),
+    )
+    if _schedule_children_empty(dest, dest_id):
+        write_schedule_children(
+            dest,
+            dest_id,
+            weekdays=weekdays,
+            monthday=monthday,
+            recipients=recipients,
+            cc=cc,
+            bcc=bcc,
+            salesmen=salesmen,
+        )
+        _sync_schedule_csv(dest, dest_id)
+
+
 def _import_json_schedules(
     src: sqlite3.Connection,
     dest: sqlite3.Connection,
     by_id: dict[int, str],
+    dest_legacy_map: dict[tuple[str, int], int] | None = None,
 ) -> dict:
     tables = _tables(src)
-    projected = _projected_schedule_keys(src)
+    dest_legacy_map = dest_legacy_map or {}
     counts = {"inserted": 0, "updated": 0, "skipped": 0}
     fallback = _fallback_owner(dest)
 
@@ -820,8 +913,10 @@ def _import_json_schedules(
             return
         cols = _cols(src, table)
         for row in src.execute(f"SELECT * FROM {table}"):
-            if (legacy_kind, int(row["id"])) in projected:
-                counts["skipped"] += 1
+            dest_id = dest_legacy_map.get((legacy_kind, int(row["id"])))
+            if dest_id:
+                _overlay_json_schedule(dest, dest_id, row, cols, by_id, fallback)
+                counts["updated"] += 1
                 continue
             report_key = _map_report_key(row["report_key"])
             if not report_key:
@@ -946,27 +1041,25 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
             users = _import_users(src, dest)
             _by_id, by_handle, _emails = _user_maps(src)
             _wipe_views_and_schedules(dest)
-            tables = _tables(src)
             view_map: dict[str, int] = {}
             views = {"inserted": 0, "updated": 0, "skipped": 0}
             schedules = {"inserted": 0, "updated": 0, "skipped": 0}
-            source_views = 0
-            source_schedules = 0
-            if "views" in tables:
-                source_views = src.execute("SELECT COUNT(*) FROM views").fetchone()[0]
-                if source_views:
-                    view_map, views = _import_normalized_views(src, dest, by_handle)
+            source_tables = _source_table_counts(src)
+            source_views = source_tables["views"]
+            source_schedules = source_tables["report_schedules"]
             blob_views, blob_schedules = _json_backup_counts(src)
+            if source_views:
+                view_map, views = _import_normalized_views(src, dest, by_handle)
             json_views_map, json_views = _import_json_views(src, dest, _by_id)
             view_map.update(json_views_map)
             views["inserted"] += json_views["inserted"]
             views["skipped"] += json_views["skipped"]
-            if "report_schedules" in tables:
-                source_schedules = src.execute("SELECT COUNT(*) FROM report_schedules").fetchone()[0]
-                if source_schedules:
-                    schedules = _import_report_schedules(src, dest, view_map, by_handle)
-            json_schedules = _import_json_schedules(src, dest, _by_id)
+            sched_legacy: dict[tuple[str, int], int] = {}
+            if source_schedules:
+                schedules, sched_legacy = _import_report_schedules(src, dest, view_map, by_handle)
+            json_schedules = _import_json_schedules(src, dest, _by_id, sched_legacy)
             schedules["inserted"] += json_schedules["inserted"]
+            schedules["updated"] += json_schedules["updated"]
             schedules["skipped"] += json_schedules["skipped"]
             visibility = _import_visibility(src, dest)
             settings = _import_settings(src, dest)
@@ -985,6 +1078,7 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
         "source_schedules": source_schedules,
         "blob_views": blob_views,
         "blob_schedules": blob_schedules,
+        "source_tables": source_tables,
         "visibility": visibility,
         "settings": settings,
     }
@@ -1003,6 +1097,13 @@ def summarize(result: dict) -> str:
         f"JSON backups had {result.get('blob_views', 0)} views and {result.get('blob_schedules', 0)} schedules. "
         f"Imported {result['views_inserted']} views and {result['schedules_inserted']} schedules into columns."
     )
+    tables = result.get("source_tables") or {}
+    if tables:
+        bits = ", ".join(f"{name} {tables[name]}" for name in SOURCE_COUNT_TABLES)
+        text += f" Live file tables: {bits}."
+    filled = result.get("schedules_updated") or 0
+    if filled:
+        text += f" Filled {filled} column schedules from JSON backups."
     skipped = result["views_skipped"] + result["schedules_skipped"]
     if skipped:
         text += (

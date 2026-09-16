@@ -60,8 +60,10 @@ tables for weekdays / monthdays / recipients / email salesmen). If those column
 tables are only a subset (the live GUI still used JSON), it **reads** the old
 JSON backups (`saved_reports`, `company_views`, `report_defaults`, `schedules`,
 `master_schedules`) and writes the missing rows into the same columns. JSON
-blobs are not stored on the new site. Admins and developers see every imported
-schedule.
+blobs are not stored on the new site. The flash lists every source table count.
+If personal `schedules` is 0 and `master_schedules` is ~13, you copied the Azure
+seed/freeze, not live `/tmp/v3data/precious.db`. Admins and developers see every
+imported schedule, including paused ones.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**

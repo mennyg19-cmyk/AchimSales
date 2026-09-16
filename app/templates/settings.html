@@ -55,7 +55,7 @@
         <p class="flag-desc">Roles, report access, salesman assignment. No self-register.</p>
         <a class="btn btn-outline btn-sm" href="/admin/users">Users &amp; access</a>
         <h2 class="section-title">Copy from live precious.db</h2>
-        <p class="flag-desc">Upload the old site sqlite file. Adds People. Clears dummy views and schedules, then copies live column tables and fills any gaps from the old JSON backups into those same columns (JSON is not stored). Admins and developers see every imported schedule.</p>
+        <p class="flag-desc">Upload the old site sqlite file. Adds People. Clears dummy views and schedules, then copies live column tables and fills any gaps from the old JSON backups into those same columns (JSON is not stored). The flash lists every source table count — if personal <code>schedules</code> is 0 you copied the seed/freeze, not live <code>/tmp/v3data/precious.db</code>. Admins and developers see every imported schedule, including paused ones.</p>
         <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <label class="filter-field">

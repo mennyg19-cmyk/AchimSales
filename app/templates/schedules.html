@@ -146,7 +146,7 @@
             {% endif %}
             <td>{{ s.view_name }} <span class="mini-flag">{{ s.report_key }}</span></td>
             <td>{{ s.freq }} {{ s.run_time }} {% if not s.is_active %}<span class="mini-flag mini-off">paused</span>{% endif %}</td>
-            <td>{{ s.recipients }}</td>
+            <td>{{ s.recipients or s.sharepoint_folder or s.onedrive_folder or '—' }}</td>
             <td>{{ s.last_status or '—' }} {{ s.last_run or '' }}</td>
             <td class="cell-actions">
                 <form method="post" action="/schedules/{{ s.id }}/run-now" class="inline-form">

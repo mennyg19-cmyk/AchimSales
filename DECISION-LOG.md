@@ -1,4 +1,12 @@
-## 2026-09-16 Fill column tables from JSON backups when the live snapshot is a subset
+## 2026-09-16 This precious.db is the 13 Azure company seeds, not 45 live rows
+**What I had to decide:** Keep hunting in JSON vs tell Menny the file is the seed/freeze; whether paused SharePoint jobs with empty email should show.
+**Options I considered:** Treat 13 as success; invent 45; require a new `/tmp/v3data` copy; hide paused rows.
+**What I chose:** Flash lists every source table. Personal `schedules` 0 + `master_schedules` 13 means seed/freeze. Overlay JSON onto projected column rows (recipients/owner). Skip dummy `preview@` as schedule owner. Where shows folder when email is empty. Show paused rows.
+**Why:** His second upload had 9 column views, 13 column schedules, 2 JSON views, 13 JSON schedules (all already projected). Dummy sqlite after import is the 12 `_AZURE_SCHEDULES` names plus `Ordered Report - amazon`, mostly `is_active=0`, owner `preview@`. The ~45 are not in this file.
+**Status:** DECIDED
+
+
+
 **What I had to decide:** Trust only `views`/`report_schedules` (9 and 13 in Menny's file) vs also read JSON backups and write them into columns.
 **Options I considered:** Tell him to recopy Azure; import JSON blobs onto the new site; read JSON only to fill column/child tables, skip rows already projected (`legacy_id`).
 **What I chose:** Column tables first. Then `saved_reports` / `company_views` / `report_defaults` / `schedules` / `master_schedules` become extra column rows. Dest still has no layout_json/params_json. Flash shows both counts.

@@ -658,9 +658,14 @@ def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path,
     assert result["blob_schedules"] == 3
     assert result["views_inserted"] == 2
     assert result["schedules_inserted"] == 3
+    assert result["schedules_updated"] == 1
+    assert result["source_tables"]["master_schedules"] == 1
+    assert result["source_tables"]["schedules"] == 2
     flash = summarize(result)
     assert "Column tables had 1 views and 1 schedules" in flash
     assert "JSON backups had 2 views and 3 schedules" in flash
+    assert "Live file tables:" in flash
+    assert "Filled 1 column schedules from JSON backups" in flash
     names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
     assert names >= {"Heshey Open", "Blob Only Invoiced"}
     rows = home_store.list_schedules()
@@ -676,6 +681,79 @@ def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path,
         cols = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
         assert "params_json" not in cols
         assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 2
+
+
+def test_import_uses_live_admin_and_json_recipients_when_columns_empty(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            name TEXT NOT NULL DEFAULT '',
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            sharepoint_path TEXT,
+            folder_kind TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            legacy_kind TEXT NOT NULL,
+            legacy_id INTEGER NOT NULL
+        );
+        CREATE TABLE master_schedules (
+            id INTEGER PRIMARY KEY,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            view_name TEXT,
+            cadence TEXT NOT NULL,
+            recipients TEXT NOT NULL,
+            sharepoint_path TEXT,
+            owner_user_id INTEGER
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
+        INSERT INTO views (id, kind, report_key, name, owner_handle)
+        VALUES ('v1', 'company', 'ordered', 'Daily Ordered', NULL);
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, sharepoint_path, folder_kind, legacy_kind, legacy_id)
+        VALUES ('s1', 'company', 'v1', NULL, 'Daily Ordered Report', 'daily', '00:00', 'Ordered Report/Daily', 'onedrive', 'master', 1);
+        INSERT INTO master_schedules (id, report_key, name, view_name, cadence, recipients, sharepoint_path, owner_user_id)
+        VALUES (1, 'ordered', 'Daily Ordered Report', 'Daily Ordered', '{"freq":"daily","time":"00:00"}', 'reports@achimonline.com', 'Ordered Report/Daily', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    import_precious(source, dest)
+    rows = home_store.list_schedules()
+    assert len(rows) == 1
+    assert rows[0]["owner_email"] == "heshey@achimonline.com"
+    assert "reports@achimonline.com" in rows[0]["recipients"]
+    with TestClient(create_app()) as client:
+        login(client)
+        html = client.get("/schedules").text
+    assert "Daily Ordered Report" in html
+    assert "reports@achimonline.com" in html
+    assert "paused" not in html
 
 
 def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch):
