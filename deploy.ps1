@@ -12,14 +12,13 @@ Set-Location $scriptDir
 $zipPath = Join-Path $scriptDir "app.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-# Files/dirs to keep out of the deployment zip. Anything not in the prod
-# runtime path (runbooks/, tests/, local-only tooling, secrets).
+# Files/dirs to keep out of the deployment zip.
 $exclude = @(
     ".env", ".env.example", "app.zip",
-    "deploy.ps1", "deploy-runbook.ps1",
+    "deploy.ps1",
     ".azure", ".pytest_cache", ".git", ".cursor", ".codegraph", ".scratch",
     ".dockerignore", "Dockerfile",
-    "tests", "logs", "runbooks", "webapp-cache",
+    "logs",
     "SETUP_INSTRUCTIONS.txt",
     "_history_backup", "_report_output", "__pycache__",
     "app.db", "AchimReportsApp.zip", "_server.log",

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from pathlib import Path
+import tempfile
+
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 
 import catalog
 import config
 import store
+from import_precious import import_precious, summarize
 from deps import (
     THEME_BODY_CLASS,
     flash,
@@ -77,6 +81,41 @@ def settings_page(request: Request):
         customers=catalog.CUSTOMERS,
         company_schedule_setup=store.setting("show_company_schedule_setup", "0") == "1",
     )
+
+
+MAX_PRECIOUS_BYTES = 80 * 1024 * 1024
+
+
+@router.post("/settings/import-precious")
+async def import_precious_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    csrf: str = Form(""),
+):
+    blocked = _guard_admin(request)
+    if blocked:
+        return blocked
+    denied = require_csrf(request, csrf)
+    if denied:
+        return denied
+    raw = await file.read()
+    if len(raw) > MAX_PRECIOUS_BYTES:
+        flash(request, "That file is larger than 80 MB.", "error")
+        return RedirectResponse("/settings", status_code=303)
+    if not raw.startswith(b"SQLite format 3"):
+        flash(request, "That is not a sqlite precious.db file.", "error")
+        return RedirectResponse("/settings", status_code=303)
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    try:
+        tmp.write(raw)
+        tmp.close()
+        result = import_precious(Path(tmp.name), config.db_path())
+        flash(request, summarize(result))
+    except ValueError as err:
+        flash(request, str(err), "error")
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/api/settings/theme")

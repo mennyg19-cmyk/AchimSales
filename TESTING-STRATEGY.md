@@ -1,9 +1,9 @@
 # Testing Strategy
 
-**2026-09-16:** Flask home (`v3/`, `webapp/`, `rebuild/`) is gone from this
-branch. Home-site tests are `app/tests/`. Sections below that cite `v3/tests/`
-or `tests/test_wsgi_dispatch.py` are historical. CLI/runbook tests stay under
-`tests/`.
+**2026-09-16:** Flask home and Azure Automation CLI are gone from this
+branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
+`test_golive.py`. Sections below that cite `v3/tests/`, `run.py`, or
+`tests/test_wsgi_dispatch.py` are historical.
 
 ## Rebuild go-live slice (chips, drive, catch-up, Litestream, People import)
 
@@ -14,7 +14,7 @@ or `tests/test_wsgi_dispatch.py` are historical. CLI/runbook tests stay under
 - SharePoint/OneDrive upload mocks when Graph is unset; production without Graph raises.
 - `SESSION_SECRET` accepts `FLASK_SECRET` / `FLASK_SECRET_KEY`. Production boot without `LITESTREAM_AZURE_ACCOUNT_KEY` raises.
 - Keep cap 5 per owner drops the oldest; theme POST writes `users.theme`.
-- `import_precious.py` copies People rows (and extra groups / report access / theme) without overwriting existing emails.
+- `import_precious.py` copies People, views, and schedules from a v3 precious.db. Existing emails stay. Matching company views update in place.
 - `app/startup.sh` still gunicorn + UvicornWorker `main:app` and mentions litestream.
 
 **Expected behavior:** Dummy stays clickable without secrets. A new Azure Web App with production env refuses a missing session secret or Litestream key. Clock does not double-send (fcntl + claim_today_slot).

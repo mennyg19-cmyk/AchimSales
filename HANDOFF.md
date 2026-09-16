@@ -1,6 +1,6 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (Flask home stripped; FastAPI is the only website)
+Last updated: 2026-09-16 (Automation removed; precious.db import is People + views + schedules)
 
 **Status:** Dummy FastAPI home is on branch `cursor/brother-stack-rebuild-0a24`. Cloudflare preview for clicking. Live Reporting API when `REPORTING_API_KEY` is set; catalog mock otherwise. Graph/Entra/clock/drive turn on when `GRAPH_*` + `EMAIL_FROM` (+ `SP_SITE_URL` for SharePoint) are set; otherwise outbox + mock drive URLs + preview login. No production cutover.
 
@@ -13,7 +13,7 @@ Last updated: 2026-09-16 (Flask home stripped; FastAPI is the only website)
 
 ## Website vs leftover
 
-This PR **is** the clean home-site tree. `v3/`, `webapp/`, `rebuild/`, `wsgi.py`, and Flask `startup.sh` are gone. Repo-root `startup.sh` execs `app/startup.sh` (FastAPI). Azure Automation (`run.py`, `reports/`, `runbooks/`) stays — that is the overnight OData jobs, not the website. Old Flask is still in GitHub history on `main`.
+This PR is the clean home-site tree. Flask is gone. Azure Automation (`run.py`, `reports/`, `runbooks/`) is gone. Nightly work is the in-app schedules. Repo-root `startup.sh` execs `app/startup.sh` (FastAPI). Old code is still in GitHub history on `main`.
 
 ## What's in the dummy site
 
@@ -21,7 +21,7 @@ Login (preview unless Entra secrets; magic-link emails a 15-minute token when Gr
 
 Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 
-People copy from live (opt-in, not automatic): `python3 app/import_precious.py /path/to/precious.db`
+Copy from live: Settings → People → upload `precious.db`, or `python3 app/import_precious.py /path/to/precious.db`. That copies People, views, and schedules (normalized tables or old JSON blobs). Existing emails stay. Matching company view names get the live layout.
 
 ## Locked (do not reopen)
 
@@ -35,6 +35,6 @@ People copy from live (opt-in, not automatic): `python3 app/import_precious.py /
 
 1. Menny sets `REPORTING_API_KEY` (never commit it) if he wants live rows on the preview
 2. Menny sets `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` / `EMAIL_FROM` / `SP_SITE_URL` if he wants real mail, Entra, and SharePoint (and adds the preview URL as a redirect URI)
-3. Menny clicks the dummy Cloudflare URL
-4. Cutover still needs: People copy from a precious.db file, Entra redirect URI, then merge (same Azure app) or a new Web App + DNS
+3. Menny copies precious.db onto the dummy (Settings upload or CLI)
+4. Cutover still needs: Entra redirect URI, then merge
 5. Still not in this app: P4.I8 salesman map, Customer Aging, Azure create, DNS, merge to `main`

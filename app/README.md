@@ -2,10 +2,9 @@
 
 Achim sales-report website. Looks like the old Flask home. Runs on FastAPI.
 
-`v3/`, `webapp/`, and `rebuild/` are not in this repo anymore. Repo-root
-`startup.sh` execs `app/startup.sh`, so Azure's existing Startup Command
-starts this site. **Do not merge to `main` until Menny says cut over.**
-GitHub history on `main` still has the old Flask tree.
+`v3/`, `webapp/`, `rebuild/`, and Azure Automation (`run.py` / `runbooks/`)
+are not in this repo anymore. Nightly work is the in-app schedules. Repo-root
+`startup.sh` execs `app/startup.sh`. **Do not merge to `main` until Menny says cut over.**
 
 ## Dummy preview (what this branch serves)
 
@@ -20,6 +19,16 @@ PYTHONPATH=. python -m uvicorn main:app --host 0.0.0.0 --port 8080
 Open `/login` → **Achim User Login** (Preview Admin, or Entra when `GRAPH_*` is set). External Rep Login with `external@example.com` signs in the seeded external row unless Graph mail is configured (then it emails a 15-minute link).
 
 `pytest` from this folder uses a temp sqlite file. It never calls the live Reporting API (doorway is mocked).
+
+## Copy live precious.db
+
+Settings → People → **Copy from live precious.db**, or:
+
+```
+python3 import_precious.py /path/to/precious.db
+```
+
+That adds People, views, and schedules. Existing emails stay. Matching company view names get the live layout.
 
 ## Azure
 

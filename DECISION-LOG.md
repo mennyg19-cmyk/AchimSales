@@ -1,3 +1,11 @@
+## 2026-09-16 Drop Azure Automation; import views and schedules from precious.db
+**What I had to decide:** Delete the OData Automation CLI now vs leave it until Azure jobs are turned off in the portal; whether precious.db import stays People-only.
+**Options I considered:** Keep run.py until Menny disables the Automation account; delete the tree and tell him to stop the Azure jobs; import JSON blobs vs normalized views tables.
+**What I chose:** Remove `run.py`, `runbooks/`, `reports/`, and the OData CLI. Nightly work is the in-app schedules. Import copies People, views (normalized columns or old JSON), and schedules. Settings upload plus CLI. Existing emails stay. Matching company view names get the live layout.
+**Why:** Menny said get rid of the Azure Automation job and needs a way to move precious.db into the new site.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Strip Flask home from this PR
 **What I had to decide:** Delete `v3/` / `webapp/` / `rebuild/` now so merge cannot boot Flask, vs leave them until after live FastAPI works; whether Azure Automation OData (`run.py`, `reports/`, `runbooks/`) counts as “old site.”
 **Options I considered:** Dual-stack until cutover; FastAPI-only home, keep Automation; delete Automation too.

@@ -247,6 +247,229 @@ def test_import_precious_users(tmp_path, monkeypatch):
     assert again["skipped"] >= 1
 
 
+def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT,
+            start_date TEXT,
+            end_date TEXT,
+            year TEXT,
+            mode TEXT,
+            active_tab_key TEXT
+        );
+        CREATE TABLE view_salesmen (
+            view_id TEXT NOT NULL,
+            salesman TEXT NOT NULL
+        );
+        CREATE TABLE layout_tabs (
+            id TEXT PRIMARY KEY,
+            view_id TEXT NOT NULL,
+            tab_key TEXT NOT NULL,
+            position INTEGER,
+            clone_of_tab_key TEXT,
+            tab_name TEXT,
+            has_view INTEGER NOT NULL DEFAULT 0,
+            groups_explicit INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE layout_columns (
+            tab_id TEXT NOT NULL,
+            field TEXT NOT NULL,
+            position INTEGER,
+            hidden INTEGER NOT NULL DEFAULT 0,
+            frozen INTEGER NOT NULL DEFAULT 0,
+            width REAL
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            sharepoint_path TEXT NOT NULL DEFAULT '',
+            filename_template TEXT NOT NULL DEFAULT '',
+            folder_kind TEXT NOT NULL DEFAULT 'sharepoint',
+            email_subject TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            catch_up_pending INTEGER NOT NULL DEFAULT 0,
+            catch_up_for_date TEXT,
+            last_claimed_at TEXT,
+            window_period TEXT
+        );
+        CREATE TABLE schedule_weekdays (
+            schedule_id TEXT NOT NULL,
+            weekday INTEGER NOT NULL
+        );
+        CREATE TABLE schedule_recipients (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('v-daily', 'company', 'ordered', 'Daily Ordered', NULL, 'this_week');
+        INSERT INTO view_salesmen (view_id, salesman) VALUES ('v-daily', 'HKaufman');
+        INSERT INTO layout_tabs (id, view_id, tab_key, position, has_view)
+        VALUES ('t1', 'v-daily', 'summary', 1, 1);
+        INSERT INTO layout_columns (tab_id, field, position, hidden)
+        VALUES ('t1', 'SalesAmount', 1, 1);
+        INSERT INTO report_schedules (
+            id, kind, view_id, owner_handle, freq, time, sharepoint_path,
+            filename_template, email_subject, window_period
+        ) VALUES (
+            's1', 'company', 'v-daily', 'heshey', 'weekly', '09:00',
+            'Direct Reports/Ordered Report', '{Schedule}.xlsx', '{Schedule} {Period}', 'this_week'
+        );
+        INSERT INTO schedule_weekdays (schedule_id, weekday) VALUES ('s1', 0);
+        INSERT INTO schedule_recipients (id, schedule_id, email, role)
+        VALUES ('r1', 's1', 'reports@achimonline.com', 'to');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["users_inserted"] == 1
+    assert result["views_updated"] + result["views_inserted"] >= 1
+    view = next(v for v in home_store.list_views("heshey@achimonline.com", True) if v["name"] == "Daily Ordered")
+    assert view["params"]["period"] == "this_week"
+    assert view["params"]["salesmen"] == ["HKaufman"]
+    assert "SalesAmount" in (view["layout"]["views"]["summary"]["hidden"] or [])
+    rows = home_store.list_schedules()
+    match = next(s for s in rows if s["view_id"] == view["id"] and s["run_time"] == "09:00")
+    assert match["freq"] == "weekly"
+    assert match["weekdays"] == "mon"
+    assert "reports@achimonline.com" in match["recipients"]
+    assert match["sharepoint_folder"] == "Direct Reports/Ordered Report"
+    assert match["filename"] == "{Schedule}.xlsx"
+
+
+def test_import_precious_json_fallback(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        CREATE TABLE saved_reports (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL
+        );
+        CREATE TABLE company_views (
+            id INTEGER PRIMARY KEY,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL
+        );
+        CREATE TABLE schedules (
+            id INTEGER PRIMARY KEY,
+            owner_user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            view_name TEXT NOT NULL DEFAULT 'Default',
+            params_json TEXT NOT NULL DEFAULT '{}',
+            layout_json TEXT NOT NULL DEFAULT '{}',
+            cadence TEXT NOT NULL,
+            recipients TEXT NOT NULL,
+            sharepoint_path TEXT NOT NULL DEFAULT '',
+            filename_template TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO users (id, email, display_name, role)
+        VALUES (1, 'meir@achimonline.com', 'Meir', 'salesman');
+        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
+        VALUES (1, 'invoiced', 'My Invoiced', '{"period":"mtd"}', '{"views":{"detail":{"hidden":["Cost"]}}}');
+        INSERT INTO company_views (report_key, name, params_json, layout_json)
+        VALUES ('ordered', 'Heshy Open Orders', '{"status":"Open order"}', '{}');
+        INSERT INTO schedules (owner_user_id, report_key, view_name, cadence, recipients)
+        VALUES (1, 'invoiced', 'My Invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["views_inserted"] >= 2
+    assert result["schedules_inserted"] >= 1
+    views = home_store.list_views("meir@achimonline.com", True)
+    personal = next(v for v in views if v["name"] == "My Invoiced")
+    assert personal["params"]["period"] == "mtd"
+    company = next(v for v in views if v["name"] == "Heshy Open Orders")
+    assert company["kind"] == "company"
+    assert company["params"]["status"] == "Open order"
+    sched = next(s for s in home_store.list_schedules() if s["view_id"] == personal["id"])
+    assert sched["run_time"] == "07:30"
+    assert sched["freq"] == "daily"
+
+
+def test_settings_import_precious_upload(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import create_app
+    from test_home import csrf_headers, login
+
+    monkeypatch.setenv("APP_DB_PATH", str(tmp_path / "home.sqlite"))
+    monkeypatch.delenv("REPORTING_API_KEY", raising=False)
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        INSERT INTO users (email, display_name, role)
+        VALUES ('upload.user@achimonline.com', 'Upload User', 'manager');
+        """
+    )
+    conn.commit()
+    conn.close()
+    with TestClient(create_app()) as client:
+        login(client)
+        res = client.post(
+            "/settings/import-precious",
+            data={"csrf": client.csrf},
+            files={"file": ("precious.db", source.read_bytes(), "application/octet-stream")},
+            follow_redirects=False,
+        )
+        assert res.status_code == 303
+    assert home_store.get_user("upload.user@achimonline.com") is not None
+
+
 def test_deliver_expands_chips_and_mocks_upload(home_db, monkeypatch):
     from deliver import deliver_schedule
 

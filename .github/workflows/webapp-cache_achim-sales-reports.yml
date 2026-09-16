@@ -33,7 +33,6 @@ jobs:
           python-version: '3.10'
 
       # Website deps live in app/requirements.txt (FastAPI, gunicorn, uvicorn).
-      # Root requirements.txt is CLI / Azure Automation (pandas, msal, …).
       # Oryx on App Service runs `pip install -r requirements.txt` at the
       # artifact root, so copy the FastAPI list before upload.
       - name: Stage app/requirements.txt as root requirements.txt
