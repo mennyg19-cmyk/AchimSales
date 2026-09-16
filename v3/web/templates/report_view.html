@@ -31,7 +31,7 @@
         <span>Period <button type="button" class="help-btn" data-help="param-period" data-no-guard aria-label="Help">?</button></span>
         <select name="period" id="periodSelect">
             {% for value, label in period_options %}
-            <option value="{{ value }}"{% if value == default_period|default('all_time') %} selected{% endif %}>{{ label }}</option>
+            <option value="{{ value }}"{% if value == default_period %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
     </label>

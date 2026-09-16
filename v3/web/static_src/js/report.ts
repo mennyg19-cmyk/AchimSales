@@ -226,6 +226,11 @@ function canSumColumn(c: Column): boolean {
   return isNumericType(c.type) && c.type !== "percent";
 }
 
+function isOnFlag(raw: unknown): boolean {
+  const flag = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
+  return ["1", "true", "on", "yes"].includes(flag.trim().toLowerCase());
+}
+
 /** Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered Excel writer. */
 function fulfillmentFillCss(score: number): string {
   const s = Math.max(0, Math.min(1, score));
@@ -2882,11 +2887,7 @@ function applyParamsObject(params: Record<string, unknown>): void {
   const invoiceEl = document.querySelector<HTMLInputElement>('[name="invoice"]');
   if (invoiceEl) invoiceEl.value = params.invoice != null ? String(params.invoice) : "";
   const openEl = document.querySelector<HTMLInputElement>('[name="open_balance"]');
-  if (openEl) {
-    const raw = params.open_balance;
-    const flag = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
-    openEl.checked = ["1", "true", "on", "yes"].includes(flag.trim().toLowerCase());
-  }
+  if (openEl) openEl.checked = isOnFlag(params.open_balance);
   // Re-sync custom-range field visibility via the listener bound at boot.
   ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));
   appliedParamsSnap = stableJson(collectParams());
