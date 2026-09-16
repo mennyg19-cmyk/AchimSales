@@ -1,10 +1,11 @@
 """Copy People, views, and schedules from a live precious.db into this site.
 
 Opt-in. Existing emails stay. Dummy views and schedules are wiped first.
-Copies the normalized column tables only (views, layout_*, view_*,
-report_schedules, schedule_weekdays/monthdays/recipients/email_salesmen).
-Does not read the old JSON blob tables (saved_reports, company_views,
-schedules, master_schedules). Those stay in the file as backup.
+Writes only column tables on this site (views, layout_*, view_*,
+schedules, schedule_weekdays/monthdays/recipients/email_salesmen).
+Reads live column tables first, then fills gaps from JSON backup tables
+(saved_reports, company_views, report_defaults, schedules, master_schedules)
+without storing those blobs.
 
   python3 import_precious.py /path/to/precious.db
 """
@@ -12,6 +13,7 @@ schedules, master_schedules). Those stay in the file as backup.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -21,7 +23,8 @@ import cadence
 import catalog
 import config
 from db import db, init_db
-from store import hydrate_schedule_row
+from store import hydrate_schedule_row, write_schedule_children, _weekday_csv
+from views import save_filters_and_layout
 
 ROLES = {"admin", "developer", "manager", "salesman"}
 KNOWN_REPORTS = {item["key"] for item in catalog.REPORTS}
@@ -550,6 +553,347 @@ def _import_report_schedules(
     return counts
 
 
+def _json_obj(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _as_str_list(raw) -> list[str]:
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    return []
+
+
+def _json_backup_counts(src: sqlite3.Connection) -> tuple[int, int]:
+    tables = _tables(src)
+    views = 0
+    schedules = 0
+    if "saved_reports" in tables:
+        views += src.execute("SELECT COUNT(*) FROM saved_reports").fetchone()[0]
+    if "company_views" in tables:
+        views += src.execute("SELECT COUNT(*) FROM company_views").fetchone()[0]
+    if "report_defaults" in tables:
+        views += src.execute("SELECT COUNT(*) FROM report_defaults").fetchone()[0]
+    if "schedules" in tables:
+        schedules += src.execute("SELECT COUNT(*) FROM schedules").fetchone()[0]
+    if "master_schedules" in tables:
+        schedules += src.execute("SELECT COUNT(*) FROM master_schedules").fetchone()[0]
+    return views, schedules
+
+
+def _projected_view_keys(src: sqlite3.Connection) -> set[tuple[str, int]]:
+    tables = _tables(src)
+    if "views" not in tables:
+        return set()
+    cols = _cols(src, "views")
+    if "legacy_source" not in cols or "legacy_id" not in cols:
+        return set()
+    out = set()
+    for row in src.execute("SELECT legacy_source, legacy_id FROM views"):
+        if row["legacy_source"] and row["legacy_id"] is not None:
+            out.add((str(row["legacy_source"]), int(row["legacy_id"])))
+    return out
+
+
+def _projected_schedule_keys(src: sqlite3.Connection) -> set[tuple[str, int]]:
+    tables = _tables(src)
+    if "report_schedules" not in tables:
+        return set()
+    cols = _cols(src, "report_schedules")
+    if "legacy_kind" not in cols or "legacy_id" not in cols:
+        return set()
+    out = set()
+    for row in src.execute("SELECT legacy_kind, legacy_id FROM report_schedules"):
+        if row["legacy_kind"] and row["legacy_id"] is not None:
+            out.add((str(row["legacy_kind"]), int(row["legacy_id"])))
+    return out
+
+
+def _existing_view_id(
+    dest: sqlite3.Connection,
+    kind: str,
+    report_key: str,
+    name: str,
+    owner_email: str | None,
+) -> int | None:
+    if kind == "personal":
+        row = dest.execute(
+            """SELECT id FROM views
+               WHERE kind = 'personal' AND report_key = ? AND name = ? AND owner_email = ?""",
+            (report_key, name, owner_email),
+        ).fetchone()
+    else:
+        row = dest.execute(
+            """SELECT id FROM views
+               WHERE kind = ? AND report_key = ? AND name = ? AND owner_email IS NULL""",
+            (kind, report_key, name),
+        ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _ensure_view_from_json(
+    dest: sqlite3.Connection,
+    *,
+    kind: str,
+    report_key: str,
+    name: str,
+    owner_email: str | None,
+    params_raw,
+    layout_raw,
+) -> tuple[int, str]:
+    existing = _existing_view_id(dest, kind, report_key, name, owner_email)
+    if existing:
+        return existing, "skipped"
+    filters = _json_obj(params_raw)
+    if not filters.get("from_date") and filters.get("start_date"):
+        filters["from_date"] = filters["start_date"]
+    if not filters.get("to_date") and filters.get("end_date"):
+        filters["to_date"] = filters["end_date"]
+    layout = _json_obj(layout_raw)
+    include = 1 if (
+        filters.get("period") or filters.get("from_date") or filters.get("to_date")
+        or filters.get("start_date") or filters.get("end_date")
+    ) else 0
+    dest_id = _insert_view(
+        dest,
+        owner_email=owner_email,
+        report_key=report_key,
+        name=name or "Imported view",
+        kind=kind,
+        include_period=include,
+        period=filters.get("period"),
+        start_date=filters.get("from_date") or filters.get("start_date"),
+        end_date=filters.get("to_date") or filters.get("end_date"),
+        year=filters.get("year"),
+        mode=filters.get("n4_mode") or filters.get("mode"),
+        active_tab_key=layout.get("active") if isinstance(layout.get("active"), str) else None,
+    )
+    save_filters_and_layout(dest, dest_id, filters, layout, include)
+    return dest_id, "inserted"
+
+
+def _import_json_views(
+    src: sqlite3.Connection,
+    dest: sqlite3.Connection,
+    by_id: dict[int, str],
+) -> tuple[dict[str, int], dict]:
+    tables = _tables(src)
+    projected = _projected_view_keys(src)
+    id_map: dict[str, int] = {}
+    counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    fallback = _fallback_owner(dest)
+
+    def add(kind: str, report_key: str, name: str, owner: str | None, params_raw, layout_raw, source: str, legacy_id: int):
+        report_key = _map_report_key(report_key)
+        if not report_key:
+            counts["skipped"] += 1
+            return
+        if (source, int(legacy_id)) in projected:
+            existing = _existing_view_id(dest, kind, report_key, name or "Imported view", owner)
+            if existing:
+                id_map[f"{source}:{legacy_id}"] = existing
+            counts["skipped"] += 1
+            return
+        view_id, action = _ensure_view_from_json(
+            dest,
+            kind=kind,
+            report_key=report_key,
+            name=name or "Imported view",
+            owner_email=owner,
+            params_raw=params_raw,
+            layout_raw=layout_raw,
+        )
+        id_map[f"{source}:{legacy_id}"] = view_id
+        counts[action] += 1
+
+    if "saved_reports" in tables:
+        sr_cols = _cols(src, "saved_reports")
+        for row in src.execute("SELECT * FROM saved_reports"):
+            owner = by_id.get(int(row["user_id"])) or fallback
+            add(
+                "personal",
+                row["report_key"],
+                row["name"],
+                owner,
+                row["params_json"] if "params_json" in sr_cols else None,
+                row["layout_json"] if "layout_json" in sr_cols else None,
+                "saved_reports",
+                int(row["id"]),
+            )
+    if "company_views" in tables:
+        cv_cols = _cols(src, "company_views")
+        for row in src.execute("SELECT * FROM company_views"):
+            add(
+                "company",
+                row["report_key"],
+                row["name"],
+                None,
+                row["params_json"] if "params_json" in cv_cols else None,
+                row["layout_json"] if "layout_json" in cv_cols else None,
+                "company_views",
+                int(row["id"]),
+            )
+    if "report_defaults" in tables:
+        rd_cols = _cols(src, "report_defaults")
+        for row in src.execute("SELECT * FROM report_defaults"):
+            add(
+                "default",
+                row["report_key"],
+                "Default",
+                None,
+                row["params_json"] if "params_json" in rd_cols else None,
+                row["layout_json"] if "layout_json" in rd_cols else None,
+                "report_defaults",
+                int(row["id"]),
+            )
+    return id_map, counts
+
+
+def _cadence_fields(raw) -> tuple[str, str, str, int | None]:
+    data = _json_obj(raw)
+    freq = str(data.get("freq") or "daily").lower()
+    if freq not in cadence.VALID_FREQ:
+        freq = "daily"
+    run_time = str(data.get("time") or "08:00")
+    weekdays = _weekday_csv([int(d) for d in (data.get("weekdays") or [])])
+    monthday = None
+    if data.get("monthday") not in (None, ""):
+        monthday = int(data["monthday"])
+    elif data.get("monthdays"):
+        monthday = int(data["monthdays"][0])
+    return freq, run_time, weekdays, monthday
+
+
+def _find_view_for_json_schedule(
+    dest: sqlite3.Connection,
+    report_key: str,
+    view_name: str,
+    owner: str | None,
+) -> int | None:
+    name = view_name or "Default"
+    if owner:
+        row = dest.execute(
+            """SELECT id FROM views
+               WHERE report_key = ? AND name = ? AND owner_email = ?
+               ORDER BY id LIMIT 1""",
+            (report_key, name, owner),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+    row = dest.execute(
+        """SELECT id FROM views
+           WHERE report_key = ? AND name = ? AND owner_email IS NULL
+           ORDER BY CASE kind WHEN 'company' THEN 0 WHEN 'default' THEN 1 ELSE 2 END, id
+           LIMIT 1""",
+        (report_key, name),
+    ).fetchone()
+    if row:
+        return int(row["id"])
+    row = dest.execute(
+        """SELECT id FROM views WHERE report_key = ? AND name = ? ORDER BY id LIMIT 1""",
+        (report_key, name),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _import_json_schedules(
+    src: sqlite3.Connection,
+    dest: sqlite3.Connection,
+    by_id: dict[int, str],
+) -> dict:
+    tables = _tables(src)
+    projected = _projected_schedule_keys(src)
+    counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    fallback = _fallback_owner(dest)
+
+    def ingest(table: str, legacy_kind: str, dest_kind: str) -> None:
+        if table not in tables:
+            return
+        cols = _cols(src, table)
+        for row in src.execute(f"SELECT * FROM {table}"):
+            if (legacy_kind, int(row["id"])) in projected:
+                counts["skipped"] += 1
+                continue
+            report_key = _map_report_key(row["report_key"])
+            if not report_key:
+                counts["skipped"] += 1
+                continue
+            view_name = row["view_name"] if "view_name" in cols else (row["name"] if "name" in cols else "Default")
+            owner = fallback
+            if dest_kind == "personal" and "owner_user_id" in cols and row["owner_user_id"] is not None:
+                owner = by_id.get(int(row["owner_user_id"])) or fallback
+            elif dest_kind == "company" and "owner_user_id" in cols and row["owner_user_id"] is not None:
+                owner = by_id.get(int(row["owner_user_id"])) or fallback
+            params = _json_obj(row["params_json"] if "params_json" in cols else None)
+            layout = _json_obj(row["layout_json"] if "layout_json" in cols else None)
+            view_id = _find_view_for_json_schedule(dest, report_key, view_name or "Default", owner)
+            if view_id is None:
+                view_kind = "company" if dest_kind == "company" else "personal"
+                view_id, _ = _ensure_view_from_json(
+                    dest,
+                    kind=view_kind,
+                    report_key=report_key,
+                    name=view_name or "Imported schedule view",
+                    owner_email=None if view_kind == "company" else owner,
+                    params_raw=params,
+                    layout_raw=layout,
+                )
+            freq, run_time, weekdays, monthday = _cadence_fields(row["cadence"] if "cadence" in cols else None)
+            cc = ", ".join(_as_str_list(params.get("email_cc")))
+            bcc = ", ".join(_as_str_list(params.get("email_bcc")))
+            salesmen = _as_str_list(params.get("email_salesman_keys"))
+            folder = row["sharepoint_path"] if "sharepoint_path" in cols else ""
+            folder_kind = str(params.get("folder_kind") or "").strip()
+            sharepoint = folder if folder_kind != "onedrive" else ""
+            onedrive = folder if folder_kind == "onedrive" else ""
+            dest_id = _insert_schedule(
+                dest,
+                view_id=view_id,
+                owner_email=owner,
+                name=(row["name"] if "name" in cols and dest_kind == "company" else (view_name or "")),
+                kind=dest_kind,
+                freq=freq,
+                run_time=run_time,
+                weekdays=weekdays,
+                monthday=monthday,
+                recipients=row["recipients"] if "recipients" in cols else "",
+                cc=cc,
+                bcc=bcc,
+                subject=str(params.get("email_subject") or ""),
+                filename=row["filename_template"] if "filename_template" in cols else "",
+                sharepoint_folder=sharepoint or "",
+                onedrive_folder=onedrive or "",
+                is_active=int(row["is_active"] if "is_active" in cols else 1),
+                last_run=row["last_claimed_at"] if "last_claimed_at" in cols else None,
+                catch_up_pending=int(row["catch_up_pending"] if "catch_up_pending" in cols else 0),
+                catch_up_for_date=row["catch_up_for_date"] if "catch_up_for_date" in cols else None,
+            )
+            write_schedule_children(
+                dest,
+                dest_id,
+                weekdays=weekdays,
+                monthday=monthday,
+                recipients=row["recipients"] if "recipients" in cols else "",
+                cc=cc,
+                bcc=bcc,
+                salesmen=salesmen,
+            )
+            counts["inserted"] += 1
+
+    ingest("schedules", "personal", "personal")
+    ingest("master_schedules", "master", "company")
+    return counts
+
+
 def _import_visibility(src: sqlite3.Connection, dest: sqlite3.Connection) -> int:
     tables = _tables(src)
     table = "report_config" if "report_config" in tables else (
@@ -612,10 +956,18 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
                 source_views = src.execute("SELECT COUNT(*) FROM views").fetchone()[0]
                 if source_views:
                     view_map, views = _import_normalized_views(src, dest, by_handle)
+            blob_views, blob_schedules = _json_backup_counts(src)
+            json_views_map, json_views = _import_json_views(src, dest, _by_id)
+            view_map.update(json_views_map)
+            views["inserted"] += json_views["inserted"]
+            views["skipped"] += json_views["skipped"]
             if "report_schedules" in tables:
                 source_schedules = src.execute("SELECT COUNT(*) FROM report_schedules").fetchone()[0]
                 if source_schedules:
                     schedules = _import_report_schedules(src, dest, view_map, by_handle)
+            json_schedules = _import_json_schedules(src, dest, _by_id)
+            schedules["inserted"] += json_schedules["inserted"]
+            schedules["skipped"] += json_schedules["skipped"]
             visibility = _import_visibility(src, dest)
             settings = _import_settings(src, dest)
     finally:
@@ -631,6 +983,8 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
         "schedules_skipped": schedules["skipped"],
         "source_views": source_views,
         "source_schedules": source_schedules,
+        "blob_views": blob_views,
+        "blob_schedules": blob_schedules,
         "visibility": visibility,
         "settings": settings,
     }
@@ -645,14 +999,15 @@ def summarize(result: dict) -> str:
     text = (
         f"People {result['users_inserted']} added, {result['users_skipped']} already here. "
         f"Dummy views/schedules cleared. "
-        f"Live file had {result['source_views']} views and {result['source_schedules']} schedules. "
-        f"Imported {result['views_inserted']} views and {result['schedules_inserted']} schedules."
+        f"Column tables had {result['source_views']} views and {result['source_schedules']} schedules. "
+        f"JSON backups had {result.get('blob_views', 0)} views and {result.get('blob_schedules', 0)} schedules. "
+        f"Imported {result['views_inserted']} views and {result['schedules_inserted']} schedules into columns."
     )
     skipped = result["views_skipped"] + result["schedules_skipped"]
     if skipped:
         text += (
             f" Skipped {result['views_skipped']} views, "
-            f"{result['schedules_skipped']} schedules (missing view)."
+            f"{result['schedules_skipped']} schedules (already in columns, or no report)."
         )
     return text
 

@@ -1,3 +1,11 @@
+## 2026-09-16 Fill column tables from JSON backups when the live snapshot is a subset
+**What I had to decide:** Trust only `views`/`report_schedules` (9 and 13 in Menny's file) vs also read JSON backups and write them into columns.
+**Options I considered:** Tell him to recopy Azure; import JSON blobs onto the new site; read JSON only to fill column/child tables, skip rows already projected (`legacy_id`).
+**What I chose:** Column tables first. Then `saved_reports` / `company_views` / `report_defaults` / `schedules` / `master_schedules` become extra column rows. Dest still has no layout_json/params_json. Flash shows both counts.
+**Why:** Live GUI still used the JSON tables. The 45 schedules and extra views were never all copied into `report_schedules`/`views` in his download. He does not want blobs stored on the new site.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Import every normalized view row and its child tables
 **What I had to decide:** Keep assembling view children through the layout dict vs copy `views` / `view_*` / `layout_*` row by row like schedules.
 **Options I considered:** Leave the dict round-trip; copy children 1:1; also import JSON `saved_reports`.

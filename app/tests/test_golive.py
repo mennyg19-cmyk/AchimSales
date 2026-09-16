@@ -423,7 +423,7 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM schedule_email_salesmen").fetchone()[0] == 1
 
 
-def test_import_skips_json_blob_tables(tmp_path, monkeypatch):
+def test_import_json_backups_into_columns(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -451,15 +451,17 @@ def test_import_skips_json_blob_tables(tmp_path, monkeypatch):
             id INTEGER PRIMARY KEY,
             owner_user_id INTEGER NOT NULL,
             report_key TEXT NOT NULL,
+            view_name TEXT,
             cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL
+            recipients TEXT NOT NULL,
+            params_json TEXT
         );
         INSERT INTO users (id, email, display_name, role)
         VALUES (1, 'meir@achimonline.com', 'Meir', 'salesman');
         INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
         VALUES (1, 'invoiced', 'My Invoiced', '{"period":"mtd"}', '{}');
-        INSERT INTO schedules (owner_user_id, report_key, cadence, recipients)
-        VALUES (1, 'invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com');
+        INSERT INTO schedules (owner_user_id, report_key, view_name, cadence, recipients, params_json)
+        VALUES (1, 'invoiced', 'My Invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com', '{"email_cc":["cc@achimonline.com"]}');
         """
     )
     conn.commit()
@@ -467,13 +469,26 @@ def test_import_skips_json_blob_tables(tmp_path, monkeypatch):
     result = import_precious(source, dest)
     assert result["source_views"] == 0
     assert result["source_schedules"] == 0
-    assert result["views_inserted"] == 0
-    assert result["schedules_inserted"] == 0
+    assert result["blob_views"] == 1
+    assert result["blob_schedules"] == 1
+    assert result["views_inserted"] == 1
+    assert result["schedules_inserted"] == 1
     names = {v["name"] for v in home_store.list_views("meir@achimonline.com", True)}
-    assert "My Invoiced" not in names
+    assert "My Invoiced" in names
+    view = next(v for v in home_store.list_views("meir@achimonline.com", True) if v["name"] == "My Invoiced")
+    assert view["params"]["period"] == "mtd"
+    with db() as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(views)")}
+        assert "params_json" not in cols
+        assert "layout_json" not in cols
+    rows = home_store.list_schedules()
+    assert len(rows) == 1
+    assert rows[0]["run_time"] == "07:30"
+    assert "meir@achimonline.com" in rows[0]["recipients"]
+    assert "cc@achimonline.com" in rows[0]["cc"]
 
 
-def test_import_every_normalized_view_and_skips_json_views(tmp_path, monkeypatch):
+def test_import_every_normalized_view_and_fills_json_gaps(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -530,14 +545,137 @@ def test_import_every_normalized_view_and_skips_json_views(tmp_path, monkeypatch
     conn.close()
     result = import_precious(source, dest)
     assert result["source_views"] == 4
-    assert result["views_inserted"] == 4
+    assert result["blob_views"] == 2
+    assert result["views_inserted"] == 6
     names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
-    assert names == {"Default", "Daily Ordered", "Heshey Open Orders", "Tina MTD"}
-    assert "Blob Only View" not in names
-    assert "Blob Company" not in names
+    assert "Default" in names
+    assert "Daily Ordered" in names
+    assert "Heshey Open Orders" in names
+    assert "Tina MTD" in names
+    assert "Blob Only View" in names
+    assert "Blob Company" in names
     tina = next(v for v in home_store.list_views("tina@achimonline.com", True) if v["name"] == "Tina MTD")
     assert tina["owner_email"] == "tina@achimonline.com"
     assert tina["kind"] == "personal"
+
+
+def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path, monkeypatch):
+    from import_precious import import_precious, summarize
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT,
+            legacy_source TEXT,
+            legacy_id INTEGER
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            name TEXT NOT NULL DEFAULT '',
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            legacy_kind TEXT NOT NULL,
+            legacy_id INTEGER NOT NULL
+        );
+        CREATE TABLE schedule_recipients (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL
+        );
+        CREATE TABLE saved_reports (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL
+        );
+        CREATE TABLE schedules (
+            id INTEGER PRIMARY KEY,
+            owner_user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            view_name TEXT,
+            cadence TEXT NOT NULL,
+            recipients TEXT NOT NULL,
+            params_json TEXT
+        );
+        CREATE TABLE master_schedules (
+            id INTEGER PRIMARY KEY,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            view_name TEXT,
+            cadence TEXT NOT NULL,
+            recipients TEXT NOT NULL,
+            params_json TEXT,
+            owner_user_id INTEGER
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period, legacy_source, legacy_id)
+        VALUES ('v1', 'personal', 'ordered', 'Heshey Open', 'heshey', 'ytd', 'saved_reports', 1);
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, legacy_kind, legacy_id)
+        VALUES ('s1', 'personal', 'v1', 'heshey', 'Heshey Open', 'daily', '08:00', 'personal', 1);
+        INSERT INTO schedule_recipients (id, schedule_id, email, role)
+        VALUES ('r1', 's1', 'heshey@achimonline.com', 'to');
+        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
+        VALUES (1, 'ordered', 'Heshey Open', '{"period":"ytd"}', '{}'),
+               (1, 'invoiced', 'Blob Only Invoiced', '{"period":"mtd"}', '{}');
+        INSERT INTO schedules (id, owner_user_id, report_key, view_name, cadence, recipients, params_json)
+        VALUES (1, 1, 'ordered', 'Heshey Open', '{"freq":"daily","time":"08:00"}', 'heshey@achimonline.com', '{}'),
+               (2, 1, 'invoiced', 'Blob Only Invoiced', '{"freq":"weekly","time":"07:15","weekdays":[0]}', 'heshey@achimonline.com', '{"email_cc":["cc@achimonline.com"]}');
+        INSERT INTO master_schedules (id, report_key, name, view_name, cadence, recipients, params_json, owner_user_id)
+        VALUES (9, 'ordered', 'Friday Ordered', 'Heshey Open', '{"freq":"weekly","time":"09:00","weekdays":[4]}', 'reports@achimonline.com', '{}', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["source_views"] == 1
+    assert result["source_schedules"] == 1
+    assert result["blob_views"] == 2
+    assert result["blob_schedules"] == 3
+    assert result["views_inserted"] == 2
+    assert result["schedules_inserted"] == 3
+    flash = summarize(result)
+    assert "Column tables had 1 views and 1 schedules" in flash
+    assert "JSON backups had 2 views and 3 schedules" in flash
+    names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
+    assert names >= {"Heshey Open", "Blob Only Invoiced"}
+    rows = home_store.list_schedules()
+    assert len(rows) == 3
+    by_name = {row["name"]: row for row in rows}
+    assert "Heshey Open" in by_name
+    assert by_name["Blob Only Invoiced"]["run_time"] == "07:15"
+    assert by_name["Blob Only Invoiced"]["weekdays"] == "mon"
+    assert "cc@achimonline.com" in by_name["Blob Only Invoiced"]["cc"]
+    assert by_name["Friday Ordered"]["kind"] == "company"
+    assert by_name["Friday Ordered"]["weekdays"] == "fri"
+    with db() as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
+        assert "params_json" not in cols
+        assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 2
 
 
 def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch):
@@ -581,13 +719,6 @@ def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch)
             email TEXT NOT NULL,
             role TEXT NOT NULL
         );
-        CREATE TABLE schedules (
-            id INTEGER PRIMARY KEY,
-            owner_user_id INTEGER NOT NULL,
-            report_key TEXT NOT NULL,
-            cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL
-        );
         INSERT INTO users (id, email, display_name, role, handle)
         VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey'),
                (2, 'tina@achimonline.com', 'Tina', 'manager', 'tina');
@@ -599,8 +730,6 @@ def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch)
         INSERT INTO schedule_recipients (id, schedule_id, email, role)
         VALUES ('r1', 's1', 'reports@achimonline.com', 'to'),
                ('r2', 's2', 'tina@achimonline.com', 'to');
-        INSERT INTO schedules (owner_user_id, report_key, cadence, recipients)
-        VALUES (1, 'ordered', '{"freq":"daily","time":"07:00"}', 'blob@achimonline.com');
         """
     )
     conn.commit()

@@ -14,7 +14,7 @@ branch. Home-site tests are `app/tests/`. Copy from precious.db is covered in
 - SharePoint/OneDrive upload mocks when Graph is unset; production without Graph raises.
 - `SESSION_SECRET` accepts `FLASK_SECRET` / `FLASK_SECRET_KEY`. Production boot without `LITESTREAM_AZURE_ACCOUNT_KEY` raises.
 - Keep cap 5 per owner drops the oldest; theme POST writes `users.theme`.
-- `import_precious.py` copies People, views, and schedules from a v3 precious.db. Existing emails stay. Matching company views update in place.
+- `import_precious.py` copies People, views, and schedules from a v3 precious.db. Existing emails stay. Column tables first; leftover JSON backups fill extra column rows (blobs are not stored).
 - `app/startup.sh` still gunicorn + UvicornWorker `main:app` and mentions litestream.
 
 **Expected behavior:** Dummy stays clickable without secrets. A new Azure Web App with production env refuses a missing session secret or Litestream key. Clock does not double-send (fcntl + claim_today_slot).
