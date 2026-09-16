@@ -9,7 +9,7 @@ Last updated: 2026-09-16 (Automation removed; precious.db import is People + vie
 - **Branch:** `cursor/brother-stack-rebuild-0a24`
 - **Repo:** AchimSales
 - **Prod URL:** https://reports.achimonline.com (still the old Flask deploy on `main` until this PR merges)
-- **Preview:** Cloudflare tunnel in front of uvicorn `:8080` (dies when the agent VM sleeps)
+- **Preview:** https://core-finished-stuffed-updating.trycloudflare.com/login (Cloudflare quick tunnel in front of uvicorn `:8080`; URL changes if the tunnel restarts)
 
 ## Website vs leftover
 
