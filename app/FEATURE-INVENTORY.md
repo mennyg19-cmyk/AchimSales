@@ -30,8 +30,8 @@ This inventory is page-by-page from `v3/web/templates/` + `v3/web/blueprints/` +
 | `GET /schedules/<id>/history` | Personal schedule history | P8.8 |
 | `GET /schedules/runs/<id>` | One run log | P8.9 |
 | `GET /settings/company-schedules` | Company schedule setup (flag-hidden) | P9 |
-| `GET /master-schedules` | Master schedules | P9.1 |
-| `GET /master-schedules/<id>/history` | Master history | P9.2 |
+| `GET /master-schedules` | Master schedules (retired → `/schedules`) | P9.2 |
+| `GET /master-schedules/<id>/history` | Master history (retired → `/schedules`) | P9.2 |
 | `GET /admin/run-log` | Report run log | P10 |
 | `GET /admin/schedule-runs` | Scheduled run history | P10.1 |
 | `GET /dev/db-explorer` | Database explorer (developer) | P11 |
@@ -199,6 +199,7 @@ Skipped as bolted-on (Menny: not every extra from the beginning of time): tab cl
 | P6.9 | History → Report run log, Scheduled run history | KEEP |
 | P6.10 | Developer → Database explorer, Notification diagnostic, precious.db upload | KEEP |
 | P6.11 | Developer → Beta SQL/OData sources | **DROP** (locked: no OData in new app) |
+| P6.12 | Developer → Master schedules link | **DROP** (user schedules only) |
 
 ---
 
@@ -247,7 +248,7 @@ Roles: admin, developer, manager, salesman.
 | ID | Control / behavior | Status |
 |---|---|---|
 | P9.1 | Company schedules still **run** even if add/edit UI is hidden | **DROP** (user schedules only) |
-| P9.2 | Master schedules pages + lookups | KEEP (company-kind rows hidden) |
+| P9.2 | Master schedules pages + lookups | **DROP** (user schedules only; URLs 302 `/schedules`) |
 | P9.3 | View-only managers Send now on shared only (Q9) | **DROP** |
 
 ---

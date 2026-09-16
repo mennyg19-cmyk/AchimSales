@@ -280,20 +280,8 @@ def master_schedules(request: Request):
     denied = need_login(request)
     if denied:
         return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Master schedules are admin-only on this preview.", "warn")
-        return RedirectResponse("/schedules", status_code=302)
-    return page(
-        request,
-        "company_schedules.html",
-        active_tab="settings",
-        schedules=[
-            row for row in store.list_schedules()
-            if (row.get("kind") or "") != "company"
-        ],
-        master=True,
-    )
+    flash(request, "Master schedules are retired. Use user schedules.", "warn")
+    return RedirectResponse("/schedules", status_code=302)
 
 
 @router.get("/master-schedules/{schedule_id}/history")
@@ -301,23 +289,8 @@ def master_schedule_history(request: Request, schedule_id: int):
     denied = need_login(request)
     if denied:
         return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Master schedules are admin-only on this preview.", "warn")
-        return RedirectResponse("/schedules", status_code=302)
-    row = store.get_schedule(schedule_id)
-    if row is None or (row.get("kind") or "") == "company":
-        flash(request, "Unknown schedule.", "error")
-        return RedirectResponse("/master-schedules", status_code=302)
-    runs = store.list_schedule_runs_for(schedule_id)
-    return page(
-        request,
-        "schedule_history.html",
-        active_tab="settings",
-        schedule=row,
-        runs=runs,
-        master=True,
-    )
+    flash(request, "Master schedules are retired. Use user schedules.", "warn")
+    return RedirectResponse("/schedules", status_code=302)
 
 
 @router.post("/schedules/{schedule_id}/copy")

@@ -2,7 +2,7 @@
 {% block title %}Schedule history{% endblock %}
 {% block content %}
 <div class="page-head">
-    <a class="back-link" href="{{ '/master-schedules' if master else '/schedules' }}"><i data-feather="arrow-left"></i> {{ 'Master schedules' if master else 'Schedules' }}</a>
+    <a class="back-link" href="/schedules"><i data-feather="arrow-left"></i> Schedules</a>
     <h1 class="page-title">{{ schedule.view_name }}</h1>
     <p class="page-subtitle">{{ schedule.freq }} at {{ schedule.run_time }} → {{ schedule.recipients }}</p>
 </div>

@@ -228,6 +228,10 @@ def test_exclusions_page_uses_customer_master(live_client):
     assert "HD SUPPLY" in html
     assert "C-1002" not in html
     assert "MAZER WHOLESALE" not in html
+    assert 'id="exclPicker"' in html
+    assert 'id="exclSearch"' in html
+    assert "customer-search" in html
+    assert "excl-box" not in html
 
 
 def test_live_invoiced_run_uses_doorway(live_client):

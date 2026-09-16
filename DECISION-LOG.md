@@ -1,3 +1,11 @@
+## 2026-09-16 Drop master-schedule pages; exclusion dropdown; report pills beside Run report
+**What I had to decide:** Hide master pages vs keep a duplicate admin list of user schedules; auto-save exclusions vs keep Save; pills wrap inside the customers column vs sit in the filter row.
+**Options I considered:** Leave `/master-schedules` as a privileged alias of `/schedules`; always-visible checkbox wall; keep pills under the selector.
+**What I chose:** Hotfix deviation (no Sol/Fable). `/master-schedules` and `/master-schedules/{id}/history` 302 `/schedules` with flash “Master schedules are retired. Use user schedules.” Settings exclusions match the old site: search + scrolling checkbox dropdown, pills for the hidden set, Save still POSTs. Report `#customerPills` is a sibling between `.filter-fields` and `.filter-run-group` so chips fill to Run report then wrap beside the buttons.
+**Why:** Menny: master schedules still there; exclusions should be a scrolling dropdown with a filter; selected customer pills under the selector look bad.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Test mode drops CC/BCC; old API JSON converted; exclusions from customer_master
 **What I had to decide:** Pad missing fields from mock tab schemas vs only intra-row union; keep dummy catalog on Settings when the API is unset.
 **Options I considered:** Blank only sibling keys in the same payload; always include mock tab keys as empty; fail test-mode sends that still have CC.

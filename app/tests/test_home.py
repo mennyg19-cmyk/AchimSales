@@ -119,6 +119,13 @@ def test_preview_login_then_invoiced_tabs(client):
     assert "Run report" in page
     assert 'id="reportTable"' in page
     assert 'id="customerPicker"' in page
+    assert 'id="customerPills"' in page
+    picker_at = page.index('id="customerPicker"')
+    pills_at = page.index('id="customerPills"')
+    run_at = page.index("filter-run-group")
+    assert picker_at < pills_at < run_at
+    between = page[picker_at:pills_at]
+    assert between.count("</div>") >= 2
     assert 'id="columnsBtn"' in page
     assert "Freeze pins it" in page
     assert 'id="reportStatus"' in page
@@ -675,9 +682,9 @@ def test_master_schedule_history_and_diagnostics(client):
     login(client)
     with db() as conn:
         sid = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()["id"]
-    hist = client.get(f"/master-schedules/{sid}/history")
-    assert hist.status_code == 200
-    assert "Daily Ordered" in hist.text or "when" in hist.text.lower()
+    hist = client.get(f"/master-schedules/{sid}/history", follow_redirects=False)
+    assert hist.status_code == 302
+    assert hist.headers["location"] == "/schedules"
     diag = client.get("/dev/diagnostics")
     assert diag.status_code == 200
     assert "P4.I8" in diag.text
@@ -821,10 +828,17 @@ def test_company_schedule_pages_are_gone(client):
     login(client)
     settings = client.get("/settings").text
     assert "Company schedules" not in settings
+    assert "Master schedules" not in settings
     assert "Feature flags" not in settings
+    assert 'id="exclPicker"' in settings
+    assert 'id="exclSearch"' in settings
+    assert "customer-search" in settings
     res = client.get("/settings/company-schedules", follow_redirects=False)
     assert res.status_code == 302
     assert res.headers["location"] == "/schedules"
+    master = client.get("/master-schedules", follow_redirects=False)
+    assert master.status_code == 302
+    assert master.headers["location"] == "/schedules"
 
 
 def test_clock_skips_company_kind_schedules(client):

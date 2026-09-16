@@ -1,14 +1,14 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (Litestream restore/replicate re-enabled)
+Last updated: 2026-09-16 (drop master schedules; exclusion dropdown; report pills)
 
-**Status:** FastAPI is live. Login works. Company schedules are retired. Next: test-mode CC/BCC, old JSON converter, customer picker overflow, exclusions from customer_master.
+**Status:** FastAPI is live. Company and master schedule pages are retired (302 `/schedules`). Next: Settings exclusions should be search + scrolling checkboxes; report customer pills sit beside the selector until Run report.
 
 ## Working tree
 
-- **Branch:** `cursor/brother-stack-rebuild-0a24`
+- **Branch:** `cursor/drop-master-sched-exclusions-0a24`
 - **Repo:** AchimSales
-- **Prod URL:** https://reports.achimonline.com (FastAPI after this merge; login needs Kudu import)
+- **Prod URL:** https://reports.achimonline.com
 - **Preview:** https://core-finished-stuffed-updating.trycloudflare.com/login (Cloudflare quick tunnel in front of uvicorn `:8080`; URL changes if the tunnel restarts)
 
 ## Website vs leftover
@@ -17,7 +17,7 @@ This PR is the clean home-site tree. Flask is gone. Azure Automation (`run.py`, 
 
 ## What's in the dummy site
 
-Login (preview unless Entra secrets; magic-link emails a 15-minute token when Graph is set, else preview External shortcut; `next=` same-app only; disabled accounts 403; Entra callback requires an existing People row — no upsert), all home report cards (live doorway or mock `data.tabs`), Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (filters + Tabulator layout in columns, not JSON blobs; Company Default and save-for-other-user), Keep/Recent (cap 5, 30-day kept), schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + chips `{Schedule}` `{Period}` `{SharePointUrl}` `{DownloadButton}` + Copy + Run now (Excel uses the view’s columns/sort/filters), Graph sendMail (stdlib) or sqlite outbox, Graph SharePoint/OneDrive upload (chunked >4MB; mock URL in preview), one-minute clock (daemon thread, fcntl so two gunicorn workers do not double-tick, off under pytest), Brooklyn Hebcal skip/hold + weekday catch-up, master schedule history, diagnostics, explorer (confirm writes; no params_json editor), xlsx export + recent exports, CSRF, PWA icons, theme persisted on the People row. Azure `startup.sh` is gunicorn + UvicornWorker `main:app` (timeout 180s) wrapped in Litestream when the Azure key is set. Production refuses to boot without `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`.
+Login (preview unless Entra secrets; magic-link emails a 15-minute token when Graph is set, else preview External shortcut; `next=` same-app only; disabled accounts 403; Entra callback requires an existing People row — no upsert), all home report cards (live doorway or mock `data.tabs`), Last Order picker + recent invoiced + dedicated xlsx, Settings hub, Users & access (extra SalesGroups, report Allow/Deny, Dashboard/Test flags), visibility, saved views (filters + Tabulator layout in columns, not JSON blobs; Company Default and save-for-other-user), Keep/Recent (cap 5, 30-day kept), schedules wizard View→When→Where + weekdays/monthday + CC/BCC/filename/SharePoint/OneDrive + chips `{Schedule}` `{Period}` `{SharePointUrl}` `{DownloadButton}` + Copy + Run now (Excel uses the view’s columns/sort/filters), Graph sendMail (stdlib) or sqlite outbox, Graph SharePoint/OneDrive upload (chunked >4MB; mock URL in preview), one-minute clock (daemon thread, fcntl so two gunicorn workers do not double-tick, off under pytest), Brooklyn Hebcal skip/hold + weekday catch-up, diagnostics, explorer (confirm writes; no params_json editor), xlsx export + recent exports, CSRF, PWA icons, theme persisted on the People row. Azure `startup.sh` is gunicorn + UvicornWorker `main:app` (timeout 180s) wrapped in Litestream when the Azure key is set. Production refuses to boot without `SESSION_SECRET` (or `FLASK_SECRET`) and `LITESTREAM_AZURE_ACCOUNT_KEY`. Company and master schedule **pages** are gone (302 to `/schedules`); company **views** stay.
 
 Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is the West US 3 test app. Thin tabs from `{rows}` if the API does not send `data.tabs`.
 

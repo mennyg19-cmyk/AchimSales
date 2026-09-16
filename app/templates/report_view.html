@@ -99,10 +99,12 @@
             <input type="text" id="customerSearch" placeholder="All customers" autocomplete="off">
             <div id="customerMenu" class="toolbar-dropdown" hidden></div>
         </div>
-        <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
     </div>
     {% endif %}
     </div>
+    {% if "customers" in filters %}
+    <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
+    {% endif %}
     <div class="filter-run-group">
     <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
     <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn">Email me</button>

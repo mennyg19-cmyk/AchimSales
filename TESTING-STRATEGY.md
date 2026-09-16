@@ -550,7 +550,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 ## Personal schedules page is full width
 
 **What to test:**
-- `schedules.html` does not set `container-narrow` (same as `company_schedules.html`).
+- `schedules.html` does not set `container-narrow`.
 
 **Expected behavior:**
 - Personal schedules uses the default full-width `.container`, not the 800px reading column.
@@ -1264,7 +1264,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
 
 **Expected behavior:**
-- `/master-schedules` redirects privileged users to `/schedules#company`; salesmen get 403. Create/update APIs are privileged; managers and salesmen 403 on create.
+- `/master-schedules` and `/master-schedules/<id>/history` redirect to `/schedules`.
 - Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
 
 **Edge cases:**

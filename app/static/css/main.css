@@ -41,3 +41,10 @@ summary.settings-subhead{cursor:pointer}
 .site-table-host .tabulator-row .tabulator-cell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .site-table-host .tabulator-row .tabulator-cell .btn{white-space:nowrap}
 .tabulator-group{font-weight:700}
+.filter-bar-row .filter-fields{flex:0 1 auto}
+.filter-bar-row .filter-run-group{margin-left:auto}
+.filter-bar-row>.customer-pills{flex:1 1 8rem;min-width:8rem;padding-bottom:0}
+.customer-picker .customer-options{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:240px}
+@media (max-width: 600px){
+  .filter-bar-row>.customer-pills{flex:1 1 100%;width:100%;min-width:0}
+}
