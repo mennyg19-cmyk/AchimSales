@@ -43,3 +43,4 @@ test/data/fixtures/*.csv
 .rebuild-data/
 rebuild/.rebuild-data/
 app/.venv/
+app/deps/

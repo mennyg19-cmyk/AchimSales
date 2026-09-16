@@ -20,6 +20,12 @@ LS_CONFIG="${ROOT}/litestream.yml"
 export APP_DB_PATH="${APP_DB_PATH:-/tmp/homedata/home.sqlite}"
 mkdir -p "$(dirname "${APP_DB_PATH}")" 2>/dev/null || true
 
+# Zip-deployed site-packages (CI `pip install -t app/deps`). System python3
+# on this box has no pip/ensurepip.
+if [ -d "${ROOT}/deps" ]; then
+  export PYTHONPATH="${ROOT}/deps${PYTHONPATH:+:$PYTHONPATH}"
+fi
+
 # Azure's /usr/bin/python3 often has no pip and no gunicorn. Prefer Oryx.
 PY=""
 if [ -x /home/site/wwwroot/antenv/bin/python ]; then
