@@ -64,7 +64,7 @@
 | Save view layout | hide/sort/group/header filter land in `layout_*` tables; `views` has no `params_json` |
 | POST `/api/reports/{key}/xlsx` with layout | Excel omits hidden columns |
 | Legacy `params_json` sqlite | migrate copies into columns then drops the blob |
-| precious import | copies every `views` row + view/layout children and every `report_schedules` row + weekday/monthday/recipient/salesman children; then fills extra JSON backup rows into those same columns (no blobs stored); projected rows overlay empty recipients/owner; live admin wins over seed `preview@`; flash lists per-table counts; two schedules on the same view+time both land; admins see Owner + Name + paused |
+| precious import | copies every assemble table the old GUI/clock read (`views` + `view_*` + `layout_*` + `report_schedules` + weekday/monthday/recipient/salesman children); does not read JSON blob tables and drops them on dest; schedule `window_*` stays on the schedule (shared views keep distinct periods); live admin wins over seed `preview@`; flash lists live→here counts; two schedules on the same view+time both land; admins see Owner + Name + paused |
 | Admin `/schedules` | heading All schedules; other users' imported rows listed |
 
 Never set `REPORTING_API_KEY` in CI.

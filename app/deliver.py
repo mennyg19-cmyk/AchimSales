@@ -107,6 +107,13 @@ def send_or_outbox(
 
 def _run_params(schedule: dict, at: datetime | None) -> dict:
     params = dict(schedule.get("params") or {})
+    # Live clock read window_* from report_schedules, not the shared view.
+    if schedule.get("window_period"):
+        params["period"] = schedule["window_period"]
+    if schedule.get("window_start"):
+        params["from_date"] = schedule["window_start"]
+    if schedule.get("window_end"):
+        params["to_date"] = schedule["window_end"]
     skipped = catchup.as_date(schedule.get("catch_up_for_date"))
     if skipped is None:
         return params

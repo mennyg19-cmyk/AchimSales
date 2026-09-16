@@ -416,6 +416,7 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
     assert match["email_salesmen"] == ["HKaufman"]
     assert match["sharepoint_folder"] == "Direct Reports/Ordered Report"
     assert match["filename"] == "{Schedule}.xlsx"
+    assert match["window_period"] == "this_week"
     with db() as conn:
         assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM schedule_monthdays").fetchone()[0] == 1
@@ -423,8 +424,8 @@ def test_import_precious_normalized_views_and_schedules(tmp_path, monkeypatch):
         assert conn.execute("SELECT COUNT(*) FROM schedule_email_salesmen").fetchone()[0] == 1
 
 
-def test_import_json_backups_into_columns(tmp_path, monkeypatch):
-    from import_precious import import_precious
+def test_import_ignores_json_blob_tables(tmp_path, monkeypatch):
+    from import_precious import import_precious, summarize
 
     dest = tmp_path / "home.sqlite"
     monkeypatch.setenv("APP_DB_PATH", str(dest))
@@ -447,11 +448,10 @@ def test_import_json_backups_into_columns(tmp_path, monkeypatch):
             params_json TEXT NOT NULL,
             layout_json TEXT NOT NULL
         );
-        CREATE TABLE schedules (
+        CREATE TABLE master_schedules (
             id INTEGER PRIMARY KEY,
-            owner_user_id INTEGER NOT NULL,
             report_key TEXT NOT NULL,
-            view_name TEXT,
+            name TEXT NOT NULL,
             cadence TEXT NOT NULL,
             recipients TEXT NOT NULL,
             params_json TEXT
@@ -460,8 +460,8 @@ def test_import_json_backups_into_columns(tmp_path, monkeypatch):
         VALUES (1, 'meir@achimonline.com', 'Meir', 'salesman');
         INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
         VALUES (1, 'invoiced', 'My Invoiced', '{"period":"mtd"}', '{}');
-        INSERT INTO schedules (owner_user_id, report_key, view_name, cadence, recipients, params_json)
-        VALUES (1, 'invoiced', 'My Invoiced', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com', '{"email_cc":["cc@achimonline.com"]}');
+        INSERT INTO master_schedules (report_key, name, cadence, recipients, params_json)
+        VALUES ('invoiced', 'JSON Only', '{"freq":"daily","time":"07:30"}', 'meir@achimonline.com', '{}');
         """
     )
     conn.commit()
@@ -469,26 +469,22 @@ def test_import_json_backups_into_columns(tmp_path, monkeypatch):
     result = import_precious(source, dest)
     assert result["source_views"] == 0
     assert result["source_schedules"] == 0
-    assert result["blob_views"] == 1
-    assert result["blob_schedules"] == 1
-    assert result["views_inserted"] == 1
-    assert result["schedules_inserted"] == 1
+    assert result["views_inserted"] == 0
+    assert result["schedules_inserted"] == 0
     names = {v["name"] for v in home_store.list_views("meir@achimonline.com", True)}
-    assert "My Invoiced" in names
-    view = next(v for v in home_store.list_views("meir@achimonline.com", True) if v["name"] == "My Invoiced")
-    assert view["params"]["period"] == "mtd"
+    assert "My Invoiced" not in names
+    assert not any(s["name"] == "JSON Only" for s in home_store.list_schedules())
     with db() as conn:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(views)")}
-        assert "params_json" not in cols
-        assert "layout_json" not in cols
-    rows = home_store.list_schedules()
-    assert len(rows) == 1
-    assert rows[0]["run_time"] == "07:30"
-    assert "meir@achimonline.com" in rows[0]["recipients"]
-    assert "cc@achimonline.com" in rows[0]["cc"]
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "saved_reports" not in tables
+        assert "master_schedules" not in tables
+        assert "params_json" not in {row[1] for row in conn.execute("PRAGMA table_info(views)")}
+    flash = summarize(result)
+    assert "views 0→" in flash
+    assert "report_schedules 0→" in flash
 
 
-def test_import_every_normalized_view_and_fills_json_gaps(tmp_path, monkeypatch):
+def test_import_every_normalized_view_skips_json_blobs(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -545,21 +541,20 @@ def test_import_every_normalized_view_and_fills_json_gaps(tmp_path, monkeypatch)
     conn.close()
     result = import_precious(source, dest)
     assert result["source_views"] == 4
-    assert result["blob_views"] == 2
-    assert result["views_inserted"] == 6
+    assert result["views_inserted"] == 4
     names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
     assert "Default" in names
     assert "Daily Ordered" in names
     assert "Heshey Open Orders" in names
     assert "Tina MTD" in names
-    assert "Blob Only View" in names
-    assert "Blob Company" in names
+    assert "Blob Only View" not in names
+    assert "Blob Company" not in names
     tina = next(v for v in home_store.list_views("tina@achimonline.com", True) if v["name"] == "Tina MTD")
     assert tina["owner_email"] == "tina@achimonline.com"
     assert tina["kind"] == "personal"
 
 
-def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path, monkeypatch):
+def test_import_copies_assemble_children_not_json_schedules(tmp_path, monkeypatch):
     from import_precious import import_precious, summarize
 
     dest = tmp_path / "home.sqlite"
@@ -582,9 +577,19 @@ def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path,
             report_key TEXT NOT NULL,
             name TEXT NOT NULL,
             owner_handle TEXT,
-            period TEXT,
-            legacy_source TEXT,
-            legacy_id INTEGER
+            period TEXT
+        );
+        CREATE TABLE layout_tabs (
+            id TEXT PRIMARY KEY,
+            view_id TEXT NOT NULL,
+            tab_key TEXT NOT NULL,
+            position INTEGER,
+            has_view INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE layout_tab_groups (
+            tab_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            column_name TEXT NOT NULL
         );
         CREATE TABLE report_schedules (
             id TEXT PRIMARY KEY,
@@ -595,8 +600,7 @@ def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path,
             freq TEXT NOT NULL,
             time TEXT NOT NULL DEFAULT '08:00',
             is_active INTEGER NOT NULL DEFAULT 1,
-            legacy_kind TEXT NOT NULL,
-            legacy_id INTEGER NOT NULL
+            split_by_salesman INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE schedule_recipients (
             id TEXT PRIMARY KEY,
@@ -604,86 +608,65 @@ def test_import_fills_json_schedule_gaps_without_duplicating_projected(tmp_path,
             email TEXT NOT NULL,
             role TEXT NOT NULL
         );
-        CREATE TABLE saved_reports (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            report_key TEXT NOT NULL,
-            name TEXT NOT NULL,
-            params_json TEXT NOT NULL,
-            layout_json TEXT NOT NULL
-        );
-        CREATE TABLE schedules (
-            id INTEGER PRIMARY KEY,
-            owner_user_id INTEGER NOT NULL,
-            report_key TEXT NOT NULL,
-            view_name TEXT,
-            cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL,
-            params_json TEXT
+        CREATE TABLE schedule_weekdays (
+            schedule_id TEXT NOT NULL,
+            weekday INTEGER NOT NULL
         );
         CREATE TABLE master_schedules (
             id INTEGER PRIMARY KEY,
             report_key TEXT NOT NULL,
             name TEXT NOT NULL,
-            view_name TEXT,
             cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL,
-            params_json TEXT,
-            owner_user_id INTEGER
+            recipients TEXT NOT NULL
         );
         INSERT INTO users (id, email, display_name, role, handle)
         VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
-        INSERT INTO views (id, kind, report_key, name, owner_handle, period, legacy_source, legacy_id)
-        VALUES ('v1', 'personal', 'ordered', 'Heshey Open', 'heshey', 'ytd', 'saved_reports', 1);
-        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, legacy_kind, legacy_id)
-        VALUES ('s1', 'personal', 'v1', 'heshey', 'Heshey Open', 'daily', '08:00', 'personal', 1);
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('v1', 'personal', 'ordered', 'Heshey Open', 'heshey', 'ytd');
+        INSERT INTO layout_tabs (id, view_id, tab_key, position, has_view)
+        VALUES ('t1', 'v1', 'summary', 0, 1), ('t2', 'v1', 'detail', 1, 0);
+        INSERT INTO layout_tab_groups (tab_id, position, column_name)
+        VALUES ('t1', 0, 'Salesman');
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, split_by_salesman)
+        VALUES ('s1', 'personal', 'v1', 'heshey', 'Heshey Open', 'weekly', '08:00', 1);
         INSERT INTO schedule_recipients (id, schedule_id, email, role)
         VALUES ('r1', 's1', 'heshey@achimonline.com', 'to');
-        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
-        VALUES (1, 'ordered', 'Heshey Open', '{"period":"ytd"}', '{}'),
-               (1, 'invoiced', 'Blob Only Invoiced', '{"period":"mtd"}', '{}');
-        INSERT INTO schedules (id, owner_user_id, report_key, view_name, cadence, recipients, params_json)
-        VALUES (1, 1, 'ordered', 'Heshey Open', '{"freq":"daily","time":"08:00"}', 'heshey@achimonline.com', '{}'),
-               (2, 1, 'invoiced', 'Blob Only Invoiced', '{"freq":"weekly","time":"07:15","weekdays":[0]}', 'heshey@achimonline.com', '{"email_cc":["cc@achimonline.com"]}');
-        INSERT INTO master_schedules (id, report_key, name, view_name, cadence, recipients, params_json, owner_user_id)
-        VALUES (9, 'ordered', 'Friday Ordered', 'Heshey Open', '{"freq":"weekly","time":"09:00","weekdays":[4]}', 'reports@achimonline.com', '{}', 1);
+        INSERT INTO schedule_weekdays (schedule_id, weekday) VALUES ('s1', 0);
+        INSERT INTO master_schedules (report_key, name, cadence, recipients)
+        VALUES ('ordered', 'JSON Extra', '{"freq":"daily","time":"09:00"}', 'blob@achimonline.com');
         """
     )
     conn.commit()
     conn.close()
     result = import_precious(source, dest)
-    assert result["source_views"] == 1
-    assert result["source_schedules"] == 1
-    assert result["blob_views"] == 2
-    assert result["blob_schedules"] == 3
-    assert result["views_inserted"] == 2
-    assert result["schedules_inserted"] == 3
-    assert result["schedules_updated"] == 1
-    assert result["source_tables"]["master_schedules"] == 1
-    assert result["source_tables"]["schedules"] == 2
+    assert result["source_tables"]["views"] == 1
+    assert result["source_tables"]["layout_tabs"] == 2
+    assert result["source_tables"]["layout_tab_groups"] == 1
+    assert result["source_tables"]["report_schedules"] == 1
+    assert result["dest_tables"]["layout_tabs"] == 2
+    assert result["dest_tables"]["layout_tab_groups"] == 1
+    assert result["dest_tables"]["report_schedules"] == 1
+    assert result["views_inserted"] == 1
+    assert result["schedules_inserted"] == 1
     flash = summarize(result)
-    assert "Column tables had 1 views and 1 schedules" in flash
-    assert "JSON backups had 2 views and 3 schedules" in flash
-    assert "Live file tables:" in flash
-    assert "Filled 1 column schedules from JSON backups" in flash
+    assert "layout_tabs 2→2" in flash
+    assert "report_schedules 1→1" in flash
     names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
-    assert names >= {"Heshey Open", "Blob Only Invoiced"}
+    assert names == {"Heshey Open"}
     rows = home_store.list_schedules()
-    assert len(rows) == 3
-    by_name = {row["name"]: row for row in rows}
-    assert "Heshey Open" in by_name
-    assert by_name["Blob Only Invoiced"]["run_time"] == "07:15"
-    assert by_name["Blob Only Invoiced"]["weekdays"] == "mon"
-    assert "cc@achimonline.com" in by_name["Blob Only Invoiced"]["cc"]
-    assert by_name["Friday Ordered"]["kind"] == "company"
-    assert by_name["Friday Ordered"]["weekdays"] == "fri"
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Heshey Open"
+    assert rows[0]["weekdays"] == "mon"
+    assert "heshey@achimonline.com" in rows[0]["recipients"]
+    assert rows[0]["split_by_salesman"] == 1
+    assert not any("blob@achimonline.com" in (row["recipients"] or "") for row in rows)
     with db() as conn:
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
-        assert "params_json" not in cols
-        assert conn.execute("SELECT COUNT(*) FROM schedule_weekdays").fetchone()[0] == 2
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "master_schedules" not in tables
+        assert conn.execute("SELECT COUNT(*) FROM layout_tabs").fetchone()[0] == 2
 
 
-def test_import_uses_live_admin_and_json_recipients_when_columns_empty(tmp_path, monkeypatch):
+def test_import_uses_live_admin_and_column_recipients(tmp_path, monkeypatch):
     from import_precious import import_precious
 
     dest = tmp_path / "home.sqlite"
@@ -717,28 +700,22 @@ def test_import_uses_live_admin_and_json_recipients_when_columns_empty(tmp_path,
             time TEXT NOT NULL DEFAULT '08:00',
             sharepoint_path TEXT,
             folder_kind TEXT,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            legacy_kind TEXT NOT NULL,
-            legacy_id INTEGER NOT NULL
+            is_active INTEGER NOT NULL DEFAULT 1
         );
-        CREATE TABLE master_schedules (
-            id INTEGER PRIMARY KEY,
-            report_key TEXT NOT NULL,
-            name TEXT NOT NULL,
-            view_name TEXT,
-            cadence TEXT NOT NULL,
-            recipients TEXT NOT NULL,
-            sharepoint_path TEXT,
-            owner_user_id INTEGER
+        CREATE TABLE schedule_recipients (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL
         );
         INSERT INTO users (id, email, display_name, role, handle)
         VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
         INSERT INTO views (id, kind, report_key, name, owner_handle)
         VALUES ('v1', 'company', 'ordered', 'Daily Ordered', NULL);
-        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, sharepoint_path, folder_kind, legacy_kind, legacy_id)
-        VALUES ('s1', 'company', 'v1', NULL, 'Daily Ordered Report', 'daily', '00:00', 'Ordered Report/Daily', 'onedrive', 'master', 1);
-        INSERT INTO master_schedules (id, report_key, name, view_name, cadence, recipients, sharepoint_path, owner_user_id)
-        VALUES (1, 'ordered', 'Daily Ordered Report', 'Daily Ordered', '{"freq":"daily","time":"00:00"}', 'reports@achimonline.com', 'Ordered Report/Daily', 1);
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, sharepoint_path, folder_kind)
+        VALUES ('s1', 'company', 'v1', NULL, 'Daily Ordered Report', 'daily', '00:00', 'Ordered Report/Daily', 'onedrive');
+        INSERT INTO schedule_recipients (id, schedule_id, email, role)
+        VALUES ('r1', 's1', 'reports@achimonline.com', 'to');
         """
     )
     conn.commit()
@@ -832,6 +809,67 @@ def test_import_keeps_two_schedules_on_same_view_and_time(tmp_path, monkeypatch)
     assert "tina@achimonline.com" in html
     assert "Morning Ordered" in html
     assert "Tina copy" in html
+
+
+def test_import_keeps_schedule_windows_on_shared_view(tmp_path, monkeypatch):
+    from deliver import _run_params
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            name TEXT NOT NULL DEFAULT '',
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            window_period TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('df-invoiced', 'default', 'invoiced', 'Default', NULL, NULL);
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, name, freq, time, window_period)
+        VALUES
+            ('s-daily', 'company', 'df-invoiced', NULL, 'Daily Invoiced', 'daily', '05:00', 'yesterday'),
+            ('s-month', 'company', 'df-invoiced', NULL, 'Monthly Invoiced', 'monthly', '05:00', 'month');
+        """
+    )
+    conn.commit()
+    conn.close()
+    import_precious(source, dest)
+    view = next(v for v in home_store.list_views("heshey@achimonline.com", True) if v["name"] == "Default")
+    assert not view["params"].get("period")
+    rows = {row["name"]: row for row in home_store.list_schedules()}
+    assert rows["Daily Invoiced"]["window_period"] == "yesterday"
+    assert rows["Monthly Invoiced"]["window_period"] == "month"
+    daily = home_store.get_schedule(rows["Daily Invoiced"]["id"])
+    monthly = home_store.get_schedule(rows["Monthly Invoiced"]["id"])
+    assert _run_params(daily, None)["period"] == "yesterday"
+    assert _run_params(monthly, None)["period"] == "month"
 
 
 def test_import_wipes_dummy_views_and_keeps_personal_views(tmp_path, monkeypatch):

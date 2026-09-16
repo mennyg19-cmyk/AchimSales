@@ -26,7 +26,8 @@ Exact Azure download + import steps are in the repo-root README
 (“Copy live data”). Short version: download `/tmp/v3data/precious.db` from
 Kudu on `achim-sales-reports` to `Downloads\precious.db`, then import (do not
 overwrite `home.sqlite`). Settings → People upload works on this dummy.
-Import copies the live column tables, not JSON blob backups. After production
+Import copies the assemble column tables the old GUI/clock read, not JSON blob
+backups, and drops leftover JSON tables here. After production
 cutover, run `import-precious.py` on the box with
 `--dest /tmp/homedata/home.sqlite`.
 

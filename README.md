@@ -54,16 +54,16 @@ Keep that file. That is the only copy you need on your PC.
 ### 2. Import into the new site (not a file copy)
 
 The importer writes People, views, and schedules into the new sqlite. Existing
-emails stay. Import **clears dummy views and schedules**, then copies the live
-column tables (`views`, `layout_*`, `report_schedules`, and schedule child
-tables for weekdays / monthdays / recipients / email salesmen). If those column
-tables are only a subset (the live GUI still used JSON), it **reads** the old
-JSON backups (`saved_reports`, `company_views`, `report_defaults`, `schedules`,
-`master_schedules`) and writes the missing rows into the same columns. JSON
-blobs are not stored on the new site. The flash lists every source table count.
-If personal `schedules` is 0 and `master_schedules` is ~13, you copied the Azure
-seed/freeze, not live `/tmp/v3data/precious.db`. Admins and developers see every
-imported schedule, including paused ones.
+emails stay. Import **clears dummy views and schedules**, then copies the same
+column tables the old GUI/clock assembled from: `views` + `view_salesmen` /
+`view_statuses` / `view_customers` + `layout_tabs` / groups / sorters / columns /
+filters, and `report_schedules` + weekday / monthday / recipient / email-salesman
+children. Schedule run windows stay on the schedule (`window_period` /
+`window_start` / `window_end`), not smashed onto a shared view. Leftover JSON
+tables (`saved_reports`, `company_views`, `report_defaults`, `master_schedules`,
+`view_workbook_parity`) are not read and are dropped on this site. The flash
+lists live→here counts for those assemble tables. Admins and developers see
+every imported schedule, including paused ones.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**

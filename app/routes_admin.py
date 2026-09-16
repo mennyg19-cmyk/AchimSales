@@ -109,7 +109,8 @@ async def import_precious_upload(
     try:
         tmp.write(raw)
         tmp.close()
-        Path("/tmp/last-precious.db").write_bytes(raw)
+        keep = config.db_path().parent / "last-precious.db"
+        keep.write_bytes(raw)
         result = import_precious(Path(tmp.name), config.db_path())
         flash(request, summarize(result))
     except ValueError as err:

@@ -1,3 +1,11 @@
+## 2026-09-16 Import reads assemble tables only; drop leftover JSON tables
+**What I had to decide:** Keep filling dest columns from leftover JSON (`saved_reports` / `company_views` / `master_schedules`) vs follow the old GUI/clock read path and delete those tables here.
+**Options I considered:** JSON fill (previous); assemble-only copy; also smash `window_period` onto the shared view.
+**What I chose:** Copy `views` + `view_*` + `layout_*` + `report_schedules` + the four schedule children — the tables `assemble_params` / `assemble_layout` and the clock actually read. Keep `window_*` on dest `schedules` and overlay at send time (Daily and Monthly Invoiced share `df-invoiced` with different windows). Drop `saved_reports`, `company_views`, `report_defaults`, `master_schedules`, `view_workbook_parity` on dest. Do not DROP dest `schedules` (that name is JSON on the old file and columns here).
+**Why:** Menny said the importer was reading the db wrong and to delete the JSON garbage. Live `live_view_payload` never returns JSON. Two schedules on one view would lose a period if the window were written onto the view.
+**Status:** DECIDED
+
+
 ## 2026-09-16 This precious.db is the 13 Azure company seeds, not 45 live rows
 **What I had to decide:** Keep hunting in JSON vs tell Menny the file is the seed/freeze; whether paused SharePoint jobs with empty email should show.
 **Options I considered:** Treat 13 as success; invent 45; require a new `/tmp/v3data` copy; hide paused rows.

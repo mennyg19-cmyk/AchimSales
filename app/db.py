@@ -130,7 +130,10 @@ CREATE TABLE IF NOT EXISTS schedules (
     last_run TEXT,
     last_status TEXT,
     catch_up_pending INTEGER NOT NULL DEFAULT 0,
-    catch_up_for_date TEXT
+    catch_up_for_date TEXT,
+    window_period TEXT,
+    window_start TEXT,
+    window_end TEXT
 );
 CREATE TABLE IF NOT EXISTS schedule_weekdays (
     schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
@@ -248,7 +251,20 @@ def init_db() -> None:
         ensure_column("users", "theme", "TEXT NOT NULL DEFAULT 'light'")
         ensure_column("schedules", "name", "TEXT NOT NULL DEFAULT ''")
         ensure_column("schedules", "kind", "TEXT NOT NULL DEFAULT 'personal'")
+        ensure_column("schedules", "split_by_salesman", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column("schedules", "email_to_salesmen", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column("schedules", "window_period", "TEXT")
+        ensure_column("schedules", "window_start", "TEXT")
+        ensure_column("schedules", "window_end", "TEXT")
         ensure_column("jobs", "kept_until", "TEXT")
+        for name in (
+            "saved_reports",
+            "company_views",
+            "report_defaults",
+            "master_schedules",
+            "view_workbook_parity",
+        ):
+            conn.execute(f"DROP TABLE IF EXISTS {name}")
         for row in SEED_USERS:
             conn.execute(
                 """INSERT OR IGNORE INTO users
