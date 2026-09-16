@@ -23,7 +23,8 @@ Doorway: `POST {BASE}/api/reports/{id}/run` with `X-API-Key`. Default BASE is th
 
 Copy from live: `python import-precious.py path/to/precious.db` or
 `.\\import-precious.ps1 -Precious path\\to\\precious.db`, or Settings → People
-upload. That copies People, views, and schedules. Existing emails stay.
+upload. Import wipes dummy views/schedules, then copies People plus every live
+view and schedule. Existing emails stay.
 
 ## Locked (do not reopen)
 

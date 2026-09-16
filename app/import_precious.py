@@ -1,7 +1,8 @@
 """Copy People, views, and schedules from a live precious.db into this site.
 
-Opt-in. Does not invent salesman maps. Existing emails stay. Matching
-company/default view names get the live layout. Nightly work is site schedules.
+Opt-in. Existing emails stay. Dummy views and schedules are wiped first, then
+every live view and schedule is copied (normalized tables and old JSON blobs).
+Nightly work is site schedules.
 
   python3 import_precious.py /path/to/precious.db
   APP_DB_PATH=/tmp/home.sqlite python3 import_precious.py ./precious.db
@@ -30,6 +31,12 @@ SETTING_KEYS = {
     "show_company_schedule_setup",
 }
 SECRET_BITS = ("secret", "password", "token", "key")
+REPORT_KEY_ALIASES = {
+    "customer_last_orders": "customer_last_order",
+    "last_order": "customer_last_order",
+    "invoiced_report": "invoiced",
+    "ordered_report": "ordered",
+}
 
 
 def _cols(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -70,9 +77,36 @@ def _user_maps(src: sqlite3.Connection) -> tuple[dict[int, str], dict[str, str],
         by_id[int(row["id"])] = email
         emails.add(email)
         if "handle" in user_cols and row["handle"]:
-            by_handle[str(row["handle"])] = email
+            by_handle[str(row["handle"]).strip().lower()] = email
         by_handle[email] = email
+        local = email.split("@", 1)[0]
+        if local:
+            by_handle.setdefault(local.lower(), email)
     return by_id, by_handle, emails
+
+
+def _map_report_key(raw) -> str:
+    key = str(raw or "").strip()
+    return REPORT_KEY_ALIASES.get(key, key)
+
+
+def _lookup_owner(by_handle: dict[str, str], *candidates, fallback: str) -> str:
+    for raw in candidates:
+        token = str(raw or "").strip()
+        if not token:
+            continue
+        hit = by_handle.get(token.lower())
+        if hit:
+            return hit
+        if "@" in token:
+            return token.lower()
+    return fallback
+
+
+def _wipe_views_and_schedules(dest: sqlite3.Connection) -> None:
+    dest.execute("DELETE FROM schedule_runs")
+    dest.execute("DELETE FROM schedules")
+    dest.execute("DELETE FROM views")
 
 
 def _filters_from_children(src: sqlite3.Connection, tables: set[str], view_id) -> dict:
@@ -341,21 +375,18 @@ def _import_normalized_views(
     view_cols = _cols(src, "views")
     id_map: dict[str, int] = {}
     counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    fallback = _fallback_owner(dest)
     for row in src.execute("SELECT * FROM views"):
-        report_key = row["report_key"]
-        if report_key not in KNOWN_REPORTS:
+        report_key = _map_report_key(row["report_key"])
+        if not report_key:
             counts["skipped"] += 1
             continue
         kind = row["kind"] if row["kind"] in {"personal", "company", "default"} else "personal"
         owner = None
         if kind == "personal":
             handle = row["owner_handle"] if "owner_handle" in view_cols else None
-            owner = by_handle.get(str(handle or ""))
-            if not owner and "owner_email" in view_cols:
-                owner = (row["owner_email"] or "").strip().lower() or None
-            if not owner:
-                counts["skipped"] += 1
-                continue
+            email_col = row["owner_email"] if "owner_email" in view_cols else None
+            owner = _lookup_owner(by_handle, handle, email_col, fallback=fallback)
         filters = _filters_from_view_row(row, src, tables)
         layout = _layout_from_children(src, tables, row["id"])
         include = 1 if (filters.get("period") or filters.get("from_date") or filters.get("to_date")) else 0
@@ -388,7 +419,8 @@ def _import_json_views(
     counts = {"inserted": 0, "updated": 0, "skipped": 0}
 
     def add(kind: str, report_key: str, name: str, owner: str | None, params_raw, layout_raw, old_key: str):
-        if report_key not in KNOWN_REPORTS:
+        report_key = _map_report_key(report_key)
+        if not report_key:
             counts["skipped"] += 1
             return
         filters = _json_obj(params_raw)
@@ -410,10 +442,7 @@ def _import_json_views(
 
     if "saved_reports" in tables:
         for row in src.execute("SELECT * FROM saved_reports"):
-            owner = by_id.get(int(row["user_id"]))
-            if not owner:
-                counts["skipped"] += 1
-                continue
+            owner = by_id.get(int(row["user_id"])) or _fallback_owner(dest)
             add("personal", row["report_key"], row["name"], owner, row["params_json"], row["layout_json"], f"saved:{row['id']}")
     if "company_views" in tables:
         for row in src.execute("SELECT * FROM company_views"):
@@ -526,7 +555,7 @@ def _import_report_schedules(
         if freq not in cadence.VALID_FREQ:
             freq = "daily"
         run_time = row["time"] if "time" in cols else "08:00"
-        owner = by_handle.get(str(row["owner_handle"] or "")) or fallback
+        owner = _lookup_owner(by_handle, row["owner_handle"] if "owner_handle" in cols else None, fallback=fallback)
         weekdays = ""
         if "schedule_weekdays" in tables:
             days = [
@@ -654,7 +683,10 @@ def _import_json_schedules(
             return
         cols = _cols(src, table)
         for row in src.execute(f"SELECT * FROM {table}"):
-            report_key = row["report_key"]
+            report_key = _map_report_key(row["report_key"])
+            if not report_key:
+                counts["skipped"] += 1
+                continue
             view_name = row["view_name"] if "view_name" in cols else "Default"
             owner = fallback
             if kind == "personal" and "owner_user_id" in cols:
@@ -755,20 +787,33 @@ def import_precious(source_path: Path, dest_path: Path | None = None) -> dict:
         with db() as dest:
             users = _import_users(src, dest)
             by_id, by_handle, _emails = _user_maps(src)
+            _wipe_views_and_schedules(dest)
             tables = _tables(src)
+            view_map: dict[str, int] = {}
+            views = {"inserted": 0, "updated": 0, "skipped": 0}
+            schedules = {"inserted": 0, "updated": 0, "skipped": 0}
             has_norm_views = "views" in tables and src.execute("SELECT 1 FROM views LIMIT 1").fetchone()
             if has_norm_views:
                 view_map, views = _import_normalized_views(src, dest, by_handle)
+            json_views = _import_json_views(src, dest, by_id)
+            if not has_norm_views:
+                view_map, views = json_views
             else:
-                view_map, views = _import_json_views(src, dest, by_id)
+                view_map.update(json_views[0])
+                for key in views:
+                    views[key] += json_views[1][key]
             has_norm_sched = (
                 "report_schedules" in tables
                 and src.execute("SELECT 1 FROM report_schedules LIMIT 1").fetchone()
             )
             if has_norm_sched:
                 schedules = _import_report_schedules(src, dest, view_map, by_handle)
+            json_schedules = _import_json_schedules(src, dest, view_map, by_id)
+            if not has_norm_sched:
+                schedules = json_schedules
             else:
-                schedules = _import_json_schedules(src, dest, view_map, by_id)
+                for key in schedules:
+                    schedules[key] += json_schedules[key]
             visibility = _import_visibility(src, dest)
             settings = _import_settings(src, dest)
     finally:
@@ -793,11 +838,16 @@ def import_users(source_path: Path, dest_path: Path | None = None) -> dict:
 
 
 def summarize(result: dict) -> str:
-    return (
+    text = (
         f"People {result['users_inserted']} added, {result['users_skipped']} already here. "
-        f"Views {result['views_inserted']} added, {result['views_updated']} updated. "
-        f"Schedules {result['schedules_inserted']} added, {result['schedules_updated']} updated."
+        f"Dummy views/schedules cleared. "
+        f"Views {result['views_inserted']} added. "
+        f"Schedules {result['schedules_inserted']} added."
     )
+    skipped = result["views_skipped"] + result["schedules_skipped"]
+    if skipped:
+        text += f" Skipped {result['views_skipped']} views, {result['schedules_skipped']} schedules."
+    return text
 
 
 def main(argv: list[str] | None = None) -> int:

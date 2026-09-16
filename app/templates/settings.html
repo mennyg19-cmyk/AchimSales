@@ -55,7 +55,7 @@
         <p class="flag-desc">Roles, report access, salesman assignment. No self-register.</p>
         <a class="btn btn-outline btn-sm" href="/admin/users">Users &amp; access</a>
         <h2 class="section-title">Copy from live precious.db</h2>
-        <p class="flag-desc">Upload the old site sqlite file. Adds People, views, and schedules. Existing emails stay. Matching company view names get the live layout. Nightly jobs are the site schedules after this.</p>
+        <p class="flag-desc">Upload the old site sqlite file. Adds People. Clears dummy views and schedules, then copies every live view and schedule. Existing emails stay.</p>
         <form method="post" action="/settings/import-precious" enctype="multipart/form-data" class="mt-12">
             <input type="hidden" name="csrf" value="{{ csrf }}">
             <label class="filter-field">

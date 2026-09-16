@@ -1,3 +1,11 @@
+## 2026-09-16 Import wipes dummy views/schedules and copies JSON plus normalized
+**What I had to decide:** Keep matching-name upsert (dummy leftovers stay) vs wipe then copy everything; skip personal views when owner_handle does not map vs assign a fallback owner.
+**Options I considered:** Upsert-only; wipe views/schedules then import normalized only; wipe then import normalized and old JSON blobs; skip unknown report keys.
+**What I chose:** Wipe dummy views and schedules first. Copy normalized tables and leftover JSON `saved_reports` / `company_views` / `schedules`. Map owner handles case-insensitively; if a handle is missing, put the view on a fallback admin instead of dropping it. People rows still stay (existing emails are not deleted).
+**Why:** Menny imported on the dummy and still saw seed LoopA/Daily views; live personal views and schedules did not come over.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Drop Azure Automation; import views and schedules from precious.db
 **What I had to decide:** Delete the OData Automation CLI now vs leave it until Azure jobs are turned off in the portal; whether precious.db import stays People-only.
 **Options I considered:** Keep run.py until Menny disables the Automation account; delete the tree and tell him to stop the Azure jobs; import JSON blobs vs normalized views tables.

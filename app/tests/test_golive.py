@@ -436,6 +436,77 @@ def test_import_precious_json_fallback(tmp_path, monkeypatch):
     assert sched["freq"] == "daily"
 
 
+def test_import_wipes_dummy_views_and_keeps_json_when_views_table_exists(tmp_path, monkeypatch):
+    from import_precious import import_precious
+
+    dest = tmp_path / "home.sqlite"
+    monkeypatch.setenv("APP_DB_PATH", str(dest))
+    init_db()
+    dummy_names = {v["name"] for v in home_store.list_views("preview@achimonline.com", True)}
+    assert "Daily Invoiced" in dummy_names
+    source = tmp_path / "precious.db"
+    conn = sqlite3.connect(source)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            handle TEXT
+        );
+        CREATE TABLE views (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            owner_handle TEXT,
+            period TEXT
+        );
+        CREATE TABLE saved_reports (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            report_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            layout_json TEXT NOT NULL
+        );
+        CREATE TABLE report_schedules (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            view_id TEXT NOT NULL,
+            owner_handle TEXT,
+            freq TEXT NOT NULL,
+            time TEXT NOT NULL DEFAULT '08:00',
+            is_active INTEGER NOT NULL DEFAULT 1
+        );
+        INSERT INTO users (id, email, display_name, role, handle)
+        VALUES (1, 'heshey@achimonline.com', 'Heshey', 'admin', 'heshey');
+        INSERT INTO views (id, kind, report_key, name, owner_handle, period)
+        VALUES ('v-ghost', 'personal', 'invoiced', 'Ghost Handle View', 'no-such-handle', 'mtd');
+        INSERT INTO saved_reports (user_id, report_key, name, params_json, layout_json)
+        VALUES (1, 'ordered', 'Heshey Extra', '{"period":"ytd"}', '{}');
+        INSERT INTO report_schedules (id, kind, view_id, owner_handle, freq, time)
+        VALUES ('s-ghost', 'personal', 'v-ghost', 'no-such-handle', 'daily', '06:15');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = import_precious(source, dest)
+    assert result["views_inserted"] >= 2
+    names = {v["name"] for v in home_store.list_views("heshey@achimonline.com", True)}
+    assert "Daily Invoiced" not in names
+    assert "Daily Ordered" not in names
+    assert "Ghost Handle View" in names
+    assert "Heshey Extra" in names
+    ghost = next(v for v in home_store.list_views("heshey@achimonline.com", True) if v["name"] == "Ghost Handle View")
+    assert ghost["owner_email"] in {"heshey@achimonline.com", "preview@achimonline.com"}
+    extra = next(v for v in home_store.list_views("heshey@achimonline.com", True) if v["name"] == "Heshey Extra")
+    assert extra["params"]["period"] == "ytd"
+    times = {s["run_time"] for s in home_store.list_schedules()}
+    assert times == {"06:15"}
+
+
 def test_settings_import_precious_upload(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from main import create_app

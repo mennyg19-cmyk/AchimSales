@@ -54,7 +54,8 @@ Keep that file. That is the only copy you need on your PC.
 ### 2. Import into the new site (not a file copy)
 
 The importer writes People, views, and schedules into the new sqlite. Existing
-emails stay. Matching company view names get the live layout.
+emails stay. Import **clears dummy views and schedules**, then copies every live
+view and schedule.
 
 **Dummy / this PR (APP_ENV is not production):** open the new site → `/login` →
 **Achim User Login** → **Settings** → **People** → **Copy from live precious.db**
