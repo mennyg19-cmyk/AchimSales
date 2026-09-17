@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ## 2026-09-17 Walkthrough + CodeGraph on parked FastAPI
 **What I had to decide:** Apply the Flask `install.sh` / `wsgi` Cloud Agent scripts from the MasterGenAIInstructions patch vs FastAPI boot.
 **Options I considered:** Copy Flask env scripts unchanged; rules-only (no `environment.json`); FastAPI `install.sh` + uvicorn on 8080.
@@ -11,6 +10,13 @@
 **Options I considered:** Merge this branch into `main`; Azure redeploy only; `git read-tree` a tagged tree onto `main`.
 **What I chose:** Same `CUTOVER.md` and `switch-site.bat` as Flask. Leave Azure variables and Startup Command unchanged. Switch with `git read-tree -u --reset <newest fastapi-rebuild-parked-* tag>` onto `main`. Do not switch live in this commit.
 **Why:** Menny: Flask is up, vars already in Azure; want a checklist to switch either way.
+**Status:** DECIDED
+
+## 2026-09-17 CTD timestamps are Eastern with time
+**What I had to decide:** Date-only `iso_date` vs Eastern wall clock including time.
+**Options I considered:** `iso_date` YYYY-MM-DD (shipped, then rejected); clock stamp without seconds; `eastern_datetime` that keeps date-only as YYYY-MM-DD and converts timestamps to America/New_York `YYYY-MM-DD HH:MM:SS`.
+**What I chose:** `eastern_datetime` on Created/Offset created. Columns stay `text` so JS `isoDate` does not strip the time. Invoice/order business dates still use `iso_date` in stamp_columns. Do not merge this FastAPI tree to `main`.
+**Why:** Menny: include the time if given and convert to Eastern. Flask ships on `main`; FastAPI stays parked.
 **Status:** DECIDED
 
 ## 2026-09-17 CTD dates use iso_date, not Eastern clock stamps

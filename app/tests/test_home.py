@@ -643,10 +643,10 @@ def test_customer_transaction_detail_view_and_mock(client):
     assert by_field["AmountMST"]["sum"] is False
     assert by_field["RemainAmountCur"]["sum"] is False
     assert by_field["SettleAmountCur"].get("sum") is not False
-    assert by_field["CreatedDateTime"]["type"] == "date"
-    assert by_field["OffsetCreatedDateTime"]["type"] == "date"
-    assert tab["rows"][0]["CreatedDateTime"] == "2026-09-02"
-    assert tab["rows"][0]["OffsetCreatedDateTime"] == "2026-09-03"
+    assert by_field["CreatedDateTime"]["type"] == "text"
+    assert by_field["OffsetCreatedDateTime"]["type"] == "text"
+    assert tab["rows"][0]["CreatedDateTime"] == "2026-09-02 10:00:00"
+    assert tab["rows"][0]["OffsetCreatedDateTime"] == "2026-09-03 09:00:00"
 
 
 def test_manager_sees_company_schedules_not_others_personal(client):
