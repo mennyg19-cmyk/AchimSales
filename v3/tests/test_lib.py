@@ -37,6 +37,7 @@ def test_date_only_trims():
 
 
 def test_iso_date_parses_rfc_and_common_formats():
+    assert lib.iso_date("Tue, 15 Sep 2026 16:21:16 GMT") == "2026-09-15"
     assert lib.iso_date("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
     assert lib.iso_date("2026-04-30T12:00:00") == "2026-04-30"
     assert lib.iso_date("04/30/2026") == "2026-04-30"

@@ -10,6 +10,7 @@
 - Excel/grid do not sum Amount or Remaining (those copy on every settlement row). Settle amount and Offset amount still sum.
 - Report is built, SQL-only, not a salesman default. Admin list shows it; salesman inherit list does not.
 - Viewer has period, invoice, open-only. Default period is last 7 days.
+- Created / Offset created use `iso_date` (`Tue, 15 Sep 2026 16:21:16 GMT` → `2026-09-15`); column type `date`.
 
 **Expected behavior:** Run from Reports. Grid shows every settlement row. Export is the on-screen tab workbook.
 

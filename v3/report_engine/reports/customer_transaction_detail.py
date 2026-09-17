@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from report_engine.lib import first_of, num, text
+from report_engine.lib import first_of, iso_date, num, text
 
 _COLS = [
     {"field": "Company", "header": "Company", "type": "text"},
@@ -19,14 +19,14 @@ _COLS = [
     {"field": "RemainAmountCur", "header": "Remaining", "type": "money", "sum": False},
     {"field": "Voucher", "header": "Voucher", "type": "text"},
     {"field": "RecId", "header": "RecId", "type": "text"},
-    {"field": "CreatedDateTime", "header": "Created", "type": "text"},
+    {"field": "CreatedDateTime", "header": "Created", "type": "date"},
     {"field": "TransType", "header": "Type", "type": "text"},
     {"field": "OffsetTransVoucher", "header": "Offset voucher", "type": "text"},
     {"field": "SettleAmountCur", "header": "Settle amount", "type": "money"},
     {"field": "OffsetRecId", "header": "Offset RecId", "type": "text"},
     {"field": "OffsetAmountMST", "header": "Offset amount", "type": "money"},
     {"field": "OffsetVoucher", "header": "Offset trans voucher", "type": "text"},
-    {"field": "OffsetCreatedDateTime", "header": "Offset created", "type": "text"},
+    {"field": "OffsetCreatedDateTime", "header": "Offset created", "type": "date"},
     {"field": "OffsetCreatedBy", "header": "Offset created by", "type": "text"},
 ]
 
@@ -54,14 +54,14 @@ def clean_rows(rows: Iterable[dict]) -> list[dict]:
             "RemainAmountCur": _money(row, "RemainAmountCur", "RemainAmount"),
             "Voucher": text(_cell(row, "Voucher")),
             "RecId": text(_cell(row, "RecId")),
-            "CreatedDateTime": text(_cell(row, "CreatedDateTime")),
+            "CreatedDateTime": iso_date(_cell(row, "CreatedDateTime")),
             "TransType": text(_cell(row, "TransType")),
             "OffsetTransVoucher": text(_cell(row, "OffsetTransVoucher")),
             "SettleAmountCur": _money(row, "SettleAmountCur"),
             "OffsetRecId": text(_cell(row, "OffsetRecId")),
             "OffsetAmountMST": _money(row, "OffsetAmountMST"),
             "OffsetVoucher": text(_cell(row, "OffsetVoucher")),
-            "OffsetCreatedDateTime": text(_cell(row, "OffsetCreatedDateTime")),
+            "OffsetCreatedDateTime": iso_date(_cell(row, "OffsetCreatedDateTime")),
             "OffsetCreatedBy": text(_cell(row, "OffsetCreatedBy")),
         })
     return out
