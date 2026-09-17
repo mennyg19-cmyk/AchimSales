@@ -1,8 +1,10 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (production rolled back to Flask)
+Last updated: 2026-09-17 (Flask live; two-way switch checklist)
 
 **Status:** reports.achimonline.com should be the **old Flask** site. FastAPI rebuild is parked, not deleted.
+
+**Switch Flask ↔ FastAPI:** [CUTOVER.md](CUTOVER.md). App Settings are already in Azure. Do not switch until asked.
 
 ## Working tree
 
@@ -33,7 +35,9 @@ git fetch origin
 git checkout cursor/fastapi-rebuild-parked-0a24
 ```
 
-Read that branch's `HANDOFF.md`. Merge to `main` only when cutting over again.
+Read that branch's `HANDOFF.md`. To put FastAPI on the public URL, run
+CUTOVER.md checklist A (`read-tree` the parked tag onto `main`) — do not
+merge the two histories.
 
 ## Locked
 
