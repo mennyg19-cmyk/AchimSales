@@ -249,6 +249,7 @@ def thin_tabs(key: str, rows: list[dict]) -> dict:
         "customer_activity": _customer_activity,
         "sales_by_state": _sales_by_state_summary,
         "customer_last_order": lambda data: {"lines": _tab("Lines", data)},
+        "customer_transaction_detail": _customer_transaction_detail,
     }
     builder = builders.get(key)
     if builder is None:
@@ -346,6 +347,49 @@ def _customer_activity(rows: list[dict]) -> dict:
 
 def _sales_by_state_summary(rows: list[dict]) -> dict:
     return {"summary": _tab("Summary", rows)}
+
+
+def _ctd_text(row: dict, *names: str) -> str:
+    value = catalog.cell(row, *names, default="")
+    return "" if value in (None, "") else str(value)
+
+
+def _ctd_money(row: dict, *names: str):
+    raw = catalog.cell(row, *names, default="")
+    if raw in (None, ""):
+        return ""
+    try:
+        return round(float(raw), 2)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _customer_transaction_detail(rows: list[dict]) -> dict:
+    cleaned = []
+    for row in rows:
+        cleaned.append(
+            {
+                "Company": _ctd_text(row, "Company"),
+                "AccountNum": _ctd_text(row, "AccountNum", "CustomerAccount", "Account"),
+                "Invoice": _ctd_text(row, "Invoice", "InvoiceNumber"),
+                "AmountMST": _ctd_money(row, "AmountMST", "Amount"),
+                "RemainAmountCur": _ctd_money(row, "RemainAmountCur", "RemainAmount"),
+                "Voucher": _ctd_text(row, "Voucher"),
+                "RecId": _ctd_text(row, "RecId"),
+                "CreatedDateTime": _ctd_text(row, "CreatedDateTime"),
+                "TransType": _ctd_text(row, "TransType"),
+                "OffsetTransVoucher": _ctd_text(row, "OffsetTransVoucher"),
+                "SettleAmountCur": _ctd_money(row, "SettleAmountCur"),
+                "OffsetRecId": _ctd_text(row, "OffsetRecId"),
+                "OffsetAmountMST": _ctd_money(row, "OffsetAmountMST"),
+                "OffsetVoucher": _ctd_text(row, "OffsetVoucher"),
+                "OffsetCreatedDateTime": _ctd_text(row, "OffsetCreatedDateTime"),
+                "OffsetCreatedBy": _ctd_text(row, "OffsetCreatedBy"),
+            }
+        )
+    return {
+        "transactions": _tab("Transactions", cleaned, catalog.CTD_COLUMNS),
+    }
 
 
 def number_4_tabs(customer_rows: list[dict], item_rows: list[dict]) -> dict:

@@ -52,6 +52,10 @@ def hydrate(row, conn) -> dict:
         params["status"] = statuses[0]
     if customers:
         params["customers"] = customers
+    if view.get("invoice"):
+        params["invoice"] = view["invoice"]
+    if view.get("open_balance"):
+        params["open_balance"] = view["open_balance"]
     layout_views: dict = {}
     order: list[str] = []
     clones: list[dict] = []
@@ -138,6 +142,15 @@ def save_filters_and_layout(
     if isinstance(customers, str):
         customers = [part.strip() for part in customers.split(",") if part.strip()]
     status = (filters.get("status") or "").strip()
+    invoice = str(filters.get("invoice") or "").strip() or None
+    raw_open = filters.get("open_balance")
+    if isinstance(raw_open, (list, tuple)):
+        raw_open = raw_open[0] if raw_open else ""
+    open_balance = (
+        "1"
+        if str(raw_open or "").strip().lower() in {"1", "true", "on", "yes"}
+        else None
+    )
     sets = [
         "period = ?",
         "start_date = ?",
@@ -145,6 +158,8 @@ def save_filters_and_layout(
         "year = ?",
         "mode = ?",
         "active_tab_key = ?",
+        "invoice = ?",
+        "open_balance = ?",
     ]
     values = [
         filters.get("period") or None,
@@ -153,6 +168,8 @@ def save_filters_and_layout(
         filters.get("year") or None,
         filters.get("n4_mode") or filters.get("mode") or None,
         layout.get("active") or None,
+        invoice,
+        open_balance,
     ]
     if include_period is not None:
         sets.append("include_period = ?")

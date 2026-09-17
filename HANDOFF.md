@@ -34,7 +34,7 @@ Azure App Settings stay as they are.
 1. Branch from **this** parked branch, not from Flask `main`.
 2. Do not treat leftover Flask PR #35 as the rebuild.
 3. REPORTING_API must never be reports.achimonline.com.
-4. Still not built: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
+4. Still not built: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets. Customer Transaction Detail is on this tree (catalog `customertransactiondetail`).
 5. Cutover again: CUTOVER.md checklist A (`read-tree` the newest `fastapi-rebuild-parked-*` tag onto `main`). Then if People is empty:
    `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`
    Last line must say `into /tmp/homedata/home.sqlite`. Wait, then Achim User Login.
