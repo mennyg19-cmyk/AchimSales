@@ -7,6 +7,7 @@ import io
 from openpyxl import Workbook
 
 import column_types
+import dates
 
 _NUMBER_FORMATS = {
     "money": '"$"#,##0.00_);[Red]\\("$"#,##0.00\\)',
@@ -37,8 +38,7 @@ def _excel_value(value, col_type: str):
     if value in (None, ""):
         return ""
     if col_type == "date":
-        text = str(value).strip()
-        return text[:10] if len(text) >= 10 else text
+        return dates.iso_date(value)
     if col_type in {"money", "int", "percent"}:
         number = _as_number(value)
         if number is None:

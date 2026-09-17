@@ -127,6 +127,8 @@ def fake_run(report_id, params_in=None, timeout=None):
                 "SettleAmountCur": 60,
                 "OffsetAmountMST": 60,
                 "OffsetRecId": "A",
+                "CreatedDateTime": "Tue, 15 Sep 2026 16:21:16 GMT",
+                "OffsetCreatedDateTime": "Tue, 15 Sep 2026 16:21:16 GMT",
             },
             {
                 "RecId": 111,
@@ -336,6 +338,36 @@ def test_assemble_keeps_two_settlements_for_one_original():
     by_field = {col["field"]: col for col in tabs["transactions"]["columns"]}
     assert by_field["AmountMST"]["sum"] is False
     assert by_field["RemainAmountCur"]["sum"] is False
+    assert by_field["CreatedDateTime"]["type"] == "date"
+    assert by_field["OffsetCreatedDateTime"]["type"] == "date"
+
+
+def test_ctd_rfc1123_dates_become_iso_day():
+    tabs = assemble.thin_tabs(
+        "customer_transaction_detail",
+        [
+            {
+                "RecId": "111",
+                "CreatedDateTime": "Tue, 15 Sep 2026 16:21:16 GMT",
+                "OffsetCreatedDateTime": "Tue, 15 Sep 2026 16:21:16 GMT",
+            }
+        ],
+    )
+    row = tabs["transactions"]["rows"][0]
+    assert row["CreatedDateTime"] == "2026-09-15"
+    assert row["OffsetCreatedDateTime"] == "2026-09-15"
+    stamped = assemble.stamp_columns(
+        {
+            "data": {
+                "report_key": "customer_transaction_detail",
+                "tabs": tabs,
+            }
+        }
+    )
+    stamped_row = stamped["data"]["tabs"]["transactions"]["rows"][0]
+    assert stamped_row["CreatedDateTime"] == "2026-09-15"
+    cols = {col["field"]: col for col in stamped["data"]["tabs"]["transactions"]["columns"]}
+    assert cols["CreatedDateTime"]["type"] == "date"
 
 
 def test_live_customer_transaction_detail_calls_catalog(live_client):
@@ -350,6 +382,8 @@ def test_live_customer_transaction_detail_calls_catalog(live_client):
     assert len(tab["rows"]) == 2
     assert [row["OffsetRecId"] for row in tab["rows"]] == ["A", "B"]
     assert tab["rows"][0]["RecId"] == "111"
+    assert tab["rows"][0]["CreatedDateTime"] == "2026-09-15"
+    assert tab["rows"][0]["OffsetCreatedDateTime"] == "2026-09-15"
     call = next(item for item in fake_run.calls if item[0] == "customertransactiondetail")
     assert call[1]["Invoice"] == "IN1"
     assert call[1]["RemainAmountCurMin"] == 0.01

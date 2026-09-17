@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import catalog
 import column_types
+import dates
 from doorway import ReportResult, rows_from_body
 
 
@@ -206,6 +207,14 @@ def stamp_columns(payload: dict) -> dict:
         tab["columns"] = column_types.columns_for(
             fields, incoming=incoming, rows=rows, report_key=key
         )
+        date_fields = [col["field"] for col in tab["columns"] if col.get("type") == "date"]
+        if date_fields:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                for field in date_fields:
+                    if field in row:
+                        row[field] = dates.iso_date(row[field])
     return payload
 
 
@@ -376,14 +385,14 @@ def _customer_transaction_detail(rows: list[dict]) -> dict:
                 "RemainAmountCur": _ctd_money(row, "RemainAmountCur", "RemainAmount"),
                 "Voucher": _ctd_text(row, "Voucher"),
                 "RecId": _ctd_text(row, "RecId"),
-                "CreatedDateTime": _ctd_text(row, "CreatedDateTime"),
+                "CreatedDateTime": dates.iso_date(_ctd_text(row, "CreatedDateTime")),
                 "TransType": _ctd_text(row, "TransType"),
                 "OffsetTransVoucher": _ctd_text(row, "OffsetTransVoucher"),
                 "SettleAmountCur": _ctd_money(row, "SettleAmountCur"),
                 "OffsetRecId": _ctd_text(row, "OffsetRecId"),
                 "OffsetAmountMST": _ctd_money(row, "OffsetAmountMST"),
                 "OffsetVoucher": _ctd_text(row, "OffsetVoucher"),
-                "OffsetCreatedDateTime": _ctd_text(row, "OffsetCreatedDateTime"),
+                "OffsetCreatedDateTime": dates.iso_date(_ctd_text(row, "OffsetCreatedDateTime")),
                 "OffsetCreatedBy": _ctd_text(row, "OffsetCreatedBy"),
             }
         )
