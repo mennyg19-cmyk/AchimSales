@@ -1,3 +1,10 @@
+## 2026-09-17 CTD dates use iso_date, not Eastern clock stamps
+**What I had to decide:** Convert CTD Created/Offset created to America/New_York wall time vs the site-wide `iso_date` calendar day.
+**Options I considered:** Clock stamp `YYYY-MM-DD HH:MM` Eastern; convert GMT then take the Eastern calendar date; `iso_date` (`YYYY-MM-DD` from the parsed calendar date, no TZ shift).
+**What I chose:** Same helper as Ordered/Invoiced/Customer Activity: `iso_date`. RFC-1123 `Tue, 15 Sep 2026 16:21:16 GMT` becomes `2026-09-15`. Period filter windows stay Eastern.
+**Why:** Menny: dates on this report must match the rest of the site. `iso_date` exists so midnight UTC does not become the previous Eastern day. FastAPI port is on PR #79.
+**Status:** DECIDED
+
 ## 2026-09-17 Walkthrough + CodeGraph patch apply
 **What I had to decide:** Apply MasterGenAIInstructions `achim-sales-walkthrough-codegraph.patch` as-is vs keep AchimSales Azure gitignore / parked FastAPI boot.
 **Options I considered:** `git am` the patch unchanged; merge gitignore and skip Flask `install.sh` on the parked FastAPI tree; one PR only onto `main`.
