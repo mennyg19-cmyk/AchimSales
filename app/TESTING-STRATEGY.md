@@ -7,6 +7,7 @@
 | `/beta` | 302 `/` |
 | Preview login | Reports home + mock tabs from `data.tabs` |
 | Each grid report POST `/api/reports/{key}/run` | `data.tabs.*.rows` |
+| Customer Transaction Detail | catalog `customertransactiondetail`; two RecId-111 settlements stay two rows; RecId text; Amount/Remaining `sum: False`; salesman inherit-hidden; Invoice + Open only; open-only → `RemainAmountCurMin` 0.01 |
 | Last Order `C-1001` | SO-88021 |
 | Duplicate People email | refused (no self-register) |
 | Visibility off | card gone from `/` |

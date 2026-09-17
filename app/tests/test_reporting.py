@@ -116,6 +116,29 @@ def fake_run(report_id, params_in=None, timeout=None):
         rows = [{"Customer": "HD SUPPLY", "Item #": "A-100", "Total $": 9}]
     elif report_id.startswith("sales_by_state"):
         rows = [{"State": "NY", "Sales": 50}]
+    elif report_id == "customertransactiondetail":
+        rows = [
+            {
+                "RecId": 111,
+                "AccountNum": "C-1001",
+                "Invoice": "IN1",
+                "AmountMST": 100,
+                "RemainAmountCur": 40,
+                "SettleAmountCur": 60,
+                "OffsetAmountMST": 60,
+                "OffsetRecId": "A",
+            },
+            {
+                "RecId": 111,
+                "AccountNum": "C-1001",
+                "Invoice": "IN1",
+                "AmountMST": 100,
+                "RemainAmountCur": 40,
+                "SettleAmountCur": 40,
+                "OffsetAmountMST": 40,
+                "OffsetRecId": "B",
+            },
+        ]
     else:
         rows = [
             {
@@ -267,6 +290,92 @@ def test_live_sales_by_state_calls_three_sps(live_client):
     assert "sales_by_state_summary" in ids
     assert "sales_by_state_new_york_city" in ids
     assert "sales_by_state_filtered" in ids
+
+
+def test_customer_transaction_detail_filters():
+    empty = params.translate("customer_transaction_detail", {})
+    assert empty == {}
+    out = params.translate(
+        "customer_transaction_detail",
+        {
+            "period": "custom",
+            "from_date": "2026-01-01",
+            "to_date": "2026-09-16",
+            "customers": ["9017"],
+            "invoice": "IN1",
+            "open_balance": "1",
+        },
+    )
+    assert out["CreatedDateTimeFrom"] == "2026-01-01 00:00:00"
+    assert out["CreatedDateTimeTo"] == "2026-09-16 23:59:59"
+    assert out["AccountNum"] == "9017"
+    assert out["Invoice"] == "IN1"
+    assert out["RemainAmountCurMin"] == 0.01
+    listed = params.translate("customer_transaction_detail", {"open_balance": ["1"]})
+    assert listed["RemainAmountCurMin"] == 0.01
+    multi = params.translate(
+        "customer_transaction_detail",
+        {"customers": ["9017", "9018"]},
+    )
+    assert "AccountNum" not in multi
+    assert params.REPORT_IDS["customer_transaction_detail"] == "customertransactiondetail"
+
+
+def test_assemble_keeps_two_settlements_for_one_original():
+    tabs = assemble.thin_tabs(
+        "customer_transaction_detail",
+        [
+            {"RecId": 111, "AccountNum": "9017", "Invoice": "IN1", "AmountMST": 100, "OffsetRecId": "A"},
+            {"RecId": 111, "AccountNum": "9017", "Invoice": "IN1", "AmountMST": 100, "OffsetRecId": "B"},
+        ],
+    )
+    rows = tabs["transactions"]["rows"]
+    assert len(rows) == 2
+    assert [row["OffsetRecId"] for row in rows] == ["A", "B"]
+    assert rows[0]["RecId"] == "111"
+    by_field = {col["field"]: col for col in tabs["transactions"]["columns"]}
+    assert by_field["AmountMST"]["sum"] is False
+    assert by_field["RemainAmountCur"]["sum"] is False
+
+
+def test_live_customer_transaction_detail_calls_catalog(live_client):
+    login(live_client)
+    payload = live_client.post(
+        "/api/reports/customer_transaction_detail/run",
+        json={"period": "all_time", "invoice": "IN1", "open_balance": "1"},
+        headers=csrf_headers(live_client),
+    ).json()
+    assert payload["data"]["source"] == "reporting_api"
+    tab = payload["data"]["tabs"]["transactions"]
+    assert len(tab["rows"]) == 2
+    assert [row["OffsetRecId"] for row in tab["rows"]] == ["A", "B"]
+    assert tab["rows"][0]["RecId"] == "111"
+    call = next(item for item in fake_run.calls if item[0] == "customertransactiondetail")
+    assert call[1]["Invoice"] == "IN1"
+    assert call[1]["RemainAmountCurMin"] == 0.01
+    assert "CreatedDateTimeFrom" not in call[1]
+
+
+def test_customer_transaction_detail_saved_view_keeps_invoice(client):
+    login(client)
+    created = client.post(
+        "/api/views",
+        json={
+            "name": "Open IN1",
+            "report_key": "customer_transaction_detail",
+            "kind": "personal",
+            "params": {"period": "last_7_days", "invoice": "IN1", "open_balance": "1"},
+            "include_period": True,
+        },
+        headers=csrf_headers(client),
+    ).json()
+    assert created["ok"]
+    views = client.get("/api/views?report=customer_transaction_detail").json()["views"]
+    saved = next(view for view in views if view["id"] == created["id"])
+    assert saved["params"]["invoice"] == "IN1"
+    assert saved["params"]["open_balance"] == "1"
+    html = client.get(f"/reports/customer_transaction_detail?view={created['id']}").text
+    assert "IN1" in html
 
 
 def test_live_last_order(live_client):

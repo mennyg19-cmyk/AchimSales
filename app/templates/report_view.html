@@ -101,6 +101,18 @@
         </div>
     </div>
     {% endif %}
+    {% if "invoice" in filters %}
+    <label class="filter-field">
+        <span>Invoice</span>
+        <input type="text" name="invoice" id="invoiceInput" autocomplete="off">
+    </label>
+    {% endif %}
+    {% if "open_balance" in filters %}
+    <label class="filter-field filter-field-check">
+        <span>Open only</span>
+        <input type="checkbox" name="open_balance" id="openBalanceInput" value="1">
+    </label>
+    {% endif %}
     </div>
     {% if "customers" in filters %}
     <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>

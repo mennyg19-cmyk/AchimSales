@@ -1,3 +1,11 @@
+## 2026-09-16 Customer Transaction Detail on parked FastAPI
+**What I had to decide:** Port Flask CTD onto the parked FastAPI tree vs wait for the next cutover.
+**Options I considered:** Leave FastAPI without the report until rebuild resumes; copy Flask `report_engine` into `app/`; match Flask product rules inside existing FastAPI catalog/params/assemble.
+**What I chose:** Same product as live Flask: catalog id `customertransactiondetail`, one Transactions tab, no settlement dedupe, RecId as text, AmountMST/RemainAmountCur `sum: False`, filters period/customers/invoice/open-only (default last 7 days), not salesman-default, salesman post-filter skipped (no salesman column). Saved views store invoice + open_balance as view columns, not a JSON blob.
+**Why:** Menny: add this report to the FastAPI version also. Do not merge FastAPI to `main`.
+**Status:** DECIDED
+
+
 ## 2026-09-16 Park FastAPI rebuild; put Flask back on production
 **What I had to decide:** Drop the FastAPI git history vs keep it on a branch and point `main` at Flask.
 **Options I considered:** Azure Deployment Center redeploy only (main stays FastAPI and the next push would overwrite Flask); `reset --hard` Flask on `main`; park FastAPI then commit a Flask tree on `main`.

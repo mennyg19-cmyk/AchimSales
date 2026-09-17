@@ -30,7 +30,7 @@ Last updated: 2026-09-16 (FastAPI rebuild parked; production rolling back to Fla
 1. Branch from **this** parked branch, not from Flask `main`.
 2. Do not treat leftover Flask PR #35 as the rebuild.
 3. REPORTING_API must never be reports.achimonline.com.
-4. Still not built: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
+4. Still not built: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets. Customer Transaction Detail is on this FastAPI tree (catalog `customertransactiondetail`).
 5. Cutover again: merge parked FastAPI to `main` (only `main` deploys). Then import People:
    `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`
    Last line must say `into /tmp/homedata/home.sqlite`. Wait, then Achim User Login.

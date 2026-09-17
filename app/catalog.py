@@ -129,6 +129,14 @@ REPORTS = (
         "privileged_only": False,
         "salesman_default": True,
     },
+    {
+        "key": "customer_transaction_detail",
+        "title": "Customer Transaction Detail",
+        "in_app": False,
+        "filters": ("period", "customers", "invoice", "open_balance"),
+        "privileged_only": False,
+        "salesman_default": False,
+    },
 )
 
 BACKLOG = (("customer_aging", "Customer Aging"),)
@@ -345,6 +353,73 @@ def sales_by_state_payload() -> dict:
     )
 
 
+CTD_COLUMNS = [
+    {"field": "Company", "header": "Company", "type": "text"},
+    {"field": "AccountNum", "header": "Account", "type": "text"},
+    {"field": "Invoice", "header": "Invoice", "type": "text"},
+    {"field": "AmountMST", "header": "Amount", "type": "money", "sum": False},
+    {"field": "RemainAmountCur", "header": "Remaining", "type": "money", "sum": False},
+    {"field": "Voucher", "header": "Voucher", "type": "text"},
+    {"field": "RecId", "header": "RecId", "type": "text"},
+    {"field": "CreatedDateTime", "header": "Created", "type": "text"},
+    {"field": "TransType", "header": "Type", "type": "text"},
+    {"field": "OffsetTransVoucher", "header": "Offset voucher", "type": "text"},
+    {"field": "SettleAmountCur", "header": "Settle amount", "type": "money"},
+    {"field": "OffsetRecId", "header": "Offset RecId", "type": "text"},
+    {"field": "OffsetAmountMST", "header": "Offset amount", "type": "money"},
+    {"field": "OffsetVoucher", "header": "Offset trans voucher", "type": "text"},
+    {"field": "OffsetCreatedDateTime", "header": "Offset created", "type": "text"},
+    {"field": "OffsetCreatedBy", "header": "Offset created by", "type": "text"},
+]
+
+
+def customer_transaction_detail_payload() -> dict:
+    rows = [
+        {
+            "Company": "achm",
+            "AccountNum": "C-1001",
+            "Invoice": "IN1",
+            "AmountMST": 100.0,
+            "RemainAmountCur": 40.0,
+            "Voucher": "AR-100",
+            "RecId": "111",
+            "CreatedDateTime": "2026-09-02 10:00:00",
+            "TransType": "Sales",
+            "OffsetTransVoucher": "PAY-1",
+            "SettleAmountCur": 60.0,
+            "OffsetRecId": "A",
+            "OffsetAmountMST": 60.0,
+            "OffsetVoucher": "STTL-A",
+            "OffsetCreatedDateTime": "2026-09-03 09:00:00",
+            "OffsetCreatedBy": "apay",
+        },
+        {
+            "Company": "achm",
+            "AccountNum": "C-1001",
+            "Invoice": "IN1",
+            "AmountMST": 100.0,
+            "RemainAmountCur": 40.0,
+            "Voucher": "AR-100",
+            "RecId": "111",
+            "CreatedDateTime": "2026-09-02 10:00:00",
+            "TransType": "Sales",
+            "OffsetTransVoucher": "PAY-2",
+            "SettleAmountCur": 40.0,
+            "OffsetRecId": "B",
+            "OffsetAmountMST": 40.0,
+            "OffsetVoucher": "STTL-B",
+            "OffsetCreatedDateTime": "2026-09-04 09:00:00",
+            "OffsetCreatedBy": "apay",
+        },
+    ]
+    return _payload(
+        "customer_transaction_detail",
+        "Customer Transaction Detail",
+        {"transactions": {"name": "Transactions", "columns": list(CTD_COLUMNS), "rows": rows}},
+        rows,
+    )
+
+
 _BUILDERS = {
     "invoiced": invoiced_payload,
     "ordered": ordered_payload,
@@ -353,6 +428,7 @@ _BUILDERS = {
     "customer_activity": customer_activity_payload,
     "item_averages": item_averages_payload,
     "sales_by_state": sales_by_state_payload,
+    "customer_transaction_detail": customer_transaction_detail_payload,
 }
 
 
@@ -371,6 +447,7 @@ def _row_account(row: dict) -> str:
     direct = str(
         row.get("CustomerAccount")
         or row.get("Customer Account")
+        or row.get("AccountNum")
         or row.get("account")
         or ""
     )
@@ -401,7 +478,7 @@ def apply_viewer_filters(
 ) -> dict:
     """Post-filter tabs the grid already has. Same rules for mock and live rows."""
     key = report_key or payload.get("data", {}).get("report_key") or ""
-    if salesman:
+    if salesman and key != "customer_transaction_detail":
         _filter_tabs(payload, lambda row: _row_salesman(row) == salesman)
     if customers:
         wanted = set(customers)

@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS views (
     end_date TEXT,
     year TEXT,
     mode TEXT,
-    active_tab_key TEXT
+    active_tab_key TEXT,
+    invoice TEXT,
+    open_balance TEXT
 );
 CREATE TABLE IF NOT EXISTS view_salesmen (
     view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
@@ -368,6 +370,8 @@ def init_db() -> None:
         ensure_column("schedules", "window_end", "TEXT")
         ensure_column("jobs", "kept_until", "TEXT")
         ensure_column("schedule_runs", "message", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("views", "invoice", "TEXT")
+        ensure_column("views", "open_balance", "TEXT")
         conn.execute(
             "UPDATE schedules SET is_active = 0 WHERE ifnull(kind, '') = 'company'"
         )
