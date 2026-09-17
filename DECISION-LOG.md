@@ -1,3 +1,10 @@
+## 2026-09-17 Two-way Flask ↔ FastAPI switch checklist
+**What I had to decide:** How to switch the same Azure app between Flask and this parked FastAPI tree without merging the two histories or editing App Settings.
+**Options I considered:** Merge this branch into `main`; Azure redeploy only; `git read-tree` a tagged tree onto `main`.
+**What I chose:** Same `CUTOVER.md` as Flask. Leave Azure variables and Startup Command unchanged. Switch with `git read-tree -u --reset <newest fastapi-rebuild-parked-* tag>` onto `main`. Do not switch live in this commit.
+**Why:** Menny: Flask is up, vars already in Azure; want a checklist to switch either way.
+**Status:** DECIDED
+
 ## 2026-09-16 Park FastAPI rebuild; put Flask back on production
 **What I had to decide:** Drop the FastAPI git history vs keep it on a branch and point `main` at Flask.
 **Options I considered:** Azure Deployment Center redeploy only (main stays FastAPI and the next push would overwrite Flask); `reset --hard` Flask on `main`; park FastAPI then commit a Flask tree on `main`.
