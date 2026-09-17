@@ -4,7 +4,9 @@ Last updated: 2026-09-17 (FastAPI parked; Flask live; CUTOVER.md)
 
 **Status:** FastAPI rebuild is **paused**, not discarded. Production should run the last Flask site. Resume rebuild from this branch.
 
-**Switch Flask ↔ FastAPI:** [CUTOVER.md](CUTOVER.md). Do not merge this history into Flask `main`. Azure App Settings stay as they are.
+**Switch Flask ↔ FastAPI:** double-click `switch-site.bat` (type `SWITCH`) or
+follow [CUTOVER.md](CUTOVER.md). Do not merge this history into Flask `main`.
+Azure App Settings stay as they are.
 
 ## Working tree (resume here)
 

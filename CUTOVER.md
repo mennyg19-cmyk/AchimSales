@@ -8,6 +8,15 @@ App Settings to switch. Do **not** change the Startup Command.
 recipe, not a go-live. Wait for an explicit “switch to FastAPI” before
 pushing a FastAPI tree to `main`.
 
+**On Windows:** double-click `switch-site.bat` (or `.\switch-site.ps1 fastapi`
+/ `flask` / `status`). It fetches the newest `flask-prod-*` /
+`fastapi-rebuild-parked-*` tag, replaces `main`’s tree, pushes, and watches
+the deploy Action. Type `SWITCH` to confirm. Azure SSH snapshot/import still
+has to run on the box — the script copies those commands and waits. It does
+**not** change App Settings or the Startup Command.
+
+`-WhatIf` prints the git target and stops.
+
 ## What stays the same
 
 | Item | Value — leave it |

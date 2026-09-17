@@ -4,9 +4,9 @@
 `cursor/fastapi-rebuild-parked-0a24`. Production `main` is the Flask site until
 cutover is tried again. Resume from that branch, not from Flask `main`.
 
-**Switch Flask ↔ FastAPI:** follow [CUTOVER.md](CUTOVER.md). Do not merge this
-history into Flask `main`. App Settings and Startup Command already match both
-stacks.
+**Switch Flask ↔ FastAPI:** double-click `switch-site.bat` or follow
+[CUTOVER.md](CUTOVER.md). Do not merge this history into Flask `main`. App
+Settings and Startup Command already match both stacks.
 
 FastAPI home site. Nightly work is the in-app schedules (one-minute clock), not
 Azure Automation. Report rows come from the office Reporting API
