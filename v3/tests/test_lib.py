@@ -47,6 +47,15 @@ def test_iso_date_parses_rfc_and_common_formats():
     assert lib.date_only("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
 
 
+def test_eastern_datetime_keeps_time_and_converts_from_gmt():
+    assert lib.eastern_datetime("Tue, 15 Sep 2026 16:21:16 GMT") == "2026-09-15 12:21:16"
+    assert lib.eastern_datetime("2026-09-15") == "2026-09-15"
+    assert lib.eastern_datetime("N/A") == "N/A"
+    assert lib.eastern_datetime(None) == ""
+    # January is EST (UTC-5).
+    assert lib.eastern_datetime("Thu, 15 Jan 2026 16:21:16 GMT") == "2026-01-15 11:21:16"
+
+
 def test_salesman_key_normalizes():
     assert lib.salesman_key(" M Kolko ") == "mkolko"
     assert lib.salesman_key("H-Kaufman") == "hkaufman"

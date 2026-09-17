@@ -1,8 +1,8 @@
-## 2026-09-17 CTD dates use iso_date, not Eastern clock stamps
-**What I had to decide:** Convert CTD Created/Offset created to America/New_York wall time vs the site-wide `iso_date` calendar day.
-**Options I considered:** Clock stamp `YYYY-MM-DD HH:MM` Eastern; convert GMT then take the Eastern calendar date; `iso_date` (`YYYY-MM-DD` from the parsed calendar date, no TZ shift).
-**What I chose:** Same helper as Ordered/Invoiced/Customer Activity: `iso_date`. RFC-1123 `Tue, 15 Sep 2026 16:21:16 GMT` becomes `2026-09-15`. Period filter windows stay Eastern.
-**Why:** Menny: dates on this report must match the rest of the site. `iso_date` exists so midnight UTC does not become the previous Eastern day. FastAPI port is on PR #79.
+## 2026-09-17 CTD timestamps are Eastern with time
+**What I had to decide:** Date-only `iso_date` vs Eastern wall clock including time.
+**Options I considered:** `iso_date` YYYY-MM-DD (shipped, then rejected); `cadence` `YYYY-MM-DD HH:MM`; new `eastern_datetime` that keeps date-only as YYYY-MM-DD and converts timestamps to America/New_York `YYYY-MM-DD HH:MM:SS`.
+**What I chose:** `eastern_datetime` on Created/Offset created. Columns stay `text` so the grid date formatter does not strip the time. Invoice/order business dates still use `iso_date`. Naive API datetimes are UTC. Hotfix deviation: merge to main on user order without Loops A/B/C (small format fix, not auth/money).
+**Why:** Menny: include the time if given and convert to Eastern; then merge to main. `Tue, 15 Sep 2026 16:21:16 GMT` → `2026-09-15 12:21:16` EDT.
 **Status:** DECIDED
 
 ## 2026-09-17 Walkthrough + CodeGraph patch apply

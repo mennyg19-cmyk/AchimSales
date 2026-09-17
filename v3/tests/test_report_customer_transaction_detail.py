@@ -26,11 +26,11 @@ def test_keeps_two_settlements_for_one_original():
     assert by_field["RemainAmountCur"]["sum"] is False
     assert by_field["SettleAmountCur"].get("sum") is not False
     assert by_field["OffsetAmountMST"].get("sum") is not False
-    assert by_field["CreatedDateTime"]["type"] == "date"
-    assert by_field["OffsetCreatedDateTime"]["type"] == "date"
+    assert by_field["CreatedDateTime"]["type"] == "text"
+    assert by_field["OffsetCreatedDateTime"]["type"] == "text"
 
 
-def test_created_dates_use_iso_date():
+def test_created_dates_convert_gmt_to_eastern_with_time():
     rows = rpt.clean_rows([
         {
             "RecId": "111",
@@ -38,8 +38,8 @@ def test_created_dates_use_iso_date():
             "OffsetCreatedDateTime": "Tue, 15 Sep 2026 16:21:16 GMT",
         },
     ])
-    assert rows[0]["CreatedDateTime"] == "2026-09-15"
-    assert rows[0]["OffsetCreatedDateTime"] == "2026-09-15"
+    assert rows[0]["CreatedDateTime"] == "2026-09-15 12:21:16"
+    assert rows[0]["OffsetCreatedDateTime"] == "2026-09-15 12:21:16"
 
 
 def test_export_does_not_sum_repeated_original_amounts():
