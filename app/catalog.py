@@ -361,14 +361,14 @@ CTD_COLUMNS = [
     {"field": "RemainAmountCur", "header": "Remaining", "type": "money", "sum": False},
     {"field": "Voucher", "header": "Voucher", "type": "text"},
     {"field": "RecId", "header": "RecId", "type": "text"},
-    {"field": "CreatedDateTime", "header": "Created", "type": "text"},
+    {"field": "CreatedDateTime", "header": "Created", "type": "date"},
     {"field": "TransType", "header": "Type", "type": "text"},
     {"field": "OffsetTransVoucher", "header": "Offset voucher", "type": "text"},
     {"field": "SettleAmountCur", "header": "Settle amount", "type": "money"},
     {"field": "OffsetRecId", "header": "Offset RecId", "type": "text"},
     {"field": "OffsetAmountMST", "header": "Offset amount", "type": "money"},
     {"field": "OffsetVoucher", "header": "Offset trans voucher", "type": "text"},
-    {"field": "OffsetCreatedDateTime", "header": "Offset created", "type": "text"},
+    {"field": "OffsetCreatedDateTime", "header": "Offset created", "type": "date"},
     {"field": "OffsetCreatedBy", "header": "Offset created by", "type": "text"},
 ]
 

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## 2026-09-17 Walkthrough + CodeGraph on parked FastAPI
 **What I had to decide:** Apply the Flask `install.sh` / `wsgi` Cloud Agent scripts from the MasterGenAIInstructions patch vs FastAPI boot.
 **Options I considered:** Copy Flask env scripts unchanged; rules-only (no `environment.json`); FastAPI `install.sh` + uvicorn on 8080.
@@ -10,6 +11,13 @@
 **Options I considered:** Merge this branch into `main`; Azure redeploy only; `git read-tree` a tagged tree onto `main`.
 **What I chose:** Same `CUTOVER.md` and `switch-site.bat` as Flask. Leave Azure variables and Startup Command unchanged. Switch with `git read-tree -u --reset <newest fastapi-rebuild-parked-* tag>` onto `main`. Do not switch live in this commit.
 **Why:** Menny: Flask is up, vars already in Azure; want a checklist to switch either way.
+**Status:** DECIDED
+
+## 2026-09-17 CTD dates use iso_date, not Eastern clock stamps
+**What I had to decide:** Convert CTD Created/Offset created to America/New_York wall time vs the site-wide `iso_date` calendar day.
+**Options I considered:** `cadence.format_stamp` (`YYYY-MM-DD HH:MM` Eastern); convert GMT then take the Eastern calendar date; `iso_date` (`YYYY-MM-DD` from the parsed calendar date, no TZ shift).
+**What I chose:** Same helper as Ordered/Invoiced/Customer Activity: `iso_date`. RFC-1123 `Tue, 15 Sep 2026 16:21:16 GMT` becomes `2026-09-15`. Period filter windows stay Eastern (`period.py`).
+**Why:** Menny: dates on this report must match the rest of the site. `iso_date` exists so midnight UTC does not become the previous Eastern day. FastAPI ports the helper; stamp_columns + Excel date cells use it too.
 **Status:** DECIDED
 
 ## 2026-09-16 Customer Transaction Detail on parked FastAPI
