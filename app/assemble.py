@@ -215,6 +215,13 @@ def stamp_columns(payload: dict) -> dict:
                 for field in date_fields:
                     if field in row:
                         row[field] = dates.iso_date(row[field])
+        if key == "customer_transaction_detail":
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                for field in ("CreatedDateTime", "OffsetCreatedDateTime"):
+                    if field in row:
+                        row[field] = dates.eastern_datetime(row[field])
     return payload
 
 
@@ -385,14 +392,14 @@ def _customer_transaction_detail(rows: list[dict]) -> dict:
                 "RemainAmountCur": _ctd_money(row, "RemainAmountCur", "RemainAmount"),
                 "Voucher": _ctd_text(row, "Voucher"),
                 "RecId": _ctd_text(row, "RecId"),
-                "CreatedDateTime": dates.iso_date(_ctd_text(row, "CreatedDateTime")),
+                "CreatedDateTime": dates.eastern_datetime(_ctd_text(row, "CreatedDateTime")),
                 "TransType": _ctd_text(row, "TransType"),
                 "OffsetTransVoucher": _ctd_text(row, "OffsetTransVoucher"),
                 "SettleAmountCur": _ctd_money(row, "SettleAmountCur"),
                 "OffsetRecId": _ctd_text(row, "OffsetRecId"),
                 "OffsetAmountMST": _ctd_money(row, "OffsetAmountMST"),
                 "OffsetVoucher": _ctd_text(row, "OffsetVoucher"),
-                "OffsetCreatedDateTime": dates.iso_date(_ctd_text(row, "OffsetCreatedDateTime")),
+                "OffsetCreatedDateTime": dates.eastern_datetime(_ctd_text(row, "OffsetCreatedDateTime")),
                 "OffsetCreatedBy": _ctd_text(row, "OffsetCreatedBy"),
             }
         )

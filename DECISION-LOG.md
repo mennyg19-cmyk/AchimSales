@@ -1,8 +1,8 @@
-## 2026-09-17 CTD dates use iso_date, not Eastern clock stamps
-**What I had to decide:** Convert CTD Created/Offset created to America/New_York wall time vs the site-wide `iso_date` calendar day.
-**Options I considered:** `cadence.format_stamp` (`YYYY-MM-DD HH:MM` Eastern); convert GMT then take the Eastern calendar date; `iso_date` (`YYYY-MM-DD` from the parsed calendar date, no TZ shift).
-**What I chose:** Same helper as Ordered/Invoiced/Customer Activity: `iso_date`. RFC-1123 `Tue, 15 Sep 2026 16:21:16 GMT` becomes `2026-09-15`. Period filter windows stay Eastern (`period.py`).
-**Why:** Menny: dates on this report must match the rest of the site. `iso_date` exists so midnight UTC does not become the previous Eastern day. FastAPI ports the helper; stamp_columns + Excel date cells use it too.
+## 2026-09-17 CTD timestamps are Eastern with time
+**What I had to decide:** Date-only `iso_date` vs Eastern wall clock including time.
+**Options I considered:** `iso_date` YYYY-MM-DD (shipped, then rejected); clock stamp without seconds; `eastern_datetime` that keeps date-only as YYYY-MM-DD and converts timestamps to America/New_York `YYYY-MM-DD HH:MM:SS`.
+**What I chose:** `eastern_datetime` on Created/Offset created. Columns stay `text` so JS `isoDate` does not strip the time. Invoice/order business dates still use `iso_date` in stamp_columns. Do not merge this FastAPI tree to `main`.
+**Why:** Menny: include the time if given and convert to Eastern. Flask ships on `main`; FastAPI stays parked.
 **Status:** DECIDED
 
 
