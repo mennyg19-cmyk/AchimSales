@@ -4,6 +4,10 @@
 `cursor/fastapi-rebuild-parked-0a24`. Production `main` is the Flask site until
 cutover is tried again. Resume from that branch, not from Flask `main`.
 
+**Switch Flask ↔ FastAPI:** follow [CUTOVER.md](CUTOVER.md). Do not merge this
+history into Flask `main`. App Settings and Startup Command already match both
+stacks.
+
 FastAPI home site. Nightly work is the in-app schedules (one-minute clock), not
 Azure Automation. Report rows come from the office Reporting API
 (`POST /api/reports/{id}/run`) when `REPORTING_API_KEY` is set.
@@ -14,8 +18,9 @@ The website lives in `app/`. Azure Startup Command is
 OData Automation CLI (`run.py`, `runbooks/`) are gone from this tree.
 GitHub history on `main` still has every old commit.
 
-**Production branch is `main`.** Cutover is this merge: FastAPI boots on
-`achim-sales-reports`. Leftover Flask PR #35 stays parked.
+**Production branch is `main`.** Cutover is CUTOVER.md (`read-tree` a FastAPI
+tag onto `main`), not a merge of this history into Flask. Leftover Flask PR
+#35 stays parked.
 
 ## Copy live data (precious.db)
 

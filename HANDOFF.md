@@ -1,8 +1,10 @@
 # Session Handoff
 
-Last updated: 2026-09-16 (FastAPI rebuild parked; production rolling back to Flask)
+Last updated: 2026-09-17 (FastAPI parked; Flask live; CUTOVER.md)
 
-**Status:** FastAPI rebuild is **paused**, not discarded. Production should run the last Flask site (`4f94afc`). Resume rebuild from this branch.
+**Status:** FastAPI rebuild is **paused**, not discarded. Production should run the last Flask site. Resume rebuild from this branch.
+
+**Switch Flask ↔ FastAPI:** [CUTOVER.md](CUTOVER.md). Do not merge this history into Flask `main`. Azure App Settings stay as they are.
 
 ## Working tree (resume here)
 
@@ -10,7 +12,7 @@ Last updated: 2026-09-16 (FastAPI rebuild parked; production rolling back to Fla
 - **Also at this commit:** `cursor/hotfix-tab-freeze-0a24`
 - **Repo:** AchimSales
 - **Prod URL while rolled back:** https://reports.achimonline.com (Flask)
-- **Do not merge this branch to `main` until Menny says cut over again**
+- **Do not merge this branch to `main`.** To put FastAPI on the public URL, follow CUTOVER.md checklist A (`git read-tree` this tagged tree onto `main`).
 
 ## What's done (FastAPI)
 
@@ -31,7 +33,7 @@ Last updated: 2026-09-16 (FastAPI rebuild parked; production rolling back to Fla
 2. Do not treat leftover Flask PR #35 as the rebuild.
 3. REPORTING_API must never be reports.achimonline.com.
 4. Still not built: P4.I8 salesman map, Customer Aging, Flask companion-xlsx spill for huge B1 sheets.
-5. Cutover again: merge parked FastAPI to `main` (only `main` deploys). Then import People:
+5. Cutover again: CUTOVER.md checklist A (`read-tree` the newest `fastapi-rebuild-parked-*` tag onto `main`). Then if People is empty:
    `python3 import-precious.py /home/LogFiles/home-precious.db --dest /tmp/homedata/home.sqlite`
    Last line must say `into /tmp/homedata/home.sqlite`. Wait, then Achim User Login.
 
