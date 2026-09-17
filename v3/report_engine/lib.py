@@ -176,6 +176,77 @@ def iso_date(value: Any) -> str:
     return s
 
 
+def eastern_datetime(value: Any) -> str:
+    """Timestamp cell: Eastern wall clock, with time when the source had one.
+
+    Date-only values stay YYYY-MM-DD (same as iso_date, no TZ shift). RFC-1123
+    and ISO datetimes convert to America/New_York as 'YYYY-MM-DD HH:MM:SS'.
+    Naive datetimes are treated as UTC (Reporting API GMT).
+    """
+    from datetime import date as _date, datetime as _datetime, timezone as _timezone
+
+    from report_engine.dates import EASTERN
+
+    if value in _BLANKS:
+        return ""
+    if isinstance(value, _datetime):
+        return _eastern_clock(value, EASTERN, _timezone)
+    if isinstance(value, _date):
+        return value.isoformat()
+    s = str(value).strip()
+    if not s:
+        return ""
+    if s.upper() in ("N/A", "NA", "NONE", "-"):
+        return s
+    parsed, has_clock = _parse_clock(s, _datetime)
+    if parsed is None:
+        return iso_date(value)
+    if not has_clock:
+        return parsed.date().isoformat()
+    return _eastern_clock(parsed, EASTERN, _timezone)
+
+
+def _eastern_clock(dt, eastern, timezone_mod) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone_mod.utc)
+    return dt.astimezone(eastern).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_clock(s: str, datetime_cls):
+    """Return (datetime, has_clock) or (None, False) when nothing parses."""
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        has_clock = len(s) > 10 and (s[10] in "T " or ":" in s[10:])
+        try:
+            parsed = datetime_cls.fromisoformat(s.replace("Z", "+00:00"))
+            return parsed, has_clock
+        except ValueError:
+            try:
+                parsed = datetime_cls.strptime(s[:10], "%Y-%m-%d")
+                return parsed, False
+            except ValueError:
+                pass
+    try:
+        from email.utils import parsedate_to_datetime
+
+        parsed = parsedate_to_datetime(s)
+        if parsed is not None:
+            return parsed, True
+    except (TypeError, ValueError, IndexError):
+        pass
+    for fmt in _RFC1123_FMTS:
+        try:
+            return datetime_cls.strptime(s, fmt), True
+        except ValueError:
+            continue
+    head = s.replace("T", " ").split(" ")[0]
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d", "%d/%m/%Y"):
+        try:
+            return datetime_cls.strptime(head, fmt), False
+        except ValueError:
+            continue
+    return None, False
+
+
 def salesman_key(sales_group: str | None) -> str:
     """Normalize a SalesGroup to the salesmen.key form (lowercase alphanumeric)."""
     return re.sub(r"[^a-z0-9]+", "", (sales_group or "").strip().lower())
