@@ -157,7 +157,8 @@ def test_home_lists_all_cards(client):
     login(client)
     html = client.get("/").text
     for title in ("Ordered", "Invoiced", "Salesman", "Number 4", "Customer Activity",
-                  "Item Averages", "Sales by State", "Customer Aging"):
+                  "Item Averages", "Sales by State", "Customer Transaction Detail",
+                  "Customer Aging"):
         assert title in html
     assert "Last Order" in html
     assert "/report/customer-last-order" in html
@@ -604,6 +605,44 @@ def test_item_averages_allow_still_admin_only(client):
     assert client.get("/reports/item_averages", follow_redirects=False).status_code == 302
     run = client.post("/api/reports/item_averages/run", json={}, headers=csrf_headers(client))
     assert run.status_code == 404
+
+
+def test_salesman_does_not_see_customer_transaction_detail(client):
+    login(client)
+    become(client, "salesman@achimonline.com")
+    html = client.get("/").text
+    assert "Customer Transaction Detail" not in html
+    hidden = client.get("/reports/customer_transaction_detail", follow_redirects=False)
+    assert hidden.status_code == 302
+    run = client.post(
+        "/api/reports/customer_transaction_detail/run",
+        json={},
+        headers=csrf_headers(client),
+    )
+    assert run.status_code == 404
+
+
+def test_customer_transaction_detail_view_and_mock(client):
+    login(client)
+    html = client.get("/reports/customer_transaction_detail").text
+    assert "Customer Transaction Detail" in html
+    assert 'name="invoice"' in html
+    assert 'name="open_balance"' in html
+    assert 'value="last_7_days" selected' in html
+    payload = client.post(
+        "/api/reports/customer_transaction_detail/run",
+        json={},
+        headers=csrf_headers(client),
+    ).json()
+    tab = payload["data"]["tabs"]["transactions"]
+    assert tab["name"] == "Transactions"
+    assert len(tab["rows"]) == 2
+    assert [row["OffsetRecId"] for row in tab["rows"]] == ["A", "B"]
+    assert tab["rows"][0]["RecId"] == "111"
+    by_field = {col["field"]: col for col in tab["columns"]}
+    assert by_field["AmountMST"]["sum"] is False
+    assert by_field["RemainAmountCur"]["sum"] is False
+    assert by_field["SettleAmountCur"].get("sum") is not False
 
 
 def test_manager_sees_company_schedules_not_others_personal(client):

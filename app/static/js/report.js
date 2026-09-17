@@ -33,6 +33,10 @@ function collectParams() {
   if (document.getElementById("customerPicker")) {
     params.customers = selectedCustomers.slice();
   }
+  const invoice = document.getElementById("invoiceInput");
+  if (invoice) params.invoice = invoice.value.trim();
+  const openBalance = document.getElementById("openBalanceInput");
+  if (openBalance) params.open_balance = openBalance.checked ? "1" : "";
   params.report_key = controls.getAttribute("data-report-key");
   return params;
 }
@@ -190,6 +194,14 @@ function applySavedParams(params) {
   if (Array.isArray(params.customers)) {
     selectedCustomers = params.customers.slice();
     renderPills();
+  }
+  const invoice = document.getElementById("invoiceInput");
+  if (invoice && params.invoice != null) invoice.value = params.invoice;
+  const openBalance = document.getElementById("openBalanceInput");
+  if (openBalance && params.open_balance != null) {
+    const raw = Array.isArray(params.open_balance) ? params.open_balance[0] : params.open_balance;
+    const flag = String(raw || "").trim().toLowerCase();
+    openBalance.checked = ["1", "true", "on", "yes"].includes(flag);
   }
   toggleCustomDates();
 }
