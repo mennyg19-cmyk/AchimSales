@@ -49,6 +49,13 @@ def _params_from_request(body: dict, spec: dict) -> dict:
         if isinstance(raw, str):
             raw = [part.strip() for part in raw.split(",") if part.strip()]
         params["customers"] = raw
+    if "invoice" in filters:
+        params["invoice"] = body.get("invoice") or ""
+    if "open_balance" in filters:
+        raw_open = body.get("open_balance")
+        if isinstance(raw_open, (list, tuple)):
+            raw_open = raw_open[0] if raw_open else ""
+        params["open_balance"] = raw_open or ""
     return params
 
 

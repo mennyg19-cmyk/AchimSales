@@ -112,6 +112,23 @@ def translate_last_order(params: dict) -> dict:
     return out
 
 
+def _flag_on(raw) -> bool:
+    if isinstance(raw, (list, tuple)):
+        raw = raw[0] if raw else ""
+    return str(raw or "").strip().lower() in {"1", "true", "on", "yes"}
+
+
+def translate_customer_transaction_detail(params: dict) -> dict:
+    out = _date_range(params, "CreatedDateTimeFrom", "CreatedDateTimeTo")
+    if acct := _one_customer(params):
+        out["AccountNum"] = acct
+    if invoice := _csv(params.get("invoice") or params.get("Invoice")):
+        out["Invoice"] = invoice
+    if _flag_on(params.get("open_balance")):
+        out["RemainAmountCurMin"] = 0.01
+    return out
+
+
 REPORT_IDS = {
     "ordered": "ordered_report",
     "invoiced": "invoiced_report",
@@ -121,6 +138,7 @@ REPORT_IDS = {
     "customer_activity": "customer_activity",
     "customer_last_order": "customer_last_orders",
     "sales_by_state": "sales_by_state_summary",
+    "customer_transaction_detail": "customertransactiondetail",
 }
 
 NUMBER_4_ITEM_SP = "item_customer_sales_rolling_12"
@@ -138,6 +156,7 @@ _TRANSLATORS = {
     "customer_activity": translate_customer_activity,
     "sales_by_state": translate_sales_by_state,
     "customer_last_order": translate_last_order,
+    "customer_transaction_detail": translate_customer_transaction_detail,
 }
 
 

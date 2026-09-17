@@ -12,6 +12,7 @@ _KNOWN: dict[str, str] = {
     "invoice": "text",
     "customeraccount": "text",
     "customeraccountnum": "text",
+    "accountnum": "text",
     "cust": "text",
     "customername": "text",
     "customer": "text",
@@ -37,6 +38,13 @@ _KNOWN: dict[str, str] = {
     "shippedfrom": "text",
     "sourceaddress": "text",
     "deliveryaddress": "text",
+    "recid": "text",
+    "offsetrecid": "text",
+    "voucher": "text",
+    "offsetvoucher": "text",
+    "offsettransvoucher": "text",
+    "transtype": "text",
+    "company": "text",
     "invoicedate": "date",
     "orderdate": "date",
     "expectedarrivaldate": "date",
@@ -181,10 +189,15 @@ def salesman_band(field: str, col_index: int = -1, report_key: str = "") -> int 
     return None
 
 
-def can_sum(field: str, col_type: str) -> bool:
+def can_sum(field: str, col_type: str, report_key: str = "") -> bool:
     if col_type not in {"money", "int"}:
         return False
-    return fold(field) != "netprice"
+    folded = fold(field)
+    if folded == "netprice":
+        return False
+    if report_key == "customer_transaction_detail" and folded in {"amountmst", "remainamountcur"}:
+        return False
+    return True
 
 
 def _incoming_list(incoming) -> list[dict]:
@@ -250,7 +263,7 @@ def columns_for(
         )
         col["type"] = kind
         col.setdefault("header", field)
-        if col.get("sum") is not False and not can_sum(field, kind):
+        if col.get("sum") is not False and not can_sum(field, kind, report_key):
             col["sum"] = False
         band = col.get("band")
         if not isinstance(band, int):
