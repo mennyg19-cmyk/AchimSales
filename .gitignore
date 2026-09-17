@@ -15,6 +15,9 @@ _history_backup/
 *.xlsx
 .cursor/*
 !.cursor/rules/
+!.cursor/environment.json
+!.cursor/install.sh
+!.cursor/run-dev.sh
 
 *.log
 logs/*.err
@@ -46,3 +49,7 @@ app/.venv/
 
 # CI-vendored Azure site-packages (workflow writes this)
 /deps/
+
+# Local Python virtualenv and v3 local DB / runtime state
+.venv/
+.data/

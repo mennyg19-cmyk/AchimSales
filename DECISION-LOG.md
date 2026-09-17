@@ -1,3 +1,10 @@
+## 2026-09-17 Walkthrough + CodeGraph patch apply
+**What I had to decide:** Apply MasterGenAIInstructions `achim-sales-walkthrough-codegraph.patch` as-is vs keep AchimSales Azure gitignore / parked FastAPI boot.
+**Options I considered:** `git am` the patch unchanged; merge gitignore and skip Flask `install.sh` on the parked FastAPI tree; one PR only onto `main`.
+**What I chose:** On `main`, keep `*.sqlite*`, `app/data/`, `app/.venv/`, and `/deps/` (Azure CI vendor dir) while still un-ignoring `.cursor/environment.json` / `install.sh` / `run-dev.sh`. On parked FastAPI, copy the rule files and README row, but write FastAPI `install.sh` / `run-dev.sh` (no Flask `webapp/`/`v3/`/`wsgi`). Two PRs: this branch → `main`, a second branch → `cursor/fastapi-rebuild-parked-0a24`. Did not touch `deploy-awareness.mdc` Azure targets or `git-discipline.mdc` PR rules.
+**Why:** User: preserve Azure targets, do not wipe git-discipline PR rules, put the walkthrough rule on main **and** the parked rebuild. Flask env scripts would fail on the FastAPI tree.
+**Status:** DECIDED
+
 ## 2026-09-16 CTD totals and open-only list param
 **What I had to decide:** Sum repeated original Amount/Remaining on settlement rows vs leave those footers blank; treat JSON `open_balance: ["1"]` as checked.
 **Options I considered:** Keep default money sums (Excel showed $200/$80 for one $100 invoice); `sum: False` on AmountMST and RemainAmountCur only; disable every money total; leave list `open_balance` as form-only.
