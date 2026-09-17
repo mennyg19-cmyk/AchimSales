@@ -1,8 +1,8 @@
 ## 2026-09-17 Two-way Flask ↔ FastAPI switch checklist
 **What I had to decide:** How to switch the same Azure app between Flask and parked FastAPI without rediscovering sqlite/Litestream, and without editing App Settings.
 **Options I considered:** Merge parked branch into `main`; Azure Deployment Center redeploy only; `git read-tree` a tagged tree onto `main` and keep both sqlite replicas.
-**What I chose:** Document `CUTOVER.md`. Leave Azure variables and Startup Command (`bash /home/site/wwwroot/startup.sh`) unchanged. Replace `main`'s tree with `git read-tree -u --reset <tag>` (Flask tag `flask-prod-2026-09-17`, FastAPI tag `fastapi-rebuild-parked-2026-09-16` until the parked branch is retagged). Two sqlite worlds stay separate (`BETA_PRECIOUS_DB_PATH` vs `APP_DB_PATH` / blob `home.sqlite`). Snapshot `/home/LogFiles/home-precious.db` before Flask→FastAPI; import dest `/tmp/homedata/home.sqlite` if People is empty. Never mix the two DB files. Do not switch live in this commit.
-**Why:** Menny: Flask is up, FastAPI saved, all Azure vars already set; want a checklist to switch either way.
+**What I chose:** Document `CUTOVER.md`. Windows: `switch-site.bat` / `switch-site.ps1` (type SWITCH, then git read-tree + watch the Action; Azure SSH snapshot/import is copy-paste because `/tmp` is on the box). Leave Azure variables and Startup Command (`bash /home/site/wwwroot/startup.sh`) unchanged. Replace `main`'s tree with `git read-tree -u --reset <tag>` (newest `flask-prod-*` / `fastapi-rebuild-parked-*`). Two sqlite worlds stay separate (`BETA_PRECIOUS_DB_PATH` vs `APP_DB_PATH` / blob `home.sqlite`). Snapshot `/home/LogFiles/home-precious.db` before Flask→FastAPI; import dest `/tmp/homedata/home.sqlite` if People is empty. Never mix the two DB files. Do not switch live in this commit.
+**Why:** Menny: Flask is up, FastAPI saved, all Azure vars already set; want a checklist to switch either way; then a bat that does it.
 **Status:** DECIDED
 
 ## 2026-09-16 Roll production back to Flask; FastAPI parked

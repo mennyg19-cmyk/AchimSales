@@ -4,7 +4,9 @@ Last updated: 2026-09-17 (Flask live; two-way switch checklist)
 
 **Status:** reports.achimonline.com should be the **old Flask** site. FastAPI rebuild is parked, not deleted.
 
-**Switch Flask ↔ FastAPI:** [CUTOVER.md](CUTOVER.md). App Settings are already in Azure. Do not switch until asked.
+**Switch Flask ↔ FastAPI:** double-click `switch-site.bat` (type `SWITCH` to
+confirm) or follow [CUTOVER.md](CUTOVER.md). App Settings are already in Azure.
+Do not switch until asked.
 
 ## Working tree
 

@@ -4,9 +4,9 @@
 rebuild is saved on `cursor/fastapi-rebuild-parked-0a24` (tag
 `fastapi-rebuild-parked-2026-09-16`). Do not delete that branch.
 
-**Switch Flask ↔ FastAPI:** follow [CUTOVER.md](CUTOVER.md). Azure App
-Settings and the Startup Command already match both stacks — do not edit
-them to switch. Only `main` deploys.
+**Switch Flask ↔ FastAPI:** double-click `switch-site.bat` or follow
+[CUTOVER.md](CUTOVER.md). Azure App Settings and the Startup Command already
+match both stacks — do not edit them to switch. Only `main` deploys.
 
 Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
 scheduled Azure Automation jobs, on demand via a Flask web app, or locally
@@ -304,7 +304,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
-| Home site rebuild (`app/`) | **Parked on `cursor/fastapi-rebuild-parked-0a24` (tag `fastapi-rebuild-parked-2026-09-16`).** Production `main` is Flask until Menny cuts over again. Switch either way with [CUTOVER.md](CUTOVER.md) (`git read-tree` a tag onto `main`). Do not merge leftover Flask PR #35 onto the FastAPI branch. |
+| Home site rebuild (`app/`) | **Parked on `cursor/fastapi-rebuild-parked-0a24`.** Production `main` is Flask until Menny cuts over again. Switch either way with `switch-site.bat` / [CUTOVER.md](CUTOVER.md) (`git read-tree` a tag onto `main`). Do not merge leftover Flask PR #35 onto the FastAPI branch. |
 | Rebuild review models until cutover | **Cheap/Everyday only (Grok, Composer, Terra).** Do not spawn Fable or Sol until Menny asks for go-live / whole-app premier loops. User override of `review-protocol.mdc` premier table for this rebuild. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Do not open a new Cloud Agent branch and PR for the next small ask. Stack it on this agent's last open PR so it can merge together. **Two agents at once → two PRs** (do not share a branch). Details in `git-discipline.mdc`. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
