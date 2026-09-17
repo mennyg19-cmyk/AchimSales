@@ -40,7 +40,8 @@ jobs:
       # Home site is app/ (FastAPI). p/default also packs rules that do not
       # match how this app is written: Django CSRF looks for {% csrf_token %};
       # SQL rules flag SQLite execute() with ? params; integrity wants CDN
-      # hashes; urllib flags Graph/Hebcal HTTP.
+      # hashes; urllib flags Graph/Hebcal HTTP; Flask "route returns format
+      # string" flags entra.py URL helpers that are not Flask routes.
       - name: Run semgrep (FastAPI home)
         run: >
           semgrep scan --config p/default --error app
@@ -49,6 +50,7 @@ jobs:
           --exclude-rule python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
           --exclude-rule python.lang.security.audit.formatted-sql-query.formatted-sql-query
           --exclude-rule python.flask.security.injection.tainted-sql-string.tainted-sql-string
+          --exclude-rule python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
           --exclude-rule html.security.audit.missing-integrity.missing-integrity
           --exclude-rule python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
           --exclude-rule python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
