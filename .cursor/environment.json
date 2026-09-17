@@ -1,0 +1,14 @@
+{
+  "name": "D365 Sales Reports (FastAPI parked)",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "dev-server",
+      "command": "bash .cursor/run-dev.sh",
+      "description": "FastAPI home on port 8080 with preview Achim User Login. No Graph/Reporting API key needed; catalog mock stays on."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 8080 }
+  ]
+}

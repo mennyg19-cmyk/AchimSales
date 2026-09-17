@@ -15,6 +15,9 @@ _history_backup/
 *.xlsx
 .cursor/*
 !.cursor/rules/
+!.cursor/environment.json
+!.cursor/install.sh
+!.cursor/run-dev.sh
 
 *.log
 logs/*.err
@@ -44,3 +47,7 @@ test/data/fixtures/*.csv
 rebuild/.rebuild-data/
 app/.venv/
 app/deps/
+
+# Local Python virtualenv and runtime state
+.venv/
+.data/

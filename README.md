@@ -171,5 +171,6 @@ Standing choices when rules disagree (also used by agents):
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Home site rebuild (`app/`) | **Parked.** FastAPI lives on `cursor/fastapi-rebuild-parked-0a24`. Production `main` is Flask until Menny cuts over again. Do not merge leftover Flask PR #35 onto the FastAPI branch. |
 | Rebuild review models | Cutover skipped Sol/Fable loops by Menny order (logged). Later whole-app premier loops still Fable/Sol. |
+| Codebase walkthrough | **`walkthrough-protocol.mdc`**, GPT **Luna only** (hard stop if wrong model). Triggers: walkthrough / walk me through / give me a walkthrough / codebase tour. Not the same as `review`. |
 | Follow-up on an open PR | **Same agent → same branch / same PR.** Two agents at once → two PRs. |
 | Unrelated dirty tree | Stage only the files for this change; leave scratch/other WIP alone. |

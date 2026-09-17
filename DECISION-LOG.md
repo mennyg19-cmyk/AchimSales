@@ -1,3 +1,10 @@
+## 2026-09-17 Walkthrough + CodeGraph on parked FastAPI
+**What I had to decide:** Apply the Flask `install.sh` / `wsgi` Cloud Agent scripts from the MasterGenAIInstructions patch vs FastAPI boot.
+**Options I considered:** Copy Flask env scripts unchanged; rules-only (no `environment.json`); FastAPI `install.sh` + uvicorn on 8080.
+**What I chose:** Same walkthrough / CodeGraph / vocabulary / subagents / `AGENTS.md` as the `main` PR. FastAPI `install.sh` installs `app/requirements.txt` and CodeGraph. `run-dev.sh` is uvicorn on 8080 (`APP_ENV=preview`). Left `deploy-awareness.mdc` Azure targets and `git-discipline.mdc` PR rules alone. Kept `app/.venv/` and `app/deps/` gitignore.
+**Why:** This tree has no `webapp/`, `v3/`, or `wsgi.py`. User asked for the walkthrough rule on the parked rebuild too.
+**Status:** DECIDED
+
 ## 2026-09-17 Two-way Flask ↔ FastAPI switch checklist
 **What I had to decide:** How to switch the same Azure app between Flask and this parked FastAPI tree without merging the two histories or editing App Settings.
 **Options I considered:** Merge this branch into `main`; Azure redeploy only; `git read-tree` a tagged tree onto `main`.
