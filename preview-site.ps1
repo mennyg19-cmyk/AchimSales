@@ -37,12 +37,43 @@ function Get-AzText {
 }
 
 function Clear-PreviewWorktree([string]$Path) {
+    Set-Location $Root
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
     git worktree remove --force $Path 2>&1 | Out-Null
     git worktree prune 2>&1 | Out-Null
+    if (Test-Path $Path) { Remove-Item -Recurse -Force $Path 2>&1 | Out-Null }
     $ErrorActionPreference = $prev
-    if (Test-Path $Path) { Remove-Item -Recurse -Force $Path }
+}
+
+function Install-LinuxDeps([string]$AppDir) {
+    $py = $null
+    foreach ($name in @("py", "python", "python3")) {
+        if (Get-Command $name -ErrorAction SilentlyContinue) { $py = $name; break }
+    }
+    if (-not $py) {
+        Write-Host "Python is not on PATH. Azure will try to install packages itself (slower)." -ForegroundColor Yellow
+        return $false
+    }
+    $dest = Join-Path $AppDir "deps"
+    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    Write-Host "Downloading Linux packages (Azure python has no pip)..." -ForegroundColor Cyan
+    $pipArgs = @(
+        "-m", "pip", "install", "--target", $dest,
+        "--platform", "manylinux2014_x86_64",
+        "--python-version", "3.11",
+        "--implementation", "cp",
+        "--abi", "cp311",
+        "--only-binary=:all:",
+        "-r", (Join-Path $AppDir "requirements.txt")
+    )
+    if ($py -eq "py") { & py -3 @pipArgs } else { & $py @pipArgs }
+    $ok = ($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $dest "gunicorn"))
+    if (-not $ok) {
+        Write-Host "Could not vendor Linux packages. Azure will build them on deploy (can take several minutes)." -ForegroundColor Yellow
+        if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    }
+    return $ok
 }
 
 Write-Host "Using parked FastAPI branch (does not change main / the live site)." -ForegroundColor Cyan
@@ -128,13 +159,35 @@ try {
         Write-Host "Web app $Name already exists. Deploying onto it." -ForegroundColor DarkGray
     }
 
+    $startup = Join-Path $work "app\startup.sh"
+    $startupText = [System.IO.File]::ReadAllText($startup)
+    $startupText = $startupText.Replace(
+        "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/.venv/bin/python`"`r`nelse`r`n  PY=`"`$(command -v python3)`"`r`nfi",
+        "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/.venv/bin/python`"`r`nelif [ -x `"`${ROOT}/antenv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/antenv/bin/python`"`r`nelse`r`n  PY=`"`$(command -v python3)`"`r`nfi"
+    )
+    if ($startupText -notmatch "antenv/bin/python") {
+        $startupText = $startupText.Replace(
+            "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`n  PY=`"`${ROOT}/.venv/bin/python`"`nelse`n  PY=`"`$(command -v python3)`"`nfi",
+            "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`n  PY=`"`${ROOT}/.venv/bin/python`"`nelif [ -x `"`${ROOT}/antenv/bin/python`" ]; then`n  PY=`"`${ROOT}/antenv/bin/python`"`nelse`n  PY=`"`$(command -v python3)`"`nfi"
+        )
+    }
+    [System.IO.File]::WriteAllText($startup, $startupText)
+
+    $vendored = Install-LinuxDeps (Join-Path $work "app")
+    $buildFlag = "false"
+    if (-not $vendored) { $buildFlag = "true" }
+
     $copy = @(
         "REPORTING_API_KEY", "REPORTING_API_BASE_URL",
-        "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET",
         "EMAIL_FROM", "EMAIL_FROM_ADDRESS", "SP_SITE_URL",
         "FLASK_SECRET", "FLASK_SECRET_KEY"
     )
-    $pairs = @("APP_ENV=preview", "APP_DB_PATH=/tmp/homedata/home.sqlite")
+    $pairs = @(
+        "APP_ENV=preview",
+        "APP_DB_PATH=/tmp/homedata/home.sqlite",
+        "SCM_DO_BUILD_DURING_DEPLOYMENT=$buildFlag",
+        "ENABLE_ORYX_BUILD=$buildFlag"
+    )
     foreach ($key in $copy) {
         $got = Get-AzText -AzArgs @(
             "webapp", "config", "appsettings", "list",
@@ -147,6 +200,11 @@ try {
     $setArgs = @("webapp", "config", "appsettings", "set", "--name", $Name, "--resource-group", $ResourceGroup, "--settings") + $pairs
     $set = Get-AzText -AzArgs $setArgs
     if ($set.Code -ne 0) { throw "Could not set preview App Settings.`n$($set.Text)" }
+    Get-AzText -AzArgs @(
+        "webapp", "config", "appsettings", "delete",
+        "--name", $Name, "--resource-group", $ResourceGroup,
+        "--setting-names", "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET"
+    ) | Out-Null
 
     $boot = Get-AzText -AzArgs @("webapp", "config", "set", "--name", $Name, "--resource-group", $ResourceGroup, "--startup-file", "bash /home/site/wwwroot/startup.sh")
     if ($boot.Code -ne 0) { throw "Could not set Startup Command.`n$($boot.Text)" }
@@ -161,5 +219,5 @@ try {
 $hostGot = Get-AzText -AzArgs @("webapp", "show", "--name", $Name, "--resource-group", $ResourceGroup, "--query", "defaultHostName", "-o", "tsv")
 Write-Host ""
 Write-Host "Preview: https://$($hostGot.Text)/login" -ForegroundColor Green
-Write-Host "Achim User Login is Preview Admin (Entra stays on the live host)."
+Write-Host "Achim User Login is Preview Admin. Entra stays on the live site."
 Write-Host "reports.achimonline.com is still Flask."
