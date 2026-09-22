@@ -8,6 +8,9 @@ Last updated: 2026-09-17 (Flask live; two-way switch checklist)
 confirm) or follow [CUTOVER.md](CUTOVER.md). App Settings are already in Azure.
 Do not switch until asked.
 
+**Test FastAPI without cutover:** `.\preview-site.ps1` (new Azure app, never
+the live site). A Cloudflare tunnel is only while an agent VM is up.
+
 ## Working tree
 
 - **Production branch:** `main` (this Flask tree, last good Flask commit `4f94afc` plus Azure boot patches)

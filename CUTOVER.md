@@ -205,7 +205,24 @@ python3 -c "import os,sqlite3; p=os.environ.get('BETA_PRECIOUS_DB_PATH') or '/tm
 
 ---
 
-## Resume FastAPI work (without switching live)
+## Preview FastAPI without cutting over
+
+Do **not** run `switch-site.bat` / checklist A for this. Production stays Flask.
+
+**Lasting preview (your PC, Azure CLI logged in):**
+
+```powershell
+az login
+.\preview-site.ps1
+```
+
+That creates/deploys `achim-sales-preview` (or `-Name` you pass). It refuses
+`achim-sales-reports`. Copies Reporting API + Graph settings from the live
+app. Does not copy Litestream. Open `https://<name>.azurewebsites.net/login`
+→ **Achim User Login**.
+
+**Throwaway Cloudflare tunnel:** an agent can run the parked tree locally and
+print a `*.trycloudflare.com` URL. That URL dies when the agent VM stops.
 
 ```powershell
 git fetch origin
