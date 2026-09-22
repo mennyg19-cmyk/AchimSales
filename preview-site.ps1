@@ -30,12 +30,23 @@ git fetch origin cursor/fastapi-rebuild-parked-0a24
 if ($LASTEXITCODE -ne 0) { throw "git fetch failed." }
 
 $work = Join-Path $env:TEMP "achim-fastapi-preview-src"
+git worktree remove --force $work 2>$null
+git worktree prune 2>$null
 if (Test-Path $work) { Remove-Item -Recurse -Force $work }
 git worktree add --detach $work origin/cursor/fastapi-rebuild-parked-0a24
 if ($LASTEXITCODE -ne 0) { throw "Could not check out the parked FastAPI tree." }
 
+function Test-WebAppExists([string]$AppName) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $listed = az webapp list --resource-group $ResourceGroup --query "[].name" -o tsv
+    $ErrorActionPreference = $prev
+    if ($LASTEXITCODE -ne 0) { throw "Could not list Web Apps in $ResourceGroup. Check az login." }
+    return @($listed -split "\r?\n" | Where-Object { $_ }) -contains $AppName
+}
+
 try {
-    $exists = az webapp show --name $Name --resource-group $ResourceGroup --query name -o tsv 2>$null
+    $exists = Test-WebAppExists $Name
     if (-not $exists) {
         $planId = az webapp show --name $LiveName --resource-group $ResourceGroup --query appServicePlanId -o tsv
         if (-not $planId) { throw "Could not read the live app's plan. Check az login and $LiveName." }
