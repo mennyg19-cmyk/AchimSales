@@ -30,9 +30,17 @@ git fetch origin cursor/fastapi-rebuild-parked-0a24
 if ($LASTEXITCODE -ne 0) { throw "git fetch failed." }
 
 $work = Join-Path $env:TEMP "achim-fastapi-preview-src"
-git worktree remove --force $work 2>$null
-git worktree prune 2>$null
-if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+
+function Clear-PreviewWorktree([string]$Path) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    git worktree remove --force $Path
+    git worktree prune
+    $ErrorActionPreference = $prev
+    if (Test-Path $Path) { Remove-Item -Recurse -Force $Path }
+}
+
+Clear-PreviewWorktree $work
 git worktree add --detach $work origin/cursor/fastapi-rebuild-parked-0a24
 if ($LASTEXITCODE -ne 0) { throw "Could not check out the parked FastAPI tree." }
 
@@ -80,7 +88,7 @@ try {
     & (Join-Path $work "app\deploy.ps1") -Name $Name
     if ($LASTEXITCODE -ne 0) { throw "Preview deploy failed." }
 } finally {
-    git worktree remove --force $work 2>$null
+    Clear-PreviewWorktree $work
 }
 
 $hostName = az webapp show --name $Name --resource-group $ResourceGroup --query defaultHostName -o tsv
