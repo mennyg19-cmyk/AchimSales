@@ -30,7 +30,7 @@ function Get-AzText {
     param([string[]]$AzArgs)
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
-    $text = az @AzArgs | Out-String
+    $text = az @AzArgs 2>&1 | Out-String
     $code = $LASTEXITCODE
     $ErrorActionPreference = $prev
     return @{ Code = $code; Text = $text.Trim() }
@@ -74,13 +74,45 @@ if (-not $live) {
 if (-not $ResourceGroup) { $ResourceGroup = $live.resourceGroup }
 $planName = $Plan
 if (-not $planName -and $live.plan) { $planName = $live.plan.Split("/")[-1] }
+
+function Name-FromId([string]$Id) {
+    if (-not $Id) { return "" }
+    $leaf = $Id.Trim().Split("/")[-1]
+    if ($leaf -match "^(ERROR|WARNING|Could not)") { return "" }
+    return $leaf
+}
+
 if (-not $planName) {
-    $plans = Get-AzText -AzArgs @("appservice", "plan", "list", "--resource-group", $ResourceGroup, "--query", "[].name", "-o", "tsv")
-    $planNames = @($plans.Text -split "\r?\n" | Where-Object { $_ })
-    if ($planNames.Count -eq 1) { $planName = $planNames[0] }
+    $shown = Get-AzText -AzArgs @("webapp", "show", "--name", $LiveName, "--resource-group", $ResourceGroup, "-o", "json")
+    if ($shown.Code -eq 0 -and $shown.Text.StartsWith("{")) {
+        $site = $shown.Text | ConvertFrom-Json
+        $planName = Name-FromId ([string]$site.appServicePlanId)
+        if (-not $planName) { $planName = Name-FromId ([string]$site.serverFarmId) }
+    }
 }
 if (-not $planName) {
-    throw "Found $LiveName in $ResourceGroup but not its plan. Re-run with -Plan `"YourPlanName`"."
+    $farmId = Get-AzText -AzArgs @(
+        "resource", "show", "--resource-group", $ResourceGroup,
+        "--resource-type", "Microsoft.Web/sites", "--name", $LiveName,
+        "--query", "properties.serverFarmId", "-o", "tsv"
+    )
+    $planName = Name-FromId $farmId.Text
+}
+if (-not $planName) {
+    $farms = Get-AzText -AzArgs @("resource", "list", "--resource-type", "Microsoft.Web/serverfarms", "-o", "json")
+    if ($farms.Code -eq 0 -and $farms.Text.StartsWith("[")) {
+        $all = @($farms.Text | ConvertFrom-Json)
+        $inGroup = @($all | Where-Object { $_.resourceGroup -eq $ResourceGroup })
+        if ($inGroup.Count -eq 1) { $planName = $inGroup[0].name }
+        elseif ($all.Count -eq 1) { $planName = $all[0].name }
+        else {
+            $lines = @($all | ForEach-Object { "$($_.name)  ($($_.resourceGroup))" }) -join "`n"
+            throw "Found $LiveName in $ResourceGroup but not its plan. Plans I can see:`n$lines`nRe-run: .\preview-site.ps1 -Plan `"PlanName`""
+        }
+    }
+}
+if (-not $planName) {
+    throw "Found $LiveName in $ResourceGroup but Azure did not return a plan name. In the portal open achim-sales-reports -> App Service plan, then run: .\preview-site.ps1 -Plan `"that name`""
 }
 
 Write-Host "Live app $LiveName is in $ResourceGroup on plan $planName." -ForegroundColor DarkGray
