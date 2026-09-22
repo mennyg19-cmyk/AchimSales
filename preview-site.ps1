@@ -30,7 +30,7 @@ function Get-AzText {
     param([string[]]$AzArgs)
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "SilentlyContinue"
-    $text = az @AzArgs 2>&1 | Out-String
+    $text = az @AzArgs --only-show-errors 2>$null | Out-String
     $code = $LASTEXITCODE
     $ErrorActionPreference = $prev
     return @{ Code = $code; Text = $text.Trim() }
@@ -171,6 +171,7 @@ try {
         'fi',
         'echo "preview-startup python=$(command -v python3)"',
         'if [ -d ./deps ]; then echo "preview-startup deps=yes"; else echo "preview-startup deps=no"; fi',
+        'python3 -c "import sys; sys.path.insert(0, ''deps''); import gunicorn, uvicorn, fastapi; print(''preview-startup imports-ok'')" || echo "preview-startup import-failed"',
         'exec python3 -m gunicorn --worker-class uvicorn.workers.UvicornWorker --bind "0.0.0.0:${PORT:-8000}" --workers 1 --timeout 120 --access-logfile - --error-logfile - main:app'
     )
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -189,7 +190,8 @@ try {
         "APP_ENV=preview",
         "APP_DB_PATH=/tmp/homedata/home.sqlite",
         "SCM_DO_BUILD_DURING_DEPLOYMENT=$buildFlag",
-        "ENABLE_ORYX_BUILD=$buildFlag"
+        "ENABLE_ORYX_BUILD=$buildFlag",
+        "WEBSITES_PORT=8000"
     )
     foreach ($key in $copy) {
         $got = Get-AzText -AzArgs @(
@@ -216,14 +218,22 @@ try {
     $deployText = [System.IO.File]::ReadAllText($deployScript)
     $oldDeploy = 'az webapp deploy --name $Name --resource-group AchimReportsApp --type zip --src-path $zipPath'
     $newDeploy = @'
-Write-Host "Stopping the preview app so Kudu can take the zip..."
-az webapp stop --name $Name --resource-group AchimReportsApp
-Start-Sleep -Seconds 15
-Write-Host "Deploying once. A healthy start finishes in about a minute."
-az webapp deployment source config-zip --name $Name --resource-group AchimReportsApp --src $zipPath --timeout 420
-$deployed = ($LASTEXITCODE -eq 0)
-az webapp start --name $Name --resource-group AchimReportsApp | Out-Null
-if (-not $deployed) { throw "Zip deploy failed. The site did not stay up." }
+Write-Host "Uploading the zip (this does not wait 20 minutes for the site)..."
+az webapp deploy --name $Name --resource-group AchimReportsApp --src-path $zipPath --type zip --async true --timeout 600
+if ($LASTEXITCODE -ne 0) { throw "Zip upload failed." }
+az webapp config set --name $Name --resource-group AchimReportsApp --startup-file "bash /home/site/wwwroot/startup.sh"
+az webapp restart --name $Name --resource-group AchimReportsApp
+Write-Host "Waiting up to 2 minutes for /healthz..."
+$up = $false
+foreach ($try in 1..12) {
+    Start-Sleep -Seconds 10
+    try {
+        $code = (Invoke-WebRequest -Uri "https://$Name.azurewebsites.net/healthz" -UseBasicParsing -TimeoutSec 15).StatusCode
+        if ($code -eq 200) { $up = $true; break }
+    } catch { }
+    Write-Host "  still starting ($try)..."
+}
+if (-not $up) { throw "Preview did not answer /healthz." }
 '@
     if (-not $deployText.Contains($oldDeploy)) {
         throw "Parked deploy.ps1 changed. Cannot swap in the Kudu retry."
