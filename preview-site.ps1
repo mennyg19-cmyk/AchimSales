@@ -160,18 +160,21 @@ try {
     }
 
     $startup = Join-Path $work "app\startup.sh"
-    $startupText = [System.IO.File]::ReadAllText($startup)
-    $startupText = $startupText.Replace(
-        "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/.venv/bin/python`"`r`nelse`r`n  PY=`"`$(command -v python3)`"`r`nfi",
-        "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/.venv/bin/python`"`r`nelif [ -x `"`${ROOT}/antenv/bin/python`" ]; then`r`n  PY=`"`${ROOT}/antenv/bin/python`"`r`nelse`r`n  PY=`"`$(command -v python3)`"`r`nfi"
+    $startupLines = @(
+        '#!/usr/bin/env bash',
+        'echo "preview-startup start port=${PORT:-unset}"',
+        'cd "$(dirname "$0")"',
+        'export APP_DB_PATH="${APP_DB_PATH:-/tmp/homedata/home.sqlite}"',
+        'mkdir -p "$(dirname "$APP_DB_PATH")" || true',
+        'if [ -d "./deps" ]; then',
+        '  export PYTHONPATH="./deps${PYTHONPATH:+:$PYTHONPATH}"',
+        'fi',
+        'echo "preview-startup python=$(command -v python3)"',
+        'if [ -d ./deps ]; then echo "preview-startup deps=yes"; else echo "preview-startup deps=no"; fi',
+        'exec python3 -m gunicorn --worker-class uvicorn.workers.UvicornWorker --bind "0.0.0.0:${PORT:-8000}" --workers 1 --timeout 120 --access-logfile - --error-logfile - main:app'
     )
-    if ($startupText -notmatch "antenv/bin/python") {
-        $startupText = $startupText.Replace(
-            "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`n  PY=`"`${ROOT}/.venv/bin/python`"`nelse`n  PY=`"`$(command -v python3)`"`nfi",
-            "if [ -x `"`${ROOT}/.venv/bin/python`" ]; then`n  PY=`"`${ROOT}/.venv/bin/python`"`nelif [ -x `"`${ROOT}/antenv/bin/python`" ]; then`n  PY=`"`${ROOT}/antenv/bin/python`"`nelse`n  PY=`"`$(command -v python3)`"`nfi"
-        )
-    }
-    [System.IO.File]::WriteAllText($startup, $startupText)
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($startup, (($startupLines -join "`n") + "`n"), $utf8)
 
     $vendored = Install-LinuxDeps (Join-Path $work "app")
     $buildFlag = "false"
@@ -216,17 +219,11 @@ try {
 Write-Host "Stopping the preview app so Kudu can take the zip..."
 az webapp stop --name $Name --resource-group AchimReportsApp
 Start-Sleep -Seconds 15
-$deployed = $false
-foreach ($attempt in 1..3) {
-    Write-Host "Deploy attempt $attempt of 3..."
-    az webapp deployment source config-zip --name $Name --resource-group AchimReportsApp --src $zipPath --timeout 1800
-    if ($LASTEXITCODE -eq 0) { $deployed = $true; break }
-    Write-Host "Kudu returned an error. Waiting, then trying again." -ForegroundColor Yellow
-    az webapp restart --name $Name --resource-group AchimReportsApp
-    Start-Sleep -Seconds 30
-}
+Write-Host "Deploying once. A healthy start finishes in about a minute."
+az webapp deployment source config-zip --name $Name --resource-group AchimReportsApp --src $zipPath --timeout 420
+$deployed = ($LASTEXITCODE -eq 0)
 az webapp start --name $Name --resource-group AchimReportsApp | Out-Null
-if (-not $deployed) { throw "Zip deploy failed after 3 tries. The preview app was left started." }
+if (-not $deployed) { throw "Zip deploy failed. The site did not stay up." }
 '@
     if (-not $deployText.Contains($oldDeploy)) {
         throw "Parked deploy.ps1 changed. Cannot swap in the Kudu retry."
@@ -234,8 +231,23 @@ if (-not $deployed) { throw "Zip deploy failed after 3 tries. The preview app wa
     [System.IO.File]::WriteAllText($deployScript, $deployText.Replace($oldDeploy, $newDeploy.TrimEnd()))
 
     Write-Host "Zip-deploying parked FastAPI (not the live site)..." -ForegroundColor Cyan
-    & $deployScript -Name $Name
-    if ($LASTEXITCODE -ne 0) { throw "Preview deploy failed." }
+    try {
+        & $deployScript -Name $Name
+    } catch {
+        $logZip = Join-Path $env:TEMP "achim-preview-logs.zip"
+        $logDir = Join-Path $env:TEMP "achim-preview-logs"
+        Write-Host "Fetching startup logs..." -ForegroundColor Yellow
+        az webapp log download --name $Name --resource-group $ResourceGroup --log-file $logZip
+        if (Test-Path $logZip) {
+            if (Test-Path $logDir) { Remove-Item -Recurse -Force $logDir }
+            Expand-Archive -Path $logZip -DestinationPath $logDir -Force
+            Get-ChildItem $logDir -Recurse -File | Sort-Object Length -Descending | Select-Object -First 4 | ForEach-Object {
+                Write-Host "---- $($_.Name) ----" -ForegroundColor Yellow
+                Get-Content -Path $_.FullName -Tail 30
+            }
+        }
+        throw
+    }
 } finally {
     Clear-PreviewWorktree $work
 }
