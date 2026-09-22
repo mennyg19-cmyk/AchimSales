@@ -209,8 +209,32 @@ try {
     $boot = Get-AzText -AzArgs @("webapp", "config", "set", "--name", $Name, "--resource-group", $ResourceGroup, "--startup-file", "bash /home/site/wwwroot/startup.sh")
     if ($boot.Code -ne 0) { throw "Could not set Startup Command.`n$($boot.Text)" }
 
+    $deployScript = Join-Path $work "app\deploy.ps1"
+    $deployText = [System.IO.File]::ReadAllText($deployScript)
+    $oldDeploy = 'az webapp deploy --name $Name --resource-group AchimReportsApp --type zip --src-path $zipPath'
+    $newDeploy = @'
+Write-Host "Stopping the preview app so Kudu can take the zip..."
+az webapp stop --name $Name --resource-group AchimReportsApp
+Start-Sleep -Seconds 15
+$deployed = $false
+foreach ($attempt in 1..3) {
+    Write-Host "Deploy attempt $attempt of 3..."
+    az webapp deployment source config-zip --name $Name --resource-group AchimReportsApp --src $zipPath --timeout 1800
+    if ($LASTEXITCODE -eq 0) { $deployed = $true; break }
+    Write-Host "Kudu returned an error. Waiting, then trying again." -ForegroundColor Yellow
+    az webapp restart --name $Name --resource-group AchimReportsApp
+    Start-Sleep -Seconds 30
+}
+az webapp start --name $Name --resource-group AchimReportsApp | Out-Null
+if (-not $deployed) { throw "Zip deploy failed after 3 tries. The preview app was left started." }
+'@
+    if (-not $deployText.Contains($oldDeploy)) {
+        throw "Parked deploy.ps1 changed. Cannot swap in the Kudu retry."
+    }
+    [System.IO.File]::WriteAllText($deployScript, $deployText.Replace($oldDeploy, $newDeploy.TrimEnd()))
+
     Write-Host "Zip-deploying parked FastAPI (not the live site)..." -ForegroundColor Cyan
-    & (Join-Path $work "app\deploy.ps1") -Name $Name
+    & $deployScript -Name $Name
     if ($LASTEXITCODE -ne 0) { throw "Preview deploy failed." }
 } finally {
     Clear-PreviewWorktree $work
