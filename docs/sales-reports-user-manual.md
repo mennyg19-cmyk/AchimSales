@@ -1,10 +1,15 @@
-# Sales Reports User Manual
+# Sales Reports Beta (v3) User Manual
+
+This guide is for the Beta v3 site. It is separate from the FastAPI rebuild
+manual and does not describe the FastAPI preview.
 
 Use this guide to sign in, run reports, save views, change the report layout,
 and send reports on a schedule.
 
-The screenshots show the local preview with representative data. The labels and
-steps match the user-facing site.
+The screenshots show the local preview with representative data. The local
+preview may show a small `v3` badge; the deployed Beta site shows `Beta` in
+that same header position. The report controls and workflow are the Beta v3
+site's controls.
 
 ## Quick rules
 
