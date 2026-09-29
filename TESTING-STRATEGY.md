@@ -42,6 +42,15 @@
 
 **Expected behavior:** The company Default used on screen and on a scheduled send is the normalized layout. The explorer format panel is the way to set it before a run.
 
+## FastAPI Report Formatter (`app/`)
+
+**What to test:**
+- Admin and developer open `/dev/report-formatter` and see report tabs, `+ Add`, and Flat list. A salesman gets 403 on `/api/dev/report-format`.
+- The format list includes Default, company views, and every user's personal view labeled `Owner — name`.
+- Saving a personal view changes group/sort/filter and leaves its period alone. Saving a named company format does not change Company Default.
+
+**Expected behavior:** Same formatter as the live Flask page. Columns come from catalog mock tabs, not the office Reporting API.
+
 **Test files:** `v3/tests/test_normalized_views.py`, `v3/tests/test_report_format.py`, `v3/tests/test_blueprints.py`
 
 ## Normalized views round-trip (new tables vs old JSON)

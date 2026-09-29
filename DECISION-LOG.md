@@ -1,3 +1,10 @@
+## 2026-09-29 FastAPI Report Formatter uses company view Company Default
+**What I had to decide:** How Default works on the FastAPI app, which has no `kind=default` row.
+**Options I considered:** Add a `default` kind to match Flask; treat any company view named Default as the default; use the company view the report page already saves as Company Default.
+**What I chose:** Default in the formatter is the company view named Company Default. Other company views and every user's personal views are separate rows. A new format name creates a company view. Saving layout does not rewrite period, salesmen, or customers. This folder is still not the live site.
+**Why:** Menny asked for the same formatter on the FastAPI app. The report page already writes company_default as kind company, name Company Default.
+**Status:** DECIDED
+
 ## 2026-09-29 View format uses the normalized tables only
 **What I had to decide:** Drop the old JSON view tables now vs keep them until schedule tables move too; what the explorer format screen edits.
 **Options I considered:** Leave `report_defaults.layout_json` as the Default source; drop only that table; drop `saved_reports`, `company_views`, and `report_defaults` together; also drop `schedules` / `master_schedules` in the same pass.
