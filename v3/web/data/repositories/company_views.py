@@ -1,29 +1,26 @@
 """Named company-wide views (shared filters + layout).
 
-Default is still one-per-report in ``report_defaults``. These are extra named
-views everyone can pick in Saved views and on schedules.
-
-Reads always assemble from the normalized `views` tree (syncing from JSON
-once if missing). JSON is not returned for live use.
+Default is one-per-report (kind ``default``). These are extra named views
+(kind ``company``) everyone can pick in Saved views and on schedules.
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from dataclasses import dataclass
 
 from web.data.connection import Database
 from web.data.normalized_views import (
-    assemble_legacy_view,
-    drop_synced_view_conn,
-    sync_company_view_conn,
+    _upsert_view,
+    assemble_layout,
+    assemble_params,
+    assign_handles,
+    canonicalize_layout,
+    canonicalize_params,
+    company_view_id,
+    next_legacy_id,
 )
 from web.data.repositories.report_defaults import CUSTOM_VIEW_NAME, DEFAULT_VIEW_NAME, normalize_view_name
-
-_NAME_MAX = 120
-
 
 @dataclass(frozen=True)
 class CompanyView:
@@ -35,28 +32,33 @@ class CompanyView:
     updated_at: str
     updated_by: int | None
 
-    @classmethod
-    def from_row(cls, r: sqlite3.Row) -> "CompanyView":
-        keys = r.keys()
-        updated_by = r["updated_by"] if "updated_by" in keys else None
-        return cls(
-            id=r["id"], report_key=r["report_key"], name=r["name"],
-            params=json.loads(r["params_json"] or "{}"),
-            layout=json.loads(r["layout_json"] or "{}"),
-            updated_at=r["updated_at"],
-            updated_by=int(updated_by) if updated_by is not None else None,
-        )
+_SOURCE = "company_views"
 
 
-def _hydrate(conn: sqlite3.Connection, row: CompanyView) -> CompanyView:
-    got = assemble_legacy_view(conn, "company_views", row.id)
-    if got is None:
-        sync_company_view_conn(conn, row.id)
-        got = assemble_legacy_view(conn, "company_views", row.id)
-    if got is None:
-        return replace(row, params={}, layout={})
-    params, layout = got
-    return replace(row, params=params, layout=layout)
+def _select() -> str:
+    return (
+        "SELECT views.legacy_id AS id, views.report_key, views.name, views.updated_at,"
+        " views.updated_by_handle, views.id AS view_id"
+        " FROM views WHERE kind='company' AND legacy_source=?"
+    )
+
+
+def _one(conn: sqlite3.Connection, row: sqlite3.Row | None) -> CompanyView | None:
+    if row is None:
+        return None
+    updated_by = None
+    if row["updated_by_handle"]:
+        user = conn.execute(
+            "SELECT id FROM users WHERE handle=?", (row["updated_by_handle"],),
+        ).fetchone()
+        updated_by = int(user["id"]) if user else None
+    return CompanyView(
+        id=int(row["id"]), report_key=row["report_key"], name=row["name"],
+        params=assemble_params(conn, row["view_id"]),
+        layout=assemble_layout(conn, row["view_id"]),
+        updated_at=row["updated_at"] or "",
+        updated_by=updated_by,
+    )
 
 
 class CompanyViewRepository:
@@ -66,9 +68,9 @@ class CompanyViewRepository:
     def get(self, view_id: int) -> CompanyView | None:
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM company_views WHERE id=?", (view_id,),
+                _select() + " AND legacy_id=?", (_SOURCE, view_id),
             ).fetchone()
-            return _hydrate(conn, CompanyView.from_row(row)) if row else None
+            return _one(conn, row)
 
     def get_by_name(self, report_key: str, name: str) -> CompanyView | None:
         wanted = normalize_view_name(name)
@@ -76,10 +78,10 @@ class CompanyViewRepository:
             return None
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM company_views WHERE report_key=? AND name=?",
-                (report_key, wanted),
+                _select() + " AND report_key=? AND name=?",
+                (_SOURCE, report_key, wanted),
             ).fetchone()
-            return _hydrate(conn, CompanyView.from_row(row)) if row else None
+            return _one(conn, row)
 
     def get_layout(self, report_key: str, name: str) -> dict:
         row = self.get_by_name(report_key, name)
@@ -88,39 +90,39 @@ class CompanyViewRepository:
     def list_for_report(self, report_key: str) -> list[CompanyView]:
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT * FROM company_views WHERE report_key=? ORDER BY name COLLATE NOCASE",
-                (report_key,),
+                _select() + " AND report_key=? ORDER BY name COLLATE NOCASE",
+                (_SOURCE, report_key),
             ).fetchall()
-            return [_hydrate(conn, CompanyView.from_row(r)) for r in rows]
+            return [v for r in rows if (v := _one(conn, r))]
 
     def list_all(self) -> list[CompanyView]:
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT * FROM company_views ORDER BY report_key, name COLLATE NOCASE",
+                _select() + " ORDER BY report_key, name COLLATE NOCASE",
+                (_SOURCE,),
             ).fetchall()
-            return [_hydrate(conn, CompanyView.from_row(r)) for r in rows]
+            return [v for r in rows if (v := _one(conn, r))]
 
     def upsert(self, report_key: str, name: str, *, params: dict, layout: dict,
                updated_by: int | None) -> CompanyView:
         stripped = normalize_view_name(name)
         if stripped in (DEFAULT_VIEW_NAME, CUSTOM_VIEW_NAME):
             raise ValueError("That name is reserved.")
-        ts = datetime.now(timezone.utc).isoformat()
         with self.db.precious() as conn:
-            conn.execute(
-                "INSERT INTO company_views(report_key, name, params_json, layout_json,"
-                " updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(report_key, name) DO UPDATE SET"
-                " params_json=excluded.params_json, layout_json=excluded.layout_json,"
-                " updated_at=excluded.updated_at, updated_by=excluded.updated_by",
-                (report_key, stripped, json.dumps(params or {}),
-                 json.dumps(layout or {}), ts, updated_by),
-            )
-            row = conn.execute(
-                "SELECT id FROM company_views WHERE report_key=? AND name=?",
-                (report_key, stripped),
+            handles = assign_handles(conn)
+            existing = conn.execute(
+                _select() + " AND report_key=? AND name=?",
+                (_SOURCE, report_key, stripped),
             ).fetchone()
-            sync_company_view_conn(conn, row["id"])
+            legacy_id = int(existing["id"]) if existing else next_legacy_id(conn, _SOURCE)
+            _upsert_view(
+                conn, view_id=company_view_id(report_key, stripped), kind="company",
+                report_key=report_key, name=stripped, owner_handle=None,
+                params=canonicalize_params(params),
+                layout=canonicalize_layout(layout),
+                updated_by_handle=handles.get(updated_by) if updated_by else None,
+                legacy_source=_SOURCE, legacy_id=legacy_id,
+            )
         saved = self.get_by_name(report_key, stripped)
         if saved is None:
             raise RuntimeError(f"failed to save company view {report_key}/{stripped}")
@@ -128,10 +130,14 @@ class CompanyViewRepository:
 
     def delete(self, view_id: int, report_key: str) -> bool:
         with self.db.precious() as conn:
-            cur = conn.execute(
-                "DELETE FROM company_views WHERE id=? AND report_key=?",
-                (view_id, report_key),
-            )
-            if cur.rowcount > 0:
-                drop_synced_view_conn(conn, "company_views", view_id)
+            row = conn.execute(
+                "SELECT id FROM views WHERE legacy_source=? AND legacy_id=? AND report_key=?",
+                (_SOURCE, view_id, report_key),
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                cur = conn.execute("DELETE FROM views WHERE id=?", (row["id"],))
+            except sqlite3.IntegrityError:
+                return False
             return cur.rowcount > 0

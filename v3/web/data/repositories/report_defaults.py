@@ -1,17 +1,24 @@
 """Company-wide Default view per report (layout + filters).
 
-Personal saved views stay in ``saved_reports``. Default is shared so schedules
-that use it pick up edits on the next send when they have no locked snapshot.
+Stored on ``views`` (kind ``default``) plus the layout tables. Schedules that
+use Default pick up the next edit. There is no JSON copy.
 """
 
 from __future__ import annotations
 
-import json
-import sqlite3
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from web.data.connection import Database
-from web.data.normalized_views import live_default_payload, sync_report_default_conn
+from web.data.normalized_views import (
+    _legacy_int,
+    _upsert_view,
+    assemble_layout,
+    assemble_params,
+    assign_handles,
+    canonicalize_layout,
+    canonicalize_params,
+    default_view_id,
+)
 
 DEFAULT_VIEW_NAME = "Default"
 CUSTOM_VIEW_NAME = "Custom"
@@ -89,18 +96,6 @@ class ReportDefault:
     updated_at: str
     updated_by: int | None
 
-    @classmethod
-    def from_row(cls, r: sqlite3.Row) -> "ReportDefault":
-        keys = r.keys()
-        updated_by = r["updated_by"] if "updated_by" in keys else None
-        return cls(
-            report_key=r["report_key"],
-            params=json.loads(r["params_json"] or "{}"),
-            layout=json.loads(r["layout_json"] or "{}"),
-            updated_at=r["updated_at"],
-            updated_by=int(updated_by) if updated_by is not None else None,
-        )
-
 
 class ReportDefaultRepository:
     def __init__(self, db: Database):
@@ -109,15 +104,25 @@ class ReportDefaultRepository:
     def get(self, report_key: str) -> ReportDefault | None:
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM report_defaults WHERE report_key=?",
+                "SELECT * FROM views WHERE kind='default' AND report_key=?",
                 (report_key,),
             ).fetchone()
             if row is None:
                 return None
-            out = ReportDefault.from_row(row)
-        params, layout = live_default_payload(
-            self.db, report_key, out.params, out.layout)
-        return replace(out, params=params, layout=layout)
+            updated_by = None
+            if row["updated_by_handle"]:
+                user = conn.execute(
+                    "SELECT id FROM users WHERE handle=?",
+                    (row["updated_by_handle"],),
+                ).fetchone()
+                updated_by = int(user["id"]) if user else None
+            return ReportDefault(
+                report_key=row["report_key"],
+                params=assemble_params(conn, row["id"]),
+                layout=assemble_layout(conn, row["id"]),
+                updated_at=row["updated_at"],
+                updated_by=updated_by,
+            )
 
     def get_layout(self, report_key: str) -> dict:
         row = self.get(report_key)
@@ -127,18 +132,17 @@ class ReportDefaultRepository:
                updated_by: int | None) -> ReportDefault:
         from datetime import datetime, timezone
 
-        ts = datetime.now(timezone.utc).isoformat()
         with self.db.precious() as conn:
-            conn.execute(
-                "INSERT INTO report_defaults(report_key, params_json, layout_json,"
-                " updated_at, updated_by) VALUES (?, ?, ?, ?, ?)"
-                " ON CONFLICT(report_key) DO UPDATE SET"
-                " params_json=excluded.params_json, layout_json=excluded.layout_json,"
-                " updated_at=excluded.updated_at, updated_by=excluded.updated_by",
-                (report_key, json.dumps(params or {}), json.dumps(layout or {}),
-                 ts, updated_by),
+            handles = assign_handles(conn)
+            _upsert_view(
+                conn, view_id=default_view_id(report_key), kind="default",
+                report_key=report_key, name=DEFAULT_VIEW_NAME, owner_handle=None,
+                params=canonicalize_params(params),
+                layout=canonicalize_layout(layout),
+                updated_by_handle=handles.get(updated_by) if updated_by else None,
+                legacy_source="report_defaults",
+                legacy_id=_legacy_int(report_key),
             )
-            sync_report_default_conn(conn, report_key)
         saved = self.get(report_key)
         if saved is None:
             raise RuntimeError(f"failed to save Default view for {report_key}")

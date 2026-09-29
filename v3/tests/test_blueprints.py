@@ -3389,10 +3389,11 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
 
 
 def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
-    """Developers can filter saved_reports, run SELECT, and rewrite layout_json.
+    """Developers can filter views, run SELECT, and reject a bad layout_json.
     DROP is blocked. Admins cannot run SQL."""
     import json
     from web.data.repositories.saved_reports import SavedReportRepository
+    from web.data.repositories.schedules import ScheduleRepository
 
     app = _make_app(tmp_path)
     admin = app.test_client()
@@ -3405,6 +3406,7 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     _login(dev, app, email="dev@x.com", role="developer")
     html = dev.get("/dev/db-explorer").get_data(as_text=True)
     assert 'id="dbxSql"' in html
+    assert 'id="dbxFormatReport"' in html
     assert 'id="dbxJsonModal"' in html
     assert "data-sql-url" in html
     assert "Pretty print" in html
@@ -3422,27 +3424,28 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     saved.create(uid, "invoiced", "Inv", {}, {"views": {}})
 
     filtered = dev.get(
-        "/api/dev/db/table/saved_reports?col=report_key&colq=ordered",
+        "/api/dev/db/table/views?col=legacy_source&colq=saved_reports",
     ).get_json()
-    assert filtered["total"] == 2
-    assert {r["name"] for r in filtered["rows"]} == {"Mine", "Theirs"}
+    assert filtered["total"] == 3
+    assert {r["name"] for r in filtered["rows"]} == {"Mine", "Theirs", "Inv"}
 
     sql = dev.post("/api/dev/db/sql", json={
         "db": "precious",
-        "sql": "SELECT id, name, report_key, layout_json FROM saved_reports WHERE report_key = 'ordered' ORDER BY name",
+        "sql": "SELECT legacy_id, name, report_key FROM views"
+               " WHERE report_key = 'ordered' AND legacy_source = 'saved_reports'"
+               " ORDER BY name",
     }, headers={"X-CSRF-Token": _CSRF})
     assert sql.status_code == 200, sql.get_data(as_text=True)
     body = sql.get_json()
     assert body["kind"] == "query"
-    assert body["table"] == "saved_reports"
-    assert body["primary_key"] == "id"
+    assert body["table"] == "views"
     assert [r["name"] for r in body["rows"]] == ["Mine", "Theirs"]
     mine = next(r for r in body["rows"] if r["name"] == "Mine")
-    layout = json.loads(mine["layout_json"])
-    assert layout["views"]["by_order"]["group"] == ["OrderNumber"]
+    saved_row = SavedReportRepository(app.config["DB"]).get_any(mine["legacy_id"])
+    assert saved_row.layout["views"]["by_order"]["group"] == ["OrderNumber"]
 
     drop = dev.post("/api/dev/db/sql", json={
-        "db": "precious", "sql": "DROP TABLE saved_reports",
+        "db": "precious", "sql": "DROP TABLE views",
     }, headers={"X-CSRF-Token": _CSRF})
     assert drop.status_code == 400
     attach = dev.post("/api/dev/db/sql", json={
@@ -3450,25 +3453,25 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     }, headers={"X-CSRF-Token": _CSRF})
     assert attach.status_code == 400
 
+    sid = ScheduleRepository(app.config["DB"]).create(
+        uid, "ordered", params={}, layout={"views": {"by_order": {"group": ["Salesman"]}}},
+        cadence={"freq": "daily", "time": "08:00"})
     new_layout = json.dumps({"views": {"by_order": {"group": []}}})
-    patched = dev.post("/api/dev/db/table/saved_reports/cell", json={
-        "db": "precious", "column": "layout_json", "pk": mine["id"], "value": new_layout,
+    patched = dev.post("/api/dev/db/table/schedules/cell", json={
+        "db": "precious", "column": "layout_json", "pk": sid, "value": new_layout,
     }, headers={"X-CSRF-Token": _CSRF})
     assert patched.status_code == 200, patched.get_data(as_text=True)
-    after = SavedReportRepository(app.config["DB"]).get_any(mine["id"])
-    assert after.layout["views"]["by_order"]["group"] == []
+    assert SavedReportRepository(app.config["DB"]).get_any(mine["legacy_id"]).layout["views"]["by_order"]["group"] == ["OrderNumber"]
 
-    missing = dev.post("/api/dev/db/table/saved_reports/cell", json={
-        "db": "precious", "column": "layout_json", "pk": mine["id"],
+    missing = dev.post("/api/dev/db/table/schedules/cell", json={
+        "db": "precious", "column": "layout_json", "pk": sid,
         "value": json.dumps({"views": {"by_order": {}}}),
     }, headers={"X-CSRF-Token": _CSRF})
     assert missing.status_code == 400
     assert "missing group" in missing.get_json()["error"]
-    still = SavedReportRepository(app.config["DB"]).get_any(mine["id"])
-    assert still.layout["views"]["by_order"]["group"] == []
 
     syntax = dev.post("/api/dev/db/sql", json={
-        "db": "precious", "sql": "SELECT * FORM saved_reports",
+        "db": "precious", "sql": "SELECT * FORM views",
     }, headers={"X-CSRF-Token": _CSRF})
     assert syntax.status_code == 400
     assert "SQL will not run" in syntax.get_json()["error"]
@@ -3476,18 +3479,44 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     escaped = json.dumps({"views": {"by_order": {"hidden": []}}}).replace("'", "''")
     bad_sql = dev.post("/api/dev/db/sql", json={
         "db": "precious",
-        "sql": f"UPDATE saved_reports SET layout_json = '{escaped}' WHERE id = {mine['id']}",
+        "sql": f"UPDATE schedules SET layout_json = '{escaped}' WHERE id = {sid}",
     }, headers={"X-CSRF-Token": _CSRF})
     assert bad_sql.status_code == 400
     assert "missing group" in bad_sql.get_json()["error"]
 
     wrote = dev.post("/api/dev/db/sql", json={
         "db": "precious",
-        "sql": "UPDATE saved_reports SET name='Mine2' WHERE id = %d" % mine["id"],
+        "sql": "UPDATE views SET name='Mine2' WHERE legacy_source = 'saved_reports' AND legacy_id = %d" % mine["legacy_id"],
     }, headers={"X-CSRF-Token": _CSRF})
     assert wrote.status_code == 200
     assert wrote.get_json()["kind"] == "exec"
-    assert SavedReportRepository(app.config["DB"]).get_any(mine["id"]).name == "Mine2"
+    assert SavedReportRepository(app.config["DB"]).get_any(mine["legacy_id"]).name == "Mine2"
+
+
+def test_report_format_saves_default_without_running(tmp_path):
+    app = _make_app(tmp_path)
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    loaded = dev.get("/api/dev/db/report-format?report_key=ordered")
+    assert loaded.status_code == 200
+    body = loaded.get_json()
+    assert "by_order" in [t["key"] for t in body["tabs"]]
+    saved = dev.post("/api/dev/db/report-format", json={
+        "report_key": "ordered",
+        "tabs": [{
+            "key": "by_order",
+            "set_group": True,
+            "group": ["Salesman"],
+            "sorters": [{"column": "OrderDate", "dir": "desc"}],
+            "filters": [{"column": "Status", "op": "contains", "v": "Open", "v2": ""}],
+        }],
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert saved.status_code == 200, saved.get_data(as_text=True)
+    again = dev.get("/api/dev/db/report-format?report_key=ordered").get_json()
+    tab = again["layout"]["views"]["by_order"]
+    assert tab["group"] == ["Salesman"]
+    assert tab["sorters"] == [{"column": "OrderDate", "dir": "desc"}]
+    assert tab["columnFilters"]["Status"]["op"] == "contains"
 
 
 def test_dev_reporting_passthrough_returns_every_column(tmp_path):

@@ -31,7 +31,8 @@ def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
+def apply_migrations(path: Path, migrations_dir: Path, *,
+                     skip: set[str] | None = None) -> list[str]:
     """Apply pending migrations in `migrations_dir` to the DB at `path`.
 
     Each migration's DDL AND its `schema_migrations` row are applied in a SINGLE
@@ -46,7 +47,7 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
         files = sorted(migrations_dir.glob("*.sql")) if migrations_dir.exists() else []
         for f in files:
             version = f.stem
-            if version in done:
+            if version in done or (skip and version in skip):
                 continue
             ts = datetime.now(timezone.utc).isoformat()
             # version + ts embedded as literals so the version insert lives inside
@@ -90,9 +91,14 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
         conn.close()
 
 
+_CUTOVER = "0024_drop_legacy_view_tables"
+
+
 def migrate(db: Database) -> dict[str, list[str]]:
     """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
-    precious = apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious")
+    precious_dir = _MIGRATIONS_ROOT / "precious"
+    # Copy JSON views into the normalized tables before 0024 drops those tables.
+    precious = apply_migrations(db.precious_path, precious_dir, skip={_CUTOVER})
     _ensure_users_company_views_column(db.precious_path)
     _ensure_users_sales_group_column(db.precious_path)
     from web.scheduling.personal_views import convert_personal_schedules
@@ -100,6 +106,7 @@ def migrate(db: Database) -> dict[str, list[str]]:
 
     convert_personal_schedules(db)
     project_from_legacy(db)
+    precious += apply_migrations(db.precious_path, precious_dir)
     return {
         "precious": precious,
         "cache": migrate_cache_only(db),

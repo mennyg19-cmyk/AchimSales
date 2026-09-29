@@ -32,6 +32,18 @@
 
 **Test files:** `app/tests/test_golive.py`, `app/tests/test_delivery.py`, `app/tests/test_azure_boot.py`
 
+## Report format cutover (normalized tables only)
+
+**What to test:**
+- After migrate, `saved_reports`, `company_views`, and `report_defaults` are gone.
+- Saving a Default view writes `views` kind `default` and `layout_tab_sorters`. Reading it back does not need JSON.
+- Explorer `POST /api/dev/db/report-format` sets group, sort, and filter on that Default for a tab, without running the report. “Set grouping” off omits `group`. On with `[]` is ungroup.
+- `tabs_for("ordered")` lists Summary, By Customer, By Item, By Order, By Salesman, and Full Data with column fields.
+
+**Expected behavior:** The company Default used on screen and on a scheduled send is the normalized layout. The explorer format panel is the way to set it before a run.
+
+**Test files:** `v3/tests/test_normalized_views.py`, `v3/tests/test_report_format.py`, `v3/tests/test_blueprints.py`
+
 ## Normalized views round-trip (new tables vs old JSON)
 
 **What to test:** spec `v3/docs/normalized-views.md`

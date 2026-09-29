@@ -22,6 +22,8 @@ from web.data.normalized_views import (
     view_id_for_layout_row,
     write_table_from_sql,
 )
+from web.data.repositories.report_defaults import ReportDefaultRepository
+from web.reporting.report_format import apply_format, report_choices, tabs_for
 
 devtools_bp = Blueprint("devtools", __name__)
 
@@ -151,6 +153,49 @@ def db_explorer_page():
         "db_explorer.html", active_tab="settings",
         precious_path=str(db.precious_path), cache_path=str(db.cache_path),
     )
+
+
+@devtools_bp.get("/api/dev/db/report-format")
+@require_login
+def api_report_format():
+    blocked = _require_developer()
+    if blocked:
+        return blocked
+    report_key = (request.args.get("report_key") or "ordered").strip()
+    tabs = tabs_for(report_key)
+    if not tabs and report_key not in {r["key"] for r in report_choices()}:
+        return jsonify({"error": "Unknown report"}), 404
+    row = ReportDefaultRepository(current_app.config["DB"]).get(report_key)
+    layout = row.layout if row else {}
+    return jsonify({
+        "reports": report_choices(),
+        "report_key": report_key,
+        "tabs": tabs,
+        "layout": layout or {},
+    })
+
+
+@devtools_bp.post("/api/dev/db/report-format")
+@require_login
+def api_save_report_format():
+    blocked = _require_developer()
+    if blocked:
+        return blocked
+    body = request.get_json(silent=True) or {}
+    report_key = str(body.get("report_key") or "").strip()
+    if report_key not in {r["key"] for r in report_choices()}:
+        return jsonify({"error": "Unknown report"}), 400
+    repo = ReportDefaultRepository(current_app.config["DB"])
+    current = repo.get(report_key)
+    layout = apply_format(current.layout if current else {}, body.get("tabs") or [])
+    params = dict(current.params) if current else {}
+    user = UserRepository(current_app.config["DB"]).get_by_email(
+        (current_principal().email if current_principal() else "") or "")
+    saved = repo.upsert(
+        report_key, params=params, layout=layout,
+        updated_by=user.id if user else None,
+    )
+    return jsonify({"ok": True, "report_key": report_key, "layout": saved.layout})
 
 
 @devtools_bp.route("/api/dev/reporting/<report_id>/run", methods=["GET", "POST"])

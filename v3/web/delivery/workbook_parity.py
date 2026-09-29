@@ -230,16 +230,22 @@ def raw_legacy_layout(db: Database, legacy_source: str, legacy_id: int) -> dict 
     """layout_json from the old table, bypassing live-read hydrate."""
     from web.data.normalized_views import loads_json_object
 
+    table = {
+        "saved_reports": "saved_reports",
+        "company_views": "company_views",
+    }.get(legacy_source)
+    if table is None:
+        return None
     with db.precious() as conn:
-        row = None
-        if legacy_source == "saved_reports":
-            row = conn.execute(
-                "SELECT layout_json FROM saved_reports WHERE id=?", (legacy_id,),
-            ).fetchone()
-        elif legacy_source == "company_views":
-            row = conn.execute(
-                "SELECT layout_json FROM company_views WHERE id=?", (legacy_id,),
-            ).fetchone()
+        alive = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if alive is None:
+            return None
+        row = conn.execute(
+            f"SELECT layout_json FROM {table} WHERE id=?", (legacy_id,),
+        ).fetchone()
         if row is None:
             return None
         return loads_json_object(row["layout_json"])

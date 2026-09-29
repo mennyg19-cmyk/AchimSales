@@ -1,26 +1,28 @@
-"""Saved-report (preset) repository (precious.db `saved_reports` table).
+"""Saved-report (preset) repository.
 
-A preset is a named, per-user shortcut that captures a report's filter params +
-grid layout so the owner can re-open "My March Ordered view" in one click.
-Reads/writes take a user_id. Salesmen only touch their own rows; admins may use
-get_any / list_all to set up someone else's views.
-
-Reads always assemble from the normalized `views` tree (syncing from JSON
-once if the projection is missing). JSON is not returned for live GUI/clock use.
+A preset is a named, per-user shortcut: filter params + grid layout on the
+``views`` table (kind ``personal``). Integer ids are ``views.legacy_id`` so
+existing links keep working after the JSON table is gone.
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from web.data.connection import Database
 from web.data.normalized_views import (
-    assemble_legacy_view,
-    drop_synced_view_conn,
-    sync_saved_report_conn,
+    _upsert_view,
+    assemble_layout,
+    assemble_params,
+    assign_handles,
+    canonicalize_layout,
+    canonicalize_params,
+    next_legacy_id,
+    personal_view_id,
 )
+
+_SOURCE = "saved_reports"
 
 
 @dataclass(frozen=True)
@@ -33,24 +35,40 @@ class SavedReport:
     layout: dict
     created_at: str
 
-    @classmethod
-    def from_row(cls, r: sqlite3.Row) -> "SavedReport":
-        return cls(
-            id=r["id"], user_id=r["user_id"], report_key=r["report_key"],
-            name=r["name"], params=json.loads(r["params_json"] or "{}"),
-            layout=json.loads(r["layout_json"] or "{}"), created_at=r["created_at"],
-        )
+
+def _select() -> str:
+    return (
+        "SELECT v.legacy_id AS id, u.id AS user_id, v.report_key, v.name,"
+        " v.updated_at AS created_at, v.id AS view_id"
+        " FROM views v JOIN users u ON u.handle = v.owner_handle"
+        " WHERE v.kind='personal' AND v.legacy_source=?"
+    )
 
 
-def _hydrate(conn: sqlite3.Connection, row: SavedReport) -> SavedReport:
-    got = assemble_legacy_view(conn, "saved_reports", row.id)
-    if got is None:
-        sync_saved_report_conn(conn, row.id)
-        got = assemble_legacy_view(conn, "saved_reports", row.id)
-    if got is None:
-        return replace(row, params={}, layout={})
-    params, layout = got
-    return replace(row, params=params, layout=layout)
+def _one(conn: sqlite3.Connection, row: sqlite3.Row | None) -> SavedReport | None:
+    if row is None:
+        return None
+    return SavedReport(
+        id=int(row["id"]), user_id=int(row["user_id"]),
+        report_key=row["report_key"], name=row["name"],
+        params=assemble_params(conn, row["view_id"]),
+        layout=assemble_layout(conn, row["view_id"]),
+        created_at=row["created_at"] or "",
+    )
+
+
+def _write(conn: sqlite3.Connection, user_id: int, report_key: str, name: str,
+           params: dict, layout: dict, legacy_id: int) -> None:
+    handles = assign_handles(conn)
+    handle = handles.get(user_id)
+    if not handle:
+        raise RuntimeError(f"user {user_id} has no handle")
+    _upsert_view(
+        conn, view_id=personal_view_id(handle, report_key, name),
+        kind="personal", report_key=report_key, name=name, owner_handle=handle,
+        params=canonicalize_params(params), layout=canonicalize_layout(layout),
+        updated_by_handle=handle, legacy_source=_SOURCE, legacy_id=legacy_id,
+    )
 
 
 class SavedReportRepository:
@@ -60,99 +78,91 @@ class SavedReportRepository:
     def create(self, user_id: int, report_key: str, name: str,
                params: dict, layout: dict) -> int:
         """Create or overwrite (by name) a preset; returns its id."""
+        name = name.strip()
         with self.db.precious() as conn:
-            conn.execute(
-                "INSERT INTO saved_reports(user_id, report_key, name, params_json, layout_json)"
-                " VALUES (?, ?, ?, ?, ?)"
-                " ON CONFLICT(user_id, report_key, name) DO UPDATE SET"
-                "   params_json=excluded.params_json, layout_json=excluded.layout_json",
-                (user_id, report_key, name.strip(),
-                 json.dumps(params or {}), json.dumps(layout or {})),
-            )
-            row = conn.execute(
-                "SELECT id FROM saved_reports WHERE user_id=? AND report_key=? AND name=?",
-                (user_id, report_key, name.strip()),
+            existing = conn.execute(
+                _select() + " AND u.id=? AND v.report_key=? AND v.name=?",
+                (_SOURCE, user_id, report_key, name),
             ).fetchone()
-            pid = row["id"]
-            sync_saved_report_conn(conn, pid)
-            return pid
+            legacy_id = int(existing["id"]) if existing else next_legacy_id(conn, _SOURCE)
+            _write(conn, user_id, report_key, name, params, layout, legacy_id)
+            return legacy_id
 
     def list_for_user(self, user_id: int) -> list[SavedReport]:
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT * FROM saved_reports WHERE user_id=? ORDER BY report_key, name",
-                (user_id,),
+                _select() + " AND u.id=? ORDER BY v.report_key, v.name",
+                (_SOURCE, user_id),
             ).fetchall()
-            return [_hydrate(conn, SavedReport.from_row(r)) for r in rows]
+            return [s for r in rows if (s := _one(conn, r))]
 
     def list_all(self) -> list[SavedReport]:
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT * FROM saved_reports ORDER BY user_id, report_key, name",
+                _select() + " ORDER BY u.id, v.report_key, v.name",
+                (_SOURCE,),
             ).fetchall()
-            return [_hydrate(conn, SavedReport.from_row(r)) for r in rows]
+            return [s for r in rows if (s := _one(conn, r))]
 
     def get_any(self, preset_id: int) -> SavedReport | None:
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM saved_reports WHERE id=?", (preset_id,),
+                _select() + " AND v.legacy_id=?", (_SOURCE, preset_id),
             ).fetchone()
-            return _hydrate(conn, SavedReport.from_row(row)) if row else None
+            return _one(conn, row)
 
     def get_by_name(self, user_id: int, report_key: str, name: str) -> SavedReport | None:
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM saved_reports WHERE user_id=? AND report_key=? AND name=?",
-                (user_id, report_key, name.strip()),
+                _select() + " AND u.id=? AND v.report_key=? AND v.name=?",
+                (_SOURCE, user_id, report_key, name.strip()),
             ).fetchone()
-            return _hydrate(conn, SavedReport.from_row(row)) if row else None
+            return _one(conn, row)
 
     def get(self, preset_id: int, user_id: int) -> SavedReport | None:
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM saved_reports WHERE id=? AND user_id=?",
-                (preset_id, user_id),
+                _select() + " AND v.legacy_id=? AND u.id=?",
+                (_SOURCE, preset_id, user_id),
             ).fetchone()
-            return _hydrate(conn, SavedReport.from_row(row)) if row else None
+            return _one(conn, row)
 
     def update(self, preset_id: int, user_id: int, *, name: str | None = None,
                params: dict | None = None, layout: dict | None = None) -> bool:
         """Rename and/or replace filters/layout. Owner-scoped."""
-        sets: list[str] = []
-        vals: list = []
-        if name is not None:
-            stripped = name.strip()
-            if not stripped:
-                return False
-            sets.append("name=?")
-            vals.append(stripped)
-        if params is not None:
-            sets.append("params_json=?")
-            vals.append(json.dumps(params or {}))
-        if layout is not None:
-            sets.append("layout_json=?")
-            vals.append(json.dumps(layout or {}))
-        if not sets:
-            return False
-        vals.extend([preset_id, user_id])
         with self.db.precious() as conn:
+            row = conn.execute(
+                _select() + " AND v.legacy_id=? AND u.id=?",
+                (_SOURCE, preset_id, user_id),
+            ).fetchone()
+            current = _one(conn, row)
+            if current is None:
+                return False
+            new_name = current.name if name is None else name.strip()
+            if not new_name:
+                return False
             try:
-                cur = conn.execute(
-                    f"UPDATE saved_reports SET {', '.join(sets)} WHERE id=? AND user_id=?",
-                    vals,
+                _write(
+                    conn, user_id, current.report_key, new_name,
+                    current.params if params is None else params,
+                    current.layout if layout is None else layout,
+                    preset_id,
                 )
             except sqlite3.IntegrityError:
                 return False
-            if cur.rowcount == 1:
-                sync_saved_report_conn(conn, preset_id)
-            return cur.rowcount == 1
+            return True
 
     def delete(self, preset_id: int, user_id: int) -> bool:
         with self.db.precious() as conn:
-            cur = conn.execute(
-                "DELETE FROM saved_reports WHERE id=? AND user_id=?",
-                (preset_id, user_id),
-            )
-            if cur.rowcount == 1:
-                drop_synced_view_conn(conn, "saved_reports", preset_id)
+            row = conn.execute(
+                "SELECT v.id FROM views v JOIN users u ON u.handle = v.owner_handle"
+                " WHERE v.legacy_source=? AND v.legacy_id=? AND u.id=?",
+                (_SOURCE, preset_id, user_id),
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                cur = conn.execute("DELETE FROM views WHERE id=?", (row["id"],))
+            except sqlite3.IntegrityError:
+                return False
             return cur.rowcount == 1
