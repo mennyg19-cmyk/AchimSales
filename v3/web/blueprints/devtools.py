@@ -28,6 +28,7 @@ from web.data.repositories.report_defaults import (
     ReportDefaultRepository,
     normalize_view_name,
 )
+from web.data.repositories.saved_reports import SavedReportRepository
 from web.reporting.report_format import apply_format, report_choices, tabs_for
 
 devtools_bp = Blueprint("devtools", __name__)
@@ -36,6 +37,13 @@ devtools_bp = Blueprint("devtools", __name__)
 def _require_developer():
     p = current_principal()
     if p is None or not current_app.config["AUTHZ"].is_developer(p):
+        return jsonify({"error": "Forbidden"}), 403
+    return None
+
+
+def _require_privileged():
+    p = current_principal()
+    if p is None or not current_app.config["AUTHZ"].is_privileged(p):
         return jsonify({"error": "Forbidden"}), 403
     return None
 
@@ -150,7 +158,7 @@ def _sql_from_table(sql: str) -> str | None:
 @devtools_bp.get("/dev/report-formatter")
 @require_login
 def report_formatter_page():
-    blocked = _require_developer()
+    blocked = _require_privileged()
     if blocked:
         return blocked
     return render_template("report_formatter.html", active_tab="settings")
@@ -169,9 +177,96 @@ def db_explorer_page():
     )
 
 
-def _format_names(report_key: str) -> list[dict]:
-    named = CompanyViewRepository(current_app.config["DB"]).list_for_report(report_key)
-    return [{"name": DEFAULT_VIEW_NAME}, *[{"name": row.name} for row in named]]
+def _format_choices(report_key: str) -> list[dict]:
+    db = current_app.config["DB"]
+    choices = [{"id": "default", "label": DEFAULT_VIEW_NAME}]
+    for row in CompanyViewRepository(db).list_for_report(report_key):
+        choices.append({"id": f"company:{row.name}", "label": row.name})
+    owners = {
+        user.id: (user.display_name or user.email)
+        for user in UserRepository(db).list_all()
+    }
+    personal = [
+        row for row in SavedReportRepository(db).list_all()
+        if row.report_key == report_key
+    ]
+    personal.sort(key=lambda row: (owners.get(row.user_id, "").lower(), row.name.lower()))
+    for row in personal:
+        owner = owners.get(row.user_id) or f"User {row.user_id}"
+        choices.append({
+            "id": f"user:{row.user_id}:{row.id}",
+            "label": f"{owner} — {row.name}",
+        })
+    return choices
+
+
+def _parse_format(raw: str | None) -> tuple[str, object]:
+    text = (raw or "").strip()
+    if not text or text.lower() == "default":
+        return "default", ""
+    if text.startswith("company:"):
+        return "company", normalize_view_name(text.split(":", 1)[1])
+    if text.startswith("user:"):
+        parts = text.split(":")
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+            return "user", (int(parts[1]), int(parts[2]))
+        return "bad", text
+    name = normalize_view_name(text)
+    if name == DEFAULT_VIEW_NAME:
+        return "default", ""
+    return "company", name
+
+
+def _layout_for(report_key: str, kind: str, key) -> tuple[dict, str, str | None]:
+    db = current_app.config["DB"]
+    if kind == "bad":
+        return {}, "", "Unknown format."
+    if kind == "default":
+        row = ReportDefaultRepository(db).get(report_key)
+        return (row.layout if row else {}), "default", None
+    if kind == "company":
+        named = CompanyViewRepository(db).get_by_name(report_key, str(key))
+        if named is None:
+            return {}, "", f"No company format named {key}."
+        return named.layout or {}, f"company:{named.name}", None
+    user_id, preset_id = key
+    preset = SavedReportRepository(db).get(preset_id, user_id)
+    if preset is None or preset.report_key != report_key:
+        return {}, "", "That saved view was not found."
+    return preset.layout or {}, f"user:{user_id}:{preset_id}", None
+
+
+def _save_format(report_key: str, kind: str, key, tabs, updated_by: int | None):
+    db = current_app.config["DB"]
+    if kind == "default":
+        repo = ReportDefaultRepository(db)
+        current = repo.get(report_key)
+        layout = apply_format(current.layout if current else {}, tabs)
+        params = dict(current.params) if current else {}
+        saved = repo.upsert(report_key, params=params, layout=layout, updated_by=updated_by)
+        return "default", saved.layout, None, 200
+    if kind == "user":
+        user_id, preset_id = key
+        repo = SavedReportRepository(db)
+        current = repo.get(preset_id, user_id)
+        if current is None or current.report_key != report_key:
+            return "", {}, "That saved view was not found.", 404
+        layout = apply_format(current.layout, tabs)
+        if not repo.update(preset_id, user_id, layout=layout):
+            return "", {}, "That saved view was not found.", 404
+        saved = repo.get(preset_id, user_id)
+        return f"user:{user_id}:{preset_id}", (saved.layout if saved else layout), None, 200
+    company = CompanyViewRepository(db)
+    name = str(key)
+    current = company.get_by_name(report_key, name)
+    layout = apply_format(current.layout if current else {}, tabs)
+    params = dict(current.params) if current else {}
+    try:
+        saved = company.upsert(
+            report_key, name, params=params, layout=layout, updated_by=updated_by)
+    except ValueError as exc:
+        return "", {}, str(exc), 400
+    return f"company:{saved.name}", saved.layout, None, 200
 
 
 def _editor_user_id() -> int | None:
@@ -185,28 +280,22 @@ def _editor_user_id() -> int | None:
 @devtools_bp.get("/api/dev/db/report-format")
 @require_login
 def api_report_format():
-    blocked = _require_developer()
+    blocked = _require_privileged()
     if blocked:
         return blocked
     report_key = (request.args.get("report_key") or "ordered").strip()
     tabs = tabs_for(report_key)
     if not tabs and report_key not in {r["key"] for r in report_choices()}:
         return jsonify({"error": "Unknown report"}), 404
-    format_name = normalize_view_name(request.args.get("format"))
-    if format_name == DEFAULT_VIEW_NAME:
-        row = ReportDefaultRepository(current_app.config["DB"]).get(report_key)
-        layout = row.layout if row else {}
-    else:
-        named = CompanyViewRepository(current_app.config["DB"]).get_by_name(
-            report_key, format_name)
-        if named is None:
-            return jsonify({"error": f"No company format named {format_name}."}), 404
-        layout = named.layout
+    kind, key = _parse_format(request.args.get("format"))
+    layout, format_id, error = _layout_for(report_key, kind, key)
+    if error:
+        return jsonify({"error": error}), 404
     return jsonify({
         "reports": report_choices(),
         "report_key": report_key,
-        "formats": _format_names(report_key),
-        "format_name": format_name,
+        "formats": _format_choices(report_key),
+        "format_name": format_id,
         "tabs": tabs,
         "layout": layout or {},
     })
@@ -215,7 +304,7 @@ def api_report_format():
 @devtools_bp.post("/api/dev/db/report-format")
 @require_login
 def api_save_report_format():
-    blocked = _require_developer()
+    blocked = _require_privileged()
     if blocked:
         return blocked
     body = request.get_json(silent=True) or {}
@@ -225,32 +314,17 @@ def api_save_report_format():
     raw_name = body.get("format_name")
     if raw_name is not None and not str(raw_name).strip():
         return jsonify({"error": "Type a name for the new format."}), 400
-    format_name = normalize_view_name(str(raw_name) if raw_name is not None else "")
+    kind, key = _parse_format(str(raw_name) if raw_name is not None else "")
+    if kind == "bad":
+        return jsonify({"error": "Unknown format."}), 400
     updated_by = _editor_user_id()
     tabs = body.get("tabs") or []
-    if format_name == DEFAULT_VIEW_NAME:
-        repo = ReportDefaultRepository(current_app.config["DB"])
-        current = repo.get(report_key)
-        layout = apply_format(current.layout if current else {}, tabs)
-        params = dict(current.params) if current else {}
-        saved = repo.upsert(
-            report_key, params=params, layout=layout, updated_by=updated_by)
-        layout_out = saved.layout
-    else:
-        company = CompanyViewRepository(current_app.config["DB"])
-        current = company.get_by_name(report_key, format_name)
-        layout = apply_format(current.layout if current else {}, tabs)
-        params = dict(current.params) if current else {}
-        try:
-            saved = company.upsert(
-                report_key, format_name, params=params, layout=layout,
-                updated_by=updated_by)
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        format_name = saved.name
-        layout_out = saved.layout
+    saved_id, layout_out, error, status = _save_format(
+        report_key, kind, key, tabs, updated_by)
+    if error:
+        return jsonify({"error": error}), status
     return jsonify({
-        "ok": True, "report_key": report_key, "format_name": format_name,
+        "ok": True, "report_key": report_key, "format_name": saved_id,
         "layout": layout_out,
     })
 
