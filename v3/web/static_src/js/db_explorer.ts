@@ -387,6 +387,9 @@ type FormatLayout = {
   }>;
 };
 
+const NEW_FORMAT = "__new__";
+let fillingFormats = false;
+
 const FILTER_OPS: { value: string; label: string }[] = [
   { value: "contains", label: "contains" },
   { value: "equals", label: "equals" },
@@ -559,15 +562,58 @@ function renderFormat(tabs: FormatTab[], layout: FormatLayout): void {
   });
 }
 
-async function loadFormat(reportKey: string): Promise<void> {
-  const url = attr("data-format-url") + "?report_key=" + encodeURIComponent(reportKey);
-  const resp = await fetch(url, { headers: { Accept: "application/json" } });
+function syncNewFormat(): void {
+  const sel = document.getElementById("dbxFormatName") as HTMLSelectElement | null;
+  const wrap = document.getElementById("dbxFormatNewWrap");
+  if (wrap) wrap.hidden = sel?.value !== NEW_FORMAT;
+}
+
+function fillFormatNames(names: string[], selected: string): void {
+  const sel = document.getElementById("dbxFormatName") as HTMLSelectElement | null;
+  if (!sel) return;
+  fillingFormats = true;
+  sel.replaceChildren();
+  const seen = new Set<string>();
+  const add = (name: string) => {
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  };
+  add("Default");
+  names.forEach(add);
+  const created = document.createElement("option");
+  created.value = NEW_FORMAT;
+  created.textContent = "New format…";
+  sel.appendChild(created);
+  sel.value = [...sel.options].some((opt) => opt.value === selected) ? selected : "Default";
+  fillingFormats = false;
+  syncNewFormat();
+}
+
+async function loadFormat(reportKey: string, formatName = "Default"): Promise<void> {
+  const params = new URLSearchParams({ report_key: reportKey });
+  if (formatName && formatName !== NEW_FORMAT && formatName !== "Default") {
+    params.set("format", formatName);
+  }
+  const resp = await fetch(attr("data-format-url") + "?" + params.toString(), {
+    headers: { Accept: "application/json" },
+  });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     formatMsg((data as { error?: string }).error || "Could not load report format.");
     return;
   }
-  const body = data as { reports?: { key: string; title: string }[]; tabs?: FormatTab[]; layout?: FormatLayout; report_key?: string };
+  const body = data as {
+    reports?: { key: string; title: string }[];
+    formats?: { name: string }[];
+    tabs?: FormatTab[];
+    layout?: FormatLayout;
+    report_key?: string;
+    format_name?: string;
+  };
   const sel = document.getElementById("dbxFormatReport") as HTMLSelectElement | null;
   if (sel && sel.options.length === 0) {
     (body.reports || []).forEach((report) => {
@@ -577,13 +623,25 @@ async function loadFormat(reportKey: string): Promise<void> {
       sel.appendChild(opt);
     });
     sel.value = body.report_key || reportKey;
-    sel.addEventListener("change", () => { void loadFormat(sel.value); });
+    sel.addEventListener("change", () => { void loadFormat(sel.value, "Default"); });
   }
+  fillFormatNames(
+    (body.formats || []).map((row) => row.name),
+    body.format_name || formatName,
+  );
   renderFormat(body.tabs || [], body.layout || {});
   formatMsg("");
 }
 
-function collectFormat(): { report_key: string; tabs: unknown[] } {
+function chosenFormatName(): string {
+  const sel = document.getElementById("dbxFormatName") as HTMLSelectElement | null;
+  if (sel?.value === NEW_FORMAT) {
+    return (document.getElementById("dbxFormatNew") as HTMLInputElement | null)?.value.trim() || "";
+  }
+  return sel?.value || "Default";
+}
+
+function collectFormat(): { report_key: string; format_name: string; tabs: unknown[] } {
   const report = (document.getElementById("dbxFormatReport") as HTMLSelectElement | null)?.value || "";
   const tabs: unknown[] = [];
   document.querySelectorAll<HTMLElement>("#dbxFormatTabs .dbx-format-tab").forEach((box) => {
@@ -611,23 +669,30 @@ function collectFormat(): { report_key: string; tabs: unknown[] } {
       group, sorters, filters,
     });
   });
-  return { report_key: report, tabs };
+  return { report_key: report, format_name: chosenFormatName(), tabs };
 }
 
 async function saveFormat(): Promise<void> {
   const payload = collectFormat();
+  if (!payload.format_name) {
+    formatMsg("Type a name for the new format.");
+    return;
+  }
   const resp = await fetch(attr("data-format-url"), {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
     body: JSON.stringify(payload),
   });
-  const data = await resp.json().catch(() => ({}));
+  const data = await resp.json().catch(() => ({})) as { error?: string; format_name?: string };
   if (!resp.ok) {
-    formatMsg((data as { error?: string }).error || "Save failed.");
+    formatMsg(data.error || "Save failed.");
     return;
   }
-  await loadFormat(payload.report_key);
-  formatMsg("Saved the company Default format.");
+  const savedName = data.format_name || payload.format_name;
+  const nameInput = document.getElementById("dbxFormatNew") as HTMLInputElement | null;
+  if (nameInput) nameInput.value = "";
+  await loadFormat(payload.report_key, savedName);
+  formatMsg(`Saved ${savedName}.`);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -660,6 +725,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   void loadTables();
   document.getElementById("dbxFormatSave")?.addEventListener("click", () => void saveFormat());
+  document.getElementById("dbxFormatName")?.addEventListener("change", () => {
+    if (fillingFormats) return;
+    syncNewFormat();
+    const name = (document.getElementById("dbxFormatName") as HTMLSelectElement | null)?.value || "";
+    const report = (document.getElementById("dbxFormatReport") as HTMLSelectElement | null)?.value || "ordered";
+    if (name === NEW_FORMAT) return;
+    void loadFormat(report, name);
+  });
   const first = (document.getElementById("dbxFormatReport") as HTMLSelectElement | null)?.value || "ordered";
   void loadFormat(first);
 });

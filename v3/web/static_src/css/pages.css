@@ -904,6 +904,10 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 }
 .dbx-format-head h2 { margin: 0 0 4px; font-size: 18px; }
 .dbx-format-head p { margin: 0; color: var(--text-muted); font-size: 13px; max-width: 70ch; }
+.dbx-format-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+@media (max-width: 700px) { .dbx-format-picks { grid-template-columns: 1fr; } }
+.dbx-format-picks .filter-field select,
+#dbxFormatNew { width: 100%; min-height: 44px; }
 .dbx-format-tab {
     border-top: 1px solid var(--border); padding-top: 12px;
     display: flex; flex-direction: column; gap: 8px;
