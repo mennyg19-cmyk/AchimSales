@@ -13,6 +13,7 @@ const entryPoints = [
   "web/static_src/js/admin.ts",
   "web/static_src/js/dashboard.ts",
   "web/static_src/js/db_explorer.ts",
+  "web/static_src/js/report_formatter.ts",
   "web/static_src/js/notif_diag.ts",
   "web/static_src/css/main.css",
 ].filter((p) => existsSync(p));
