@@ -173,6 +173,24 @@ def get_view(view_id: int) -> dict | None:
         return _hydrate_view(row, conn)
 
 
+def replace_view_layout(view_id: int, layout: dict) -> dict | None:
+    """Write layout columns. Period, salesmen, and customers stay as they are."""
+    with db() as conn:
+        row = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
+        if row is None:
+            return None
+        current = _hydrate_view(row, conn)
+        view_tables.save_filters_and_layout(
+            conn,
+            view_id,
+            current.get("params") or {},
+            layout,
+            current.get("include_period"),
+        )
+        saved = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
+        return _hydrate_view(saved, conn)
+
+
 def delete_view(view_id: int) -> None:
     with db() as conn:
         conn.execute("DELETE FROM views WHERE id = ?", (view_id,))
