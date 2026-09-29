@@ -277,21 +277,21 @@ function syncNew(): void {
   if (wrap) wrap.hidden = sel?.value !== NEW_FORMAT;
 }
 
-function fillFormats(names: string[], selected: string): void {
+function fillFormats(formats: { id: string; label: string }[], selected: string): void {
   const sel = document.getElementById("fmtName") as HTMLSelectElement | null;
   if (!sel) return;
   filling = true;
   sel.replaceChildren();
   const seen = new Set<string>();
-  const add = (name: string) => {
-    if (!name || seen.has(name)) return;
-    seen.add(name);
-    sel.appendChild(option(name, name, selected));
-  };
-  add("Default");
-  names.forEach(add);
+  formats.forEach((row) => {
+    if (!row.id || seen.has(row.id)) return;
+    seen.add(row.id);
+    sel.appendChild(option(row.id, row.label, selected));
+  });
+  if (!seen.has("default")) sel.insertBefore(option("default", "Default", selected), sel.firstChild);
   sel.appendChild(option(NEW_FORMAT, "New format…", selected));
-  sel.value = [...sel.options].some((opt) => opt.value === selected) ? selected : "Default";
+  const want = selected === "Default" ? "default" : selected;
+  sel.value = [...sel.options].some((opt) => opt.value === want) ? want : "default";
   filling = false;
   syncNew();
 }
@@ -308,7 +308,9 @@ function applyLayout(layout: Layout): void {
 
 async function load(reportKey: string, formatName = "Default"): Promise<void> {
   const params = new URLSearchParams({ report_key: reportKey });
-  if (formatName && formatName !== NEW_FORMAT && formatName !== "Default") params.set("format", formatName);
+  if (formatName && formatName !== NEW_FORMAT && formatName !== "Default" && formatName !== "default") {
+    params.set("format", formatName);
+  }
   const resp = await fetch(attr("data-format-url") + "?" + params.toString(), { headers: { Accept: "application/json" } });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
@@ -317,7 +319,7 @@ async function load(reportKey: string, formatName = "Default"): Promise<void> {
   }
   const body = data as {
     reports?: { key: string; title: string }[];
-    formats?: { name: string }[];
+    formats?: { id: string; label: string }[];
     tabs?: Tab[];
     layout?: Layout;
     report_key?: string;
@@ -329,7 +331,7 @@ async function load(reportKey: string, formatName = "Default"): Promise<void> {
     report.value = body.report_key || reportKey;
   }
   tabs = body.tabs || [];
-  fillFormats((body.formats || []).map((row) => row.name), body.format_name || formatName);
+  fillFormats(body.formats || [], body.format_name || formatName);
   applyLayout(body.layout || {});
   msg("");
 }

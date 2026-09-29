@@ -3524,7 +3524,7 @@ def test_report_format_saves_default_without_running(tmp_path):
     assert tab["group"] == ["Salesman"]
     assert tab["sorters"] == [{"column": "OrderDate", "dir": "desc"}]
     assert tab["columnFilters"]["Status"]["op"] == "contains"
-    assert "Default" in [row["name"] for row in again["formats"]]
+    assert "Default" in [row["label"] for row in again["formats"]]
 
 
 def test_report_format_creates_and_edits_a_named_company_format(tmp_path):
@@ -3543,16 +3543,46 @@ def test_report_format_creates_and_edits_a_named_company_format(tmp_path):
         }],
     }, headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 200, created.get_data(as_text=True)
-    assert created.get_json()["format_name"] == "Shelf"
+    assert created.get_json()["format_name"] == "company:Shelf"
     shelf = dev.get("/api/dev/db/report-format?report_key=ordered&format=Shelf").get_json()
     assert shelf["layout"]["views"]["by_customer"]["group"] == ["CustomerName"]
-    assert "Shelf" in [row["name"] for row in shelf["formats"]]
+    assert "Shelf" in [row["label"] for row in shelf["formats"]]
     default = dev.get("/api/dev/db/report-format?report_key=ordered").get_json()
     assert "by_customer" not in (default["layout"].get("views") or {})
     missing = dev.post("/api/dev/db/report-format", json={
         "report_key": "ordered", "format_name": "   ", "tabs": [],
     }, headers={"X-CSRF-Token": _CSRF})
     assert missing.status_code == 400
+
+
+def test_admin_and_developer_see_every_users_saved_view(tmp_path):
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    app = _make_app(tmp_path)
+    users = UserRepository(app.config["DB"])
+    rep = users.upsert("rep@x.com", display_name="Rep Person", role="salesman")
+    SavedReportRepository(app.config["DB"]).create(
+        rep.id, "ordered", "Mine", {},
+        {"views": {"by_order": {"group": ["Salesman"]}}},
+    )
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    listed = dev.get("/api/dev/db/report-format?report_key=ordered").get_json()
+    choice = next(row for row in listed["formats"] if row["label"] == "Rep Person — Mine")
+    opened = dev.get(
+        "/api/dev/db/report-format?report_key=ordered&format=" + choice["id"]
+    ).get_json()
+    assert opened["layout"]["views"]["by_order"]["group"] == ["Salesman"]
+
+    admin = app.test_client()
+    _login(admin, app, email="boss@x.com", role="admin")
+    assert admin.get("/dev/report-formatter").status_code == 200
+    admin_list = admin.get("/api/dev/db/report-format?report_key=ordered").get_json()
+    assert any(row["label"] == "Rep Person — Mine" for row in admin_list["formats"])
+
+    sales = app.test_client()
+    _login(sales, app, email="rep@x.com", role="salesman")
+    assert sales.get("/api/dev/db/report-format?report_key=ordered").status_code == 403
 
 
 def test_dev_reporting_passthrough_returns_every_column(tmp_path):
