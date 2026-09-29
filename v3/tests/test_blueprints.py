@@ -3406,8 +3406,15 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     _login(dev, app, email="dev@x.com", role="developer")
     html = dev.get("/dev/db-explorer").get_data(as_text=True)
     assert 'id="dbxSql"' in html
-    assert 'id="dbxFormatReport"' in html
+    assert "Report Formatter" in html
+    assert 'id="dbxFormatReport"' not in html
     assert 'id="dbxJsonModal"' in html
+    formatter = dev.get("/dev/report-formatter")
+    assert formatter.status_code == 200
+    page = formatter.get_data(as_text=True)
+    assert 'id="fmtTabs"' in page
+    assert "+ Add" in page
+    assert "Flat list" in page
     assert "data-sql-url" in html
     assert "Pretty print" in html
     assert "dbx-sql-run" in html

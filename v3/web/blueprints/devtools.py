@@ -147,6 +147,15 @@ def _sql_from_table(sql: str) -> str | None:
     return m.group(1) or m.group(2)
 
 
+@devtools_bp.get("/dev/report-formatter")
+@require_login
+def report_formatter_page():
+    blocked = _require_developer()
+    if blocked:
+        return blocked
+    return render_template("report_formatter.html", active_tab="settings")
+
+
 @devtools_bp.get("/dev/db-explorer")
 @require_login
 def db_explorer_page():

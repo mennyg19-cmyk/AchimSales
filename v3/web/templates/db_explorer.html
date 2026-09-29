@@ -8,7 +8,6 @@
      data-cell-url="{{ url_for('devtools.api_update_cell', table='__T__') }}"
      data-row-url="{{ url_for('devtools.api_delete_row', table='__T__') }}"
      data-sql-url="{{ url_for('devtools.api_run_sql') }}"
-     data-format-url="{{ url_for('devtools.api_report_format') }}"
      data-csrf="{{ csrf_token() }}">
   <div class="page-head">
     <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
@@ -16,29 +15,7 @@
     <p class="page-subtitle">Edits save immediately. There is no undo. JSON and SQL are checked before they run.</p>
   </div>
   <p class="dbx-warn">Developer only. DROP, ALTER, ATTACH, and CREATE are blocked.</p>
-  <section class="dbx-format" aria-labelledby="dbxFormatTitle">
-    <div class="dbx-format-head">
-      <h2 id="dbxFormatTitle">Report format</h2>
-      <p>Pick a company format, or New format, then set each tab. This does not run the report. Leave “Set grouping” off to keep the report’s built-in groups. Turn it on with no rows to show a flat list.</p>
-    </div>
-    <div class="dbx-format-picks">
-      <label class="filter-field"><span>Report</span>
-        <select id="dbxFormatReport"></select>
-      </label>
-      <label class="filter-field"><span>Format</span>
-        <select id="dbxFormatName" aria-label="Company format"></select>
-      </label>
-    </div>
-    <label class="filter-field" id="dbxFormatNewWrap" hidden>
-      <span>New format name</span>
-      <input id="dbxFormatNew" type="text" maxlength="120" autocomplete="off" placeholder="Name this format">
-    </label>
-    <div id="dbxFormatTabs"></div>
-    <div class="dbx-format-save">
-      <button type="button" id="dbxFormatSave" class="btn btn-primary">Save format</button>
-      <p class="flag-desc" id="dbxFormatMsg" hidden></p>
-    </div>
-  </section>
+  <p class="admin-links"><a class="btn btn-primary" href="{{ url_for('devtools.report_formatter_page') }}">Report Formatter</a></p>
   <div class="dbx-controls">
     <div class="dbx-toolbar">
       <label class="filter-field"><span>Database</span>
