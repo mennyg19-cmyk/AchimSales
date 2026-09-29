@@ -474,11 +474,19 @@ def live_view_payload(db: Database, legacy_source: str, legacy_id: int,
 def live_default_payload(db: Database, report_key: str,
                          params: dict | None = None, layout: dict | None = None,
                          ) -> tuple[dict, dict]:
+    """Company Default from the normalized tables. Old JSON is not read."""
     del params, layout
     with db.precious() as conn:
-        sync_report_default_conn(conn, report_key)
         got = assemble_legacy_view(conn, "report_defaults", _legacy_int(report_key))
     return got if got is not None else ({}, {})
+
+
+def next_legacy_id(conn: sqlite3.Connection, source: str) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(MAX(legacy_id), 0) + 1 AS n FROM views WHERE legacy_source=?",
+        (source,),
+    ).fetchone()
+    return int(row["n"])
 
 
 def _legacy_int(text: str) -> int:
@@ -963,7 +971,7 @@ def drop_synced_view_conn(conn: sqlite3.Connection, legacy_source: str, legacy_i
 
 
 def sync_saved_report_conn(conn: sqlite3.Connection, preset_id: int) -> None:
-    if not _table_exists(conn, "views"):
+    if not _table_exists(conn, "views") or not _table_exists(conn, "saved_reports"):
         return
     handles = assign_handles(conn)
     r = conn.execute("SELECT * FROM saved_reports WHERE id=?", (preset_id,)).fetchone()
@@ -984,7 +992,7 @@ def sync_saved_report_conn(conn: sqlite3.Connection, preset_id: int) -> None:
 
 
 def sync_company_view_conn(conn: sqlite3.Connection, view_id: int) -> None:
-    if not _table_exists(conn, "views"):
+    if not _table_exists(conn, "views") or not _table_exists(conn, "company_views"):
         return
     handles = assign_handles(conn)
     r = conn.execute("SELECT * FROM company_views WHERE id=?", (view_id,)).fetchone()
@@ -1002,7 +1010,7 @@ def sync_company_view_conn(conn: sqlite3.Connection, view_id: int) -> None:
 
 
 def sync_report_default_conn(conn: sqlite3.Connection, report_key: str) -> None:
-    if not _table_exists(conn, "views"):
+    if not _table_exists(conn, "views") or not _table_exists(conn, "report_defaults"):
         return
     handles = assign_handles(conn)
     r = conn.execute(
@@ -1029,17 +1037,17 @@ def push_view_to_legacy_conn(conn: sqlite3.Connection, view_id: str) -> None:
     params = json.dumps(assemble_params(conn, view_id))
     layout = json.dumps(assemble_layout(conn, view_id))
     source, lid = row["legacy_source"], row["legacy_id"]
-    if source == "saved_reports" and lid is not None:
+    if source == "saved_reports" and lid is not None and _table_exists(conn, "saved_reports"):
         conn.execute(
             "UPDATE saved_reports SET params_json=?, layout_json=? WHERE id=?",
             (params, layout, lid),
         )
-    elif source == "company_views" and lid is not None:
+    elif source == "company_views" and lid is not None and _table_exists(conn, "company_views"):
         conn.execute(
             "UPDATE company_views SET params_json=?, layout_json=? WHERE id=?",
             (params, layout, lid),
         )
-    elif source == "report_defaults":
+    elif source == "report_defaults" and _table_exists(conn, "report_defaults"):
         conn.execute(
             "UPDATE report_defaults SET params_json=?, layout_json=? WHERE report_key=?",
             (params, layout, row["report_key"]),
@@ -1049,11 +1057,11 @@ def push_view_to_legacy_conn(conn: sqlite3.Connection, view_id: str) -> None:
 def delete_legacy_for_view_row(conn: sqlite3.Connection, row) -> None:
     """Remove the old JSON row after a normalized ``views`` row was deleted."""
     source, lid = row["legacy_source"], row["legacy_id"]
-    if source == "saved_reports" and lid is not None:
+    if source == "saved_reports" and lid is not None and _table_exists(conn, "saved_reports"):
         conn.execute("DELETE FROM saved_reports WHERE id=?", (lid,))
-    elif source == "company_views" and lid is not None:
+    elif source == "company_views" and lid is not None and _table_exists(conn, "company_views"):
         conn.execute("DELETE FROM company_views WHERE id=?", (lid,))
-    elif source == "report_defaults" and row["report_key"]:
+    elif source == "report_defaults" and row["report_key"] and _table_exists(conn, "report_defaults"):
         conn.execute(
             "DELETE FROM report_defaults WHERE report_key=?", (row["report_key"],),
         )

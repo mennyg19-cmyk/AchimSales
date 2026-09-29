@@ -250,9 +250,6 @@ class ScheduleRunner:
             canonicalize_params,
             company_view_id,
             personal_view_id,
-            sync_company_view_conn,
-            sync_report_default_conn,
-            sync_saved_report_conn,
             _ensure_default_view,
             _upsert_view,
         )
@@ -281,11 +278,9 @@ class ScheduleRunner:
 
         with db.precious() as conn:
             if name == DEFAULT_VIEW_NAME:
-                sync_report_default_conn(conn, report_key)
-                return _ensure_default_view(conn, report_key), "report_defaults/Default"
+                return _ensure_default_view(conn, report_key), "views/default"
 
             if personal is not None:
-                sync_saved_report_conn(conn, personal.id)
                 row = conn.execute(
                     "SELECT id FROM views WHERE legacy_source='saved_reports'"
                     " AND legacy_id=?",
@@ -298,7 +293,6 @@ class ScheduleRunner:
                     )
 
             if cv is not None:
-                sync_company_view_conn(conn, cv.id)
                 row = conn.execute(
                     "SELECT id FROM views WHERE legacy_source='company_views'"
                     " AND legacy_id=?",
@@ -384,6 +378,11 @@ class ScheduleRunner:
             return ref.get("snapshot") or {}
         if source == "report_defaults":
             with self.user_repo.db.precious() as conn:
+                alive = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_defaults'"
+                ).fetchone()
+                if alive is None:
+                    return None
                 row = conn.execute(
                     "SELECT layout_json FROM report_defaults WHERE report_key=?",
                     (ref.get("report_key"),),

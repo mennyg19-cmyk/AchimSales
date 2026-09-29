@@ -1,6 +1,6 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (Gate A + dual-write + Gate B fixture workbooks green; live reads use assembled tables; scheduled/emailed deliveries use the new layout and silently dual-build the old JSON workbook for parity).
+Status: **cut over 2026-09-29.** Live reads and scheduled sends use `views` + `layout_*` only. `saved_reports`, `company_views`, and `report_defaults` are dropped on migrate after one last copy. `schedules` / `master_schedules` stay for the clock.
 
 ## Silent dual-build + daily digest (live)
 
@@ -163,14 +163,14 @@ Children:
 
 `jobs.params_json`, `jobs.log_json`, `notifications.payload_json`, `schedule_runs.output_meta`, `outbox` meta.
 
-## Coexistence and cutover (locked)
+## Coexistence and cutover
 
-1. **Add tables + backfill.** Old JSON remains the live path. One-way projector: old row → new rows. Round-trip test: new rows → assemble the old layout/params dict → canonical JSON equals the source (same keys the exporter already understands).
-2. **Report builder on the new tables.** Save this view / explorer edits write the new tables. Keep dual-writing the old JSON so today’s GUI and clock still run. For every saved view, run **both** builders (new assemble vs old JSON) and require a match.
-3. **Live read + silent dual delivery.** Deliveries use assembled layout. Old JSON workbook is still built to disk and scored (`view_workbook_parity` + daily digest email). Watch scores for about a week of green digests.
-4. **Cut over.** Stop writing old JSON. Then drop `params_json` / `layout_json` / `cadence` JSON and the three old view tables / two old schedule tables.
+Steps 1–3 are done. Step 4 dropped `saved_reports`, `company_views`, and `report_defaults` after the last copy into `views`. `schedules` and `master_schedules` are still the clock. Their `layout_json` is not the report format.
 
-Do not drop old tables in step 1–3.
+1. **Add tables + backfill.** Old JSON was the live path. One-way projector: old row → new rows.
+2. **Report builder on the new tables.** Save this view / explorer edits write the new tables.
+3. **Live read.** Deliveries use the assembled layout.
+4. **View tables dropped.** The three JSON view tables are gone. Schedule tables stay.
 
 ## Snapshot schedules (locked)
 

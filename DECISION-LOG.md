@@ -1,3 +1,10 @@
+## 2026-09-29 View format uses the normalized tables only
+**What I had to decide:** Drop the old JSON view tables now vs keep them until schedule tables move too; what the explorer format screen edits.
+**Options I considered:** Leave `report_defaults.layout_json` as the Default source; drop only that table; drop `saved_reports`, `company_views`, and `report_defaults` together; also drop `schedules` / `master_schedules` in the same pass.
+**What I chose:** One last copy from those three JSON tables into `views` + `layout_*`, then drop the three tables. Report pages, schedules, and email read that tree only. `schedules` and `master_schedules` stay — the clock still runs on them; their `layout_json` is not the report format. The explorer editor writes the company Default view (group, sort, filter) for every tab the report defines, without running the report. An empty group list is explicit ungroup; leaving “Set grouping” off keeps the report’s built-in grouping.
+**Why:** Menny asked to finish the cutover and edit format from the explorer. Dropping the schedule tables would stop the clock.
+**Status:** DECIDED
+
 ## 2026-09-17 CTD timestamps are Eastern with time
 **What I had to decide:** Date-only `iso_date` vs Eastern wall clock including time.
 **Options I considered:** `iso_date` YYYY-MM-DD (shipped, then rejected); `cadence` `YYYY-MM-DD HH:MM`; new `eastern_datetime` that keeps date-only as YYYY-MM-DD and converts timestamps to America/New_York `YYYY-MM-DD HH:MM:SS`.
