@@ -100,7 +100,7 @@ function columnSelect(columns: Column[], selected: string): HTMLSelectElement {
 function capture(): void {
   if (!active) return;
   const levels: Level[] = [];
-  document.querySelectorAll<HTMLTableRowElement>("#fmtRows tr").forEach((row) => {
+  document.querySelectorAll<HTMLElement>("#fmtRows .fmt-level").forEach((row) => {
     const kind = (row.querySelector(".fmt-kind") as HTMLSelectElement | null)?.value as Kind;
     const column = (row.querySelector(".fmt-col") as HTMLSelectElement | null)?.value || "";
     const dir = ((row.querySelector(".fmt-dir") as HTMLSelectElement | null)?.value || "asc") as "asc" | "desc";
@@ -124,8 +124,8 @@ function renderRows(): void {
   if (flat) flat.checked = sheet.flat;
   body.replaceChildren();
   sheet.levels.forEach((level, index) => {
-    const tr = document.createElement("tr");
-    const kindCell = document.createElement("td");
+    const tr = document.createElement("div");
+    tr.className = "fmt-level";
     const kind = document.createElement("select");
     kind.className = "fmt-kind";
     kind.setAttribute("aria-label", "Level type");
@@ -138,21 +138,16 @@ function renderRows(): void {
       sheets[active].levels[index].kind = kind.value as Kind;
       renderRows();
     });
-    kindCell.appendChild(kind);
-    tr.appendChild(kindCell);
+    tr.appendChild(kind);
 
-    const colCell = document.createElement("td");
     const col = columnSelect(tab.columns, level.column);
     col.addEventListener("change", () => {
       capture();
     });
-    colCell.appendChild(col);
-    tr.appendChild(colCell);
+    tr.appendChild(col);
 
-    const extra = document.createElement("td");
     const extraBox = document.createElement("div");
     extraBox.className = "fmt-extra";
-    extra.appendChild(extraBox);
     if (level.kind === "sort") {
       const dir = document.createElement("select");
       dir.className = "fmt-dir";
@@ -190,9 +185,9 @@ function renderRows(): void {
         renderRows();
       });
     }
-    tr.appendChild(extra);
+    tr.appendChild(extraBox);
 
-    const actions = document.createElement("td");
+    const actions = document.createElement("div");
     actions.className = "fmt-row-actions";
     const up = document.createElement("button");
     up.type = "button";
