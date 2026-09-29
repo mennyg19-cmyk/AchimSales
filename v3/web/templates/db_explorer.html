@@ -19,14 +19,23 @@
   <section class="dbx-format" aria-labelledby="dbxFormatTitle">
     <div class="dbx-format-head">
       <h2 id="dbxFormatTitle">Report format</h2>
-      <p>Company Default for each tab. This does not run the report. Leave “Set grouping” off to keep the report’s built-in groups. Turn it on with no rows to show a flat list.</p>
+      <p>Pick a company format, or New format, then set each tab. This does not run the report. Leave “Set grouping” off to keep the report’s built-in groups. Turn it on with no rows to show a flat list.</p>
     </div>
-    <label class="filter-field"><span>Report</span>
-      <select id="dbxFormatReport"></select>
+    <div class="dbx-format-picks">
+      <label class="filter-field"><span>Report</span>
+        <select id="dbxFormatReport"></select>
+      </label>
+      <label class="filter-field"><span>Format</span>
+        <select id="dbxFormatName" aria-label="Company format"></select>
+      </label>
+    </div>
+    <label class="filter-field" id="dbxFormatNewWrap" hidden>
+      <span>New format name</span>
+      <input id="dbxFormatNew" type="text" maxlength="120" autocomplete="off" placeholder="Name this format">
     </label>
     <div id="dbxFormatTabs"></div>
     <div class="dbx-format-save">
-      <button type="button" id="dbxFormatSave" class="btn btn-primary">Save default format</button>
+      <button type="button" id="dbxFormatSave" class="btn btn-primary">Save format</button>
       <p class="flag-desc" id="dbxFormatMsg" hidden></p>
     </div>
   </section>

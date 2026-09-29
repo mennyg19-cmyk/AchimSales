@@ -3517,6 +3517,35 @@ def test_report_format_saves_default_without_running(tmp_path):
     assert tab["group"] == ["Salesman"]
     assert tab["sorters"] == [{"column": "OrderDate", "dir": "desc"}]
     assert tab["columnFilters"]["Status"]["op"] == "contains"
+    assert "Default" in [row["name"] for row in again["formats"]]
+
+
+def test_report_format_creates_and_edits_a_named_company_format(tmp_path):
+    app = _make_app(tmp_path)
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    created = dev.post("/api/dev/db/report-format", json={
+        "report_key": "ordered",
+        "format_name": "Shelf",
+        "tabs": [{
+            "key": "by_customer",
+            "set_group": True,
+            "group": ["CustomerName"],
+            "sorters": [{"column": "CustomerName", "dir": "asc"}],
+            "filters": [],
+        }],
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 200, created.get_data(as_text=True)
+    assert created.get_json()["format_name"] == "Shelf"
+    shelf = dev.get("/api/dev/db/report-format?report_key=ordered&format=Shelf").get_json()
+    assert shelf["layout"]["views"]["by_customer"]["group"] == ["CustomerName"]
+    assert "Shelf" in [row["name"] for row in shelf["formats"]]
+    default = dev.get("/api/dev/db/report-format?report_key=ordered").get_json()
+    assert "by_customer" not in (default["layout"].get("views") or {})
+    missing = dev.post("/api/dev/db/report-format", json={
+        "report_key": "ordered", "format_name": "   ", "tabs": [],
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert missing.status_code == 400
 
 
 def test_dev_reporting_passthrough_returns_every_column(tmp_path):

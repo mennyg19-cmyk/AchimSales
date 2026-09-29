@@ -1,6 +1,7 @@
-"""Company Default format: tabs and columns without running a report.
+"""Report format tabs and columns without running a report.
 
-The explorer uses this to edit group / sort / filter on ``views`` kind ``default``.
+The explorer edits group / sort / filter on the company Default or any named
+company format (``views`` kind ``default`` or ``company``).
 """
 
 from __future__ import annotations

@@ -37,7 +37,7 @@
 **What to test:**
 - After migrate, `saved_reports`, `company_views`, and `report_defaults` are gone.
 - Saving a Default view writes `views` kind `default` and `layout_tab_sorters`. Reading it back does not need JSON.
-- Explorer `POST /api/dev/db/report-format` sets group, sort, and filter on that Default for a tab, without running the report. “Set grouping” off omits `group`. On with `[]` is ungroup.
+- Explorer `POST /api/dev/db/report-format` sets group, sort, and filter on the company Default, or on a named company format (`format_name`). A new name creates that format. “Set grouping” off omits `group`. On with `[]` is ungroup. Saving Shelf does not change Default.
 - `tabs_for("ordered")` lists Summary, By Customer, By Item, By Order, By Salesman, and Full Data with column fields.
 
 **Expected behavior:** The company Default used on screen and on a scheduled send is the normalized layout. The explorer format panel is the way to set it before a run.
