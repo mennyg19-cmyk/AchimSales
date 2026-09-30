@@ -31,7 +31,56 @@ def report_choices() -> list[dict]:
     return [{"key": item["key"], "title": item["title"]} for item in catalog.REPORTS]
 
 
+def remember_payload(report_key: str, payload: dict | None) -> None:
+    tabs = _tabs_from_payload(payload)
+    if tabs:
+        store.replace_catalog(report_key, tabs)
+
+
+def _tabs_from_payload(payload: dict | None) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("tabs")
+    if raw is None and isinstance(payload.get("data"), dict):
+        raw = payload["data"].get("tabs")
+    items: list[tuple[str, dict]] = []
+    if isinstance(raw, dict):
+        items = [(str(key), tab) for key, tab in raw.items() if isinstance(tab, dict)]
+    elif isinstance(raw, list):
+        for index, tab in enumerate(raw):
+            if isinstance(tab, dict):
+                key = str(tab.get("key") or tab.get("name") or f"tab_{index}").strip()
+                if key:
+                    items.append((key, tab))
+    out = []
+    for key, tab in items:
+        out.append({
+            "key": key,
+            "name": str(tab.get("name") or key),
+            "columns": _defined_columns(tab.get("columns")) or _columns(tab.get("rows")),
+        })
+    return out
+
+
+def _defined_columns(columns) -> list[dict]:
+    fields: list[dict] = []
+    seen: set[str] = set()
+    for col in columns or []:
+        if isinstance(col, dict):
+            field = str(col.get("field") or col.get("header") or "").strip()
+            header = str(col.get("header") or field)
+        else:
+            field = header = str(col).strip()
+        if field and field not in seen:
+            seen.add(field)
+            fields.append({"field": field, "header": header})
+    return fields
+
+
 def tabs_for(report_key: str) -> list[dict]:
+    stored = store.catalog_tabs(report_key)
+    if stored:
+        return stored
     if catalog.spec(report_key) is None:
         return []
     if report_key == "customer_last_order":
@@ -116,6 +165,10 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
             prev["columnFilters"] = filters
         else:
             prev.pop("columnFilters", None)
+        if "hidden" in tab:
+            prev["hidden"] = [
+                str(col).strip() for col in (tab.get("hidden") or []) if str(col).strip()
+            ]
         if prev:
             views[key] = prev
         else:
@@ -124,6 +177,12 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
         base["views"] = views
     elif "views" in base:
         base.pop("views")
+    if any(isinstance(tab, dict) and "show_tab" in tab for tab in (tabs_in or [])):
+        base["order"] = [
+            str(tab.get("key")).strip()
+            for tab in tabs_in
+            if isinstance(tab, dict) and tab.get("show_tab") and str(tab.get("key") or "").strip()
+        ]
     return base
 
 

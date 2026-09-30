@@ -2,7 +2,7 @@ type Column = { field: string; header: string };
 type Tab = { key: string; name: string; columns: Column[] };
 type Kind = "sort" | "group" | "filter";
 type Level = { kind: Kind; column: string; dir: "asc" | "desc"; op: string; v: string; v2: string };
-type Sheet = { flat: boolean; levels: Level[] };
+type Sheet = { flat: boolean; showTab: boolean; hidden: string[]; levels: Level[] };
 type Layout = {
   views?: Record<string, {
     group?: string[];
@@ -46,9 +46,10 @@ function blankLevel(kind: Kind = "sort"): Level {
 }
 function sheetFrom(view: {
   group?: string[];
+  hidden?: string[];
   sorters?: { column: string; dir: string }[];
   columnFilters?: Record<string, { op?: string; v?: string; v2?: string }>;
-} | undefined): Sheet {
+} | undefined, order: string[] | null, key: string): Sheet {
   const levels: Level[] = [];
   const group = view?.group;
   if (Array.isArray(group)) {
@@ -70,7 +71,9 @@ function sheetFrom(view: {
       v2: spec.v2 || "",
     });
   });
-  return { flat: Array.isArray(group) && group.length === 0, levels };
+  const hidden = Array.isArray(view?.hidden) ? view.hidden.map((field) => String(field)) : [];
+  const showTab = !order || order.includes(key);
+  return { flat: Array.isArray(group) && group.length === 0, showTab, hidden, levels };
 }
 
 function option(value: string, label: string, selected: string): HTMLOptionElement {
@@ -109,8 +112,15 @@ function capture(): void {
     const v2 = (row.querySelector(".fmt-v2") as HTMLInputElement | null)?.value || "";
     levels.push({ kind: kind || "sort", column, dir, op, v, v2 });
   });
+  const hidden: string[] = [];
+  document.querySelectorAll<HTMLInputElement>("#fmtCols input[data-field]").forEach((box) => {
+    if (!box.checked && box.dataset.field) hidden.push(box.dataset.field);
+  });
+  const show = document.getElementById("fmtShowTab") as HTMLInputElement | null;
   sheets[active] = {
     flat: (document.getElementById("fmtFlat") as HTMLInputElement | null)?.checked || false,
+    showTab: show ? show.checked : true,
+    hidden,
     levels,
   };
 }
@@ -118,10 +128,13 @@ function capture(): void {
 function renderRows(): void {
   const body = document.getElementById("fmtRows");
   const tab = tabs.find((item) => item.key === active);
-  const sheet = sheets[active] || { flat: false, levels: [] };
+  const sheet = sheets[active] || { flat: false, showTab: true, hidden: [], levels: [] };
   const flat = document.getElementById("fmtFlat") as HTMLInputElement | null;
+  const show = document.getElementById("fmtShowTab") as HTMLInputElement | null;
   if (!body || !tab) return;
   if (flat) flat.checked = sheet.flat;
+  if (show) show.checked = sheet.showTab;
+  renderColumns(tab, sheet);
   body.replaceChildren();
   sheet.levels.forEach((level, index) => {
     const tr = document.createElement("div");
@@ -218,6 +231,25 @@ function renderRows(): void {
   });
 }
 
+function renderColumns(tab: Tab, sheet: Sheet): void {
+  const host = document.getElementById("fmtCols");
+  if (!host) return;
+  host.replaceChildren();
+  const hidden = new Set(sheet.hidden);
+  tab.columns.forEach((col) => {
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.field = col.field;
+    box.checked = !hidden.has(col.field);
+    box.addEventListener("change", () => capture());
+    const text = document.createElement("span");
+    text.textContent = col.header && col.header !== col.field ? col.header : col.field;
+    label.append(box, text);
+    host.appendChild(label);
+  });
+}
+
 function move(index: number, delta: number): void {
   capture();
   const levels = sheets[active].levels;
@@ -253,7 +285,7 @@ function renderTabs(): void {
 function payloadTabs(): unknown[] {
   capture();
   return tabs.map((tab) => {
-    const sheet = sheets[tab.key] || { flat: false, levels: [] };
+    const sheet = sheets[tab.key] || { flat: false, showTab: true, hidden: [], levels: [] };
     const group = sheet.levels.filter((level) => level.kind === "group" && level.column).map((level) => level.column);
     const sorters = sheet.levels.filter((level) => level.kind === "sort" && level.column).map((level) => ({
       column: level.column, dir: level.dir,
@@ -263,6 +295,8 @@ function payloadTabs(): unknown[] {
     }));
     return {
       key: tab.key,
+      show_tab: sheet.showTab,
+      hidden: sheet.hidden,
       set_group: sheet.flat || group.length > 0,
       group: sheet.flat ? [] : group,
       sorters,
@@ -298,8 +332,9 @@ function fillFormats(formats: { id: string; label: string }[], selected: string)
 
 function applyLayout(layout: Layout): void {
   sheets = {};
+  const order = Array.isArray(layout.order) ? layout.order.map((key) => String(key)) : null;
   tabs.forEach((tab) => {
-    sheets[tab.key] = sheetFrom((layout.views || {})[tab.key]);
+    sheets[tab.key] = sheetFrom((layout.views || {})[tab.key], order, tab.key);
   });
   if (!tabs.some((tab) => tab.key === active)) active = tabs[0]?.key || "";
   renderTabs();
@@ -387,6 +422,17 @@ document.addEventListener("DOMContentLoaded", () => {
     renderRows();
   });
   document.getElementById("fmtFlat")?.addEventListener("change", () => {
+    capture();
+  });
+  document.getElementById("fmtShowTab")?.addEventListener("change", () => {
+    const box = document.getElementById("fmtShowTab") as HTMLInputElement | null;
+    if (box && !box.checked) {
+      const others = tabs.filter((tab) => tab.key !== active && sheets[tab.key]?.showTab).length;
+      if (others === 0) {
+        box.checked = true;
+        return;
+      }
+    }
     capture();
   });
   document.getElementById("fmtSave")?.addEventListener("click", () => void save());

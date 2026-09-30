@@ -29,6 +29,35 @@ def test_apply_format_keeps_other_layout_keys():
     assert summary["sorters"] == [{"column": "CustomerAccount", "dir": "desc"}]
 
 
+def test_run_stores_tabs_and_formatter_can_hide_them(client):
+    login(client)
+    ran = client.post("/api/reports/ordered/run", headers=csrf_headers(client), json={})
+    assert ran.status_code == 200
+    body = client.get("/api/dev/report-format", params={"report_key": "ordered"}).json()
+    keys = [tab["key"] for tab in body["tabs"]]
+    assert "summary" in keys
+    assert any(col["field"] == "CustomerAccount" for col in body["tabs"][keys.index("summary")]["columns"])
+    saved = client.post(
+        "/api/dev/report-format",
+        headers=csrf_headers(client),
+        json={
+            "report_key": "ordered",
+            "format_name": "default",
+            "tabs": [
+                {"key": "summary", "show_tab": True, "hidden": ["Open$"], "set_group": False, "group": [], "sorters": [], "filters": []},
+                {"key": "by_item", "show_tab": False, "hidden": [], "set_group": False, "group": [], "sorters": [], "filters": []},
+            ],
+        },
+    )
+    assert saved.status_code == 200
+    layout = saved.json()["layout"]
+    assert layout["order"] == ["summary"]
+    assert layout["views"]["summary"]["hidden"] == ["Open$"]
+    page = client.get("/dev/report-formatter").text
+    assert "Show tab" in page
+    assert "fmtCols" in page
+
+
 def test_formatter_page_and_links(client):
     login(client)
     page = client.get("/dev/report-formatter")

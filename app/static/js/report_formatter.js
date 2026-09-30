@@ -31,7 +31,7 @@ function msg(text) {
 function blankLevel(kind) {
   return { kind: kind || "sort", column: "", dir: "asc", op: "contains", v: "", v2: "" };
 }
-function sheetFrom(view) {
+function sheetFrom(view, order, key) {
   const levels = [];
   const group = view && view.group;
   if (Array.isArray(group)) {
@@ -51,7 +51,9 @@ function sheetFrom(view) {
       v2: spec.v2 || "",
     }));
   });
-  return { flat: Array.isArray(group) && group.length === 0, levels: levels };
+  const hidden = Array.isArray(view && view.hidden) ? view.hidden.map(String) : [];
+  const showTab = !order || order.indexOf(key) !== -1;
+  return { flat: Array.isArray(group) && group.length === 0, showTab: showTab, hidden: hidden, levels: levels };
 }
 
 function option(value, label, selected) {
@@ -97,17 +99,30 @@ function capture() {
       v2: (v2El && v2El.value) || "",
     });
   });
+  const hidden = [];
+  document.querySelectorAll("#fmtCols input[data-field]").forEach(function (box) {
+    if (!box.checked && box.dataset.field) hidden.push(box.dataset.field);
+  });
+  const show = document.getElementById("fmtShowTab");
   const flat = document.getElementById("fmtFlat");
-  sheets[active] = { flat: !!(flat && flat.checked), levels: levels };
+  sheets[active] = {
+    flat: !!(flat && flat.checked),
+    showTab: show ? show.checked : true,
+    hidden: hidden,
+    levels: levels,
+  };
 }
 
 function renderRows() {
   const body = document.getElementById("fmtRows");
   const tab = tabs.find((item) => item.key === active);
-  const sheet = sheets[active] || { flat: false, levels: [] };
+  const sheet = sheets[active] || { flat: false, showTab: true, hidden: [], levels: [] };
   const flat = document.getElementById("fmtFlat");
+  const show = document.getElementById("fmtShowTab");
   if (!body || !tab) return;
   if (flat) flat.checked = sheet.flat;
+  if (show) show.checked = sheet.showTab;
+  renderColumns(tab, sheet);
   body.replaceChildren();
   sheet.levels.forEach((level, index) => {
     const tr = document.createElement("div");
@@ -202,6 +217,26 @@ function renderRows() {
   });
 }
 
+function renderColumns(tab, sheet) {
+  const host = document.getElementById("fmtCols");
+  if (!host) return;
+  host.replaceChildren();
+  const hidden = {};
+  (sheet.hidden || []).forEach(function (field) { hidden[field] = true; });
+  tab.columns.forEach(function (col) {
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.field = col.field;
+    box.checked = !hidden[col.field];
+    box.addEventListener("change", function () { capture(); });
+    const text = document.createElement("span");
+    text.textContent = col.header && col.header !== col.field ? col.header : col.field;
+    label.append(box, text);
+    host.appendChild(label);
+  });
+}
+
 function move(index, delta) {
   capture();
   const levels = sheets[active].levels;
@@ -237,7 +272,7 @@ function renderTabs() {
 function payloadTabs() {
   capture();
   return tabs.map((tab) => {
-    const sheet = sheets[tab.key] || { flat: false, levels: [] };
+    const sheet = sheets[tab.key] || { flat: false, showTab: true, hidden: [], levels: [] };
     const group = sheet.levels.filter((level) => level.kind === "group" && level.column).map((level) => level.column);
     const sorters = sheet.levels.filter((level) => level.kind === "sort" && level.column).map((level) => ({
       column: level.column, dir: level.dir,
@@ -247,6 +282,8 @@ function payloadTabs() {
     }));
     return {
       key: tab.key,
+      show_tab: sheet.showTab,
+      hidden: sheet.hidden,
       set_group: sheet.flat || group.length > 0,
       group: sheet.flat ? [] : group,
       sorters: sorters,
@@ -283,8 +320,9 @@ function fillFormats(formats, selected) {
 
 function applyLayout(layout) {
   sheets = {};
+  const order = Array.isArray(layout.order) ? layout.order.map(String) : null;
   tabs.forEach((tab) => {
-    sheets[tab.key] = sheetFrom((layout.views || {})[tab.key]);
+    sheets[tab.key] = sheetFrom((layout.views || {})[tab.key], order, tab.key);
   });
   if (!tabs.some((tab) => tab.key === active)) active = (tabs[0] && tabs[0].key) || "";
   renderTabs();
@@ -372,6 +410,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const flat = document.getElementById("fmtFlat");
   if (flat) flat.addEventListener("change", () => capture());
+  const showTab = document.getElementById("fmtShowTab");
+  if (showTab) {
+    showTab.addEventListener("change", () => {
+      if (!showTab.checked) {
+        const others = tabs.filter((tab) => tab.key !== active && sheets[tab.key] && sheets[tab.key].showTab).length;
+        if (others === 0) {
+          showTab.checked = true;
+          return;
+        }
+      }
+      capture();
+    });
+  }
   const saveBtn = document.getElementById("fmtSave");
   if (saveBtn) saveBtn.addEventListener("click", () => save());
   load("ordered", "default");

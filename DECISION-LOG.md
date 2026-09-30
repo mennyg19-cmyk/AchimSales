@@ -1,3 +1,10 @@
+## 2026-09-30 Formatter show/hide uses the columns a run actually returned
+**What I had to decide:** Replace the whole tab/column list on every report run, or keep tabs a narrow run did not return.
+**Options I considered:** Replace everything (a salesman run could drop tabs the formatter still needs); union forever (removed API columns never leave); update only the tabs this run returned and replace that tab's columns when the run listed any.
+**What I chose:** The third. Empty column lists do not wipe a tab. The formatter checkboxes are Show tab and one checkbox per column. Unchecking the last visible tab is blocked. Saved as layout order plus hidden columns, same as the report grid.
+**Why:** Menny wants the formatter options to match the API, including hide/show, on Flask and FastAPI.
+**Status:** DECIDED
+
 ## 2026-09-29 FastAPI Report Formatter uses company view Company Default
 **What I had to decide:** How Default works on the FastAPI app, which has no `kind=default` row.
 **Options I considered:** Add a `default` kind to match Flask; treat any company view named Default as the default; use the company view the report page already saves as Company Default.

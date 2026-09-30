@@ -72,7 +72,7 @@ def _make_app(tmp_path, rows_by_report=None):
         runner = ReportRunner(app.config["REPORT_CACHE"])
         worker = app.config["JOB_WORKER"]
         worker.register(JOB_TYPE, make_report_run_handler(
-            runner, service.builder_for, app.config["RUN_LOG_REPO"]))
+            runner, service.builder_for, app.config["RUN_LOG_REPO"], app.config["DB"]))
         email = EmailService(app.config["APP_CONFIG"], OutboxRepository(app.config["DB"]),
                              app.config["SHAREPOINT_SERVICE"])
         delivery = DeliveryService(runner, service.builder_for, email)
@@ -3415,6 +3415,8 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     assert 'id="fmtTabs"' in page
     assert "+ Add" in page
     assert "Flat list" in page
+    assert "Show tab" in page
+    assert 'id="fmtCols"' in page
     assert "data-sql-url" in html
     assert "Pretty print" in html
     assert "dbx-sql-run" in html

@@ -93,6 +93,8 @@ class DeliveryService:
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
             params=run_params, builder=builder, force_refresh=True,
         )
+        from web.reporting.report_catalog import remember_catalog
+        remember_catalog(self.runner.cache.db, report_key, outcome.payload)
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
         job_step("report", f"{report_key} {rows} grid rows after layout")

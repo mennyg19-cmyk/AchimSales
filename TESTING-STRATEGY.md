@@ -49,7 +49,15 @@
 - The format list includes Default, company views, and every user's personal view labeled `Owner — name`.
 - Saving a personal view changes group/sort/filter and leaves its period alone. Saving a named company format does not change Company Default.
 
-**Expected behavior:** Same formatter as the live Flask page. Columns come from catalog mock tabs, not the office Reporting API.
+**Expected behavior:** Same formatter as the live Flask page. Columns come from catalog mock tabs until a run stores them, then from `report_catalog_tabs` / `report_catalog_columns`.
+
+## Formatter tab and column visibility
+
+**What to test:**
+- After a report run, the formatter's column list for a tab matches that run. A later run that omits a tab leaves the earlier tab in the list.
+- Show tab off saves `layout.order` without that tab. An unchecked column is in `hidden`. The last visible tab cannot be turned off in the page.
+
+**Expected behavior:** Both Flask and FastAPI. A run with no column list does not erase columns already stored for that tab.
 
 **Test files:** `v3/tests/test_normalized_views.py`, `v3/tests/test_report_format.py`, `v3/tests/test_blueprints.py`
 
