@@ -284,7 +284,7 @@ def api_report_format():
     if blocked:
         return blocked
     report_key = (request.args.get("report_key") or "ordered").strip()
-    tabs = tabs_for(report_key)
+    tabs = tabs_for(report_key, current_app.config["DB"])
     if not tabs and report_key not in {r["key"] for r in report_choices()}:
         return jsonify({"error": "Unknown report"}), 404
     kind, key = _parse_format(request.args.get("format"))

@@ -52,7 +52,8 @@ def enqueue_report_run(job_repo: JobRepository, *, report_key: str, identity: st
 
 
 def make_report_run_handler(runner: ReportRunner, builder_resolver: BuilderResolver,
-                            run_log: ReportRunLogRepository | None = None) -> Handler:
+                            run_log: ReportRunLogRepository | None = None,
+                            catalog_db=None) -> Handler:
     def handler(ctx: JobContext) -> str:
         p = ctx.job.params
         builder = builder_resolver(p["report_key"])
@@ -71,6 +72,9 @@ def make_report_run_handler(runner: ReportRunner, builder_resolver: BuilderResol
             _log(run_log, ctx, p, "failure", None, started)
             raise
         _log(run_log, ctx, p, "success", _count_rows(outcome.payload), started)
+        if catalog_db is not None:
+            from web.reporting.report_catalog import remember_catalog
+            remember_catalog(catalog_db, p["report_key"], outcome.payload)
         return outcome.cache_key  # stored as the job's result_ref
 
     return handler

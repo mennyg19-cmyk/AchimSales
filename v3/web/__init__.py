@@ -121,7 +121,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     runner = ReportRunner(cache)
     worker = JobWorker(db)
     run_log = ReportRunLogRepository(db)
-    worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
+    worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log, db))
 
     exports = ExportRepository(db)
     worker.register(EXPORT_JOB_TYPE, make_export_handler(

@@ -29,7 +29,12 @@ def report_choices() -> list[dict]:
     return [{"key": spec.key, "title": spec.title} for spec in built_reports()]
 
 
-def tabs_for(report_key: str) -> list[dict]:
+def tabs_for(report_key: str, db=None) -> list[dict]:
+    if db is not None:
+        from web.reporting.report_catalog import read_catalog
+        stored = read_catalog(db, report_key)
+        if stored:
+            return stored
     spec = registry_get(report_key)
     if spec is None or spec.status.value != "built":
         return []
@@ -156,6 +161,10 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
             prev["columnFilters"] = filters
         else:
             prev.pop("columnFilters", None)
+        if "hidden" in tab:
+            prev["hidden"] = [
+                str(col).strip() for col in (tab.get("hidden") or []) if str(col).strip()
+            ]
         if prev:
             views[key] = prev
         else:
@@ -164,4 +173,10 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
         base["views"] = views
     elif "views" in base:
         base.pop("views")
+    if any(isinstance(tab, dict) and "show_tab" in tab for tab in (tabs_in or [])):
+        base["order"] = [
+            str(tab.get("key")).strip()
+            for tab in tabs_in
+            if isinstance(tab, dict) and tab.get("show_tab") and str(tab.get("key") or "").strip()
+        ]
     return base

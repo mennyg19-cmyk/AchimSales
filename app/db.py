@@ -101,6 +101,21 @@ CREATE TABLE IF NOT EXISTS layout_columns (
     width REAL,
     PRIMARY KEY (tab_id, field)
 );
+CREATE TABLE IF NOT EXISTS report_catalog_tabs (
+    report_key TEXT NOT NULL,
+    tab_key TEXT NOT NULL,
+    tab_name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (report_key, tab_key)
+);
+CREATE TABLE IF NOT EXISTS report_catalog_columns (
+    report_key TEXT NOT NULL,
+    tab_key TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    field TEXT NOT NULL,
+    header TEXT NOT NULL,
+    PRIMARY KEY (report_key, tab_key, field)
+);
 CREATE TABLE IF NOT EXISTS layout_column_filters (
     tab_id INTEGER NOT NULL REFERENCES layout_tabs(id) ON DELETE CASCADE,
     field TEXT NOT NULL,
