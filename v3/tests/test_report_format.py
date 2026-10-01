@@ -68,6 +68,23 @@ def test_catalog_from_a_run_replaces_that_tabs_columns(tmp_path):
     assert {tab["key"] for tab in tabs_for("ordered", db)} == {"summary", "by_item"}
 
 
+def test_column_order_is_the_on_report_field_order():
+    layout = apply_format(
+        {"views": {"summary": {"hidden": ["Open$"]}}},
+        [{
+            "key": "summary",
+            "hidden": ["Open$"],
+            "column_order": ["Customer Name", "Open$", "CustomerAccount"],
+            "set_group": False,
+            "sorters": [],
+            "filters": [],
+        }],
+    )
+    summary = layout["views"]["summary"]
+    assert summary["order"] == ["Customer Name", "Open$", "CustomerAccount"]
+    assert summary["hidden"] == ["Open$"]
+
+
 def test_apply_format_empty_group_is_ungroup():
     layout = apply_format({}, [{
         "key": "by_order", "set_group": True, "group": [],

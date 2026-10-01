@@ -19,21 +19,35 @@
     <label class="filter-field" id="fmtNewWrap" hidden><span>Name</span>
       <input id="fmtNew" type="text" maxlength="120" placeholder="Name this format" autocomplete="off">
     </label>
-    <button type="button" id="fmtSave" class="btn btn-primary">Save</button>
+    <button type="button" id="fmtSave" class="btn btn-primary" disabled>Save</button>
     <p class="flag-desc" id="fmtMsg" hidden></p>
   </div>
   <div class="report-surface">
     <div class="report-tabbar">
       <div class="report-tabs" id="fmtTabs" role="tablist"></div>
     </div>
-    <div class="fmt-sheet">
-      <div class="fmt-toolbar">
-        <button type="button" id="fmtAdd" class="btn btn-outline btn-sm">+ Add</button>
-        <label><input type="checkbox" id="fmtShowTab" checked> Show tab</label>
-        <label><input type="checkbox" id="fmtFlat"> Flat list</label>
-      </div>
-      <div id="fmtCols" class="fmt-cols"></div>
-      <div id="fmtRows" class="fmt-levels"></div>
+    <div class="fmt-split">
+      <section class="fmt-cols-pane" aria-label="Columns">
+        <h2 class="fmt-pane-title">Columns</h2>
+        <p class="fmt-pane-note">Check to show. Drag or use the arrows to set the order on the report.</p>
+        <div id="fmtCols" class="fmt-col-list"></div>
+        <aside id="fmtChangeTray" class="fmt-change-tray" hidden>
+          <div class="fmt-tray-head">
+            <strong id="fmtTrayTitle">Changes</strong>
+            <button type="button" class="btn btn-outline btn-sm" id="fmtTrayClose">Close</button>
+          </div>
+          <ul id="fmtChangeList" class="fmt-change-list"></ul>
+        </aside>
+      </section>
+      <section class="fmt-levels-pane" aria-label="Sort, group, and filter">
+        <h2 class="fmt-pane-title">Sort, group, filter</h2>
+        <div class="fmt-toolbar">
+          <button type="button" id="fmtAdd" class="btn btn-outline btn-sm">+ Add</button>
+          <label><input type="checkbox" id="fmtShowTab" checked> Show tab</label>
+          <label title="On: this tab has no group rows. Off: keep the report's usual groups, plus any Group by levels below."><input type="checkbox" id="fmtFlat"> Flat list</label>
+        </div>
+        <div id="fmtRows" class="fmt-levels"></div>
+      </section>
     </div>
   </div>
 </div>

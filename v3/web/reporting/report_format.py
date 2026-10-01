@@ -165,6 +165,10 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
             prev["hidden"] = [
                 str(col).strip() for col in (tab.get("hidden") or []) if str(col).strip()
             ]
+        if "column_order" in tab:
+            prev["order"] = [
+                str(col).strip() for col in (tab.get("column_order") or []) if str(col).strip()
+            ]
         if prev:
             views[key] = prev
         else:
