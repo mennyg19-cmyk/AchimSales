@@ -115,9 +115,13 @@ function changesFor(key) {
       lines.push((nowHidden[field] ? "Hide " : "Show ") + names[field]);
     }
   });
-  const nowOrder = (now.cols || []).map((col) => col.field).join("\u0001");
-  const wasOrder = (was.cols || []).map((col) => col.field).join("\u0001");
-  if (nowOrder !== wasOrder) lines.push("Column order");
+  const wasAt = {};
+  (was.cols || []).forEach((col, index) => { wasAt[col.field] = index; });
+  (now.cols || []).forEach((col, index) => {
+    const from = wasAt[col.field];
+    if (from === undefined || from === index) return;
+    lines.push("Moved " + (names[col.field] || col.field) + " from " + (from + 1) + " to " + (index + 1));
+  });
   const a = was.levels || [];
   const b = now.levels || [];
   const count = Math.max(a.length, b.length);
