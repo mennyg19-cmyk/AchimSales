@@ -1,3 +1,10 @@
+## 2026-10-01 Formatter split is columns 25, sort 75
+**What I had to decide:** Which pane is the wide one.
+**Options I considered:** Columns on the left at 80%; columns on the left at 25% with sort, group, and filter taking the rest.
+**What I chose:** Columns are the left 25%. Sort, group, and filter are the right 75%. The change tray covers that right pane. A column move is listed as "Moved {name} from {old} to {new}" for each column whose place changed. The parked FastAPI branch matches this.
+**Why:** Menny: the first split was backwards. 25/75, and the change list should name the columns that moved.
+**Status:** DECIDED
+
 ## 2026-10-01 Formatter columns are a sortable list
 **What I had to decide:** Where a column's on-report order is stored, and when Save turns on.
 **Options I considered:** A separate order field; reuse each tab's existing `views[tab].order` field list; enable Save on any click even when the layout matches what was loaded.

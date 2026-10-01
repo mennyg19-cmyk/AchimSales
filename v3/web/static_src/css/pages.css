@@ -909,7 +909,7 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .run-history > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-muted); }
 .run-history-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 13px; }
 .run-history-list a { color: var(--primary); }
-.fmt-split { display: grid; grid-template-columns: minmax(0, 4fr) minmax(280px, 1.15fr); min-height: 360px; background: var(--bg-card); }
+.fmt-split { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr); min-height: 360px; background: var(--bg-card); }
 .fmt-cols-pane, .fmt-levels-pane { position: relative; padding: 12px 14px 16px; min-width: 0; }
 .fmt-cols-pane { border-right: 1px solid var(--border); background: var(--bg); }
 .fmt-pane-title { margin: 0 0 4px; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
@@ -922,11 +922,10 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .fmt-grip { color: var(--text-muted); cursor: grab; font-size: 14px; line-height: 1; user-select: none; }
 .fmt-col-name { flex: 1 1 auto; min-width: 0; font-size: 14px; }
 .fmt-col-row .btn { min-height: 28px; padding: 2px 8px; }
-.fmt-levels-pane .fmt-level { flex-wrap: wrap; }
 .fmt-tab-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border: 0; border-radius: 99px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
-.fmt-change-tray { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--bg-card); border-right: 1px solid var(--border); box-shadow: 8px 0 24px rgba(15, 23, 42, .12); overflow: auto; animation: fmtTrayIn .18s ease; }
+.fmt-change-tray { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--bg-card); box-shadow: -8px 0 24px rgba(15, 23, 42, .12); overflow: auto; animation: fmtTrayIn .18s ease; }
 .fmt-change-tray[hidden] { display: none; }
-@keyframes fmtTrayIn { from { transform: translateX(-16%); } to { transform: translateX(0); } }
+@keyframes fmtTrayIn { from { transform: translateX(16%); } to { transform: translateX(0); } }
 .fmt-tray-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fmt-change-list { margin: 0; padding-left: 18px; font-size: 14px; }
 .fmt-change-list li { margin: 6px 0; }
