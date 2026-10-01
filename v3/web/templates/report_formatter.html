@@ -31,13 +31,6 @@
         <h2 class="fmt-pane-title">Columns</h2>
         <p class="fmt-pane-note">Check to show. Drag or use the arrows to set the order on the report.</p>
         <div id="fmtCols" class="fmt-col-list"></div>
-        <aside id="fmtChangeTray" class="fmt-change-tray" hidden>
-          <div class="fmt-tray-head">
-            <strong id="fmtTrayTitle">Changes</strong>
-            <button type="button" class="btn btn-outline btn-sm" id="fmtTrayClose">Close</button>
-          </div>
-          <ul id="fmtChangeList" class="fmt-change-list"></ul>
-        </aside>
       </section>
       <section class="fmt-levels-pane" aria-label="Sort, group, and filter">
         <h2 class="fmt-pane-title">Sort, group, filter</h2>
@@ -47,6 +40,13 @@
           <label title="On: this tab has no group rows. Off: keep the report's usual groups, plus any Group by levels below."><input type="checkbox" id="fmtFlat"> Flat list</label>
         </div>
         <div id="fmtRows" class="fmt-levels"></div>
+        <aside id="fmtChangeTray" class="fmt-change-tray" hidden>
+          <div class="fmt-tray-head">
+            <strong id="fmtTrayTitle">Changes</strong>
+            <button type="button" class="btn btn-outline btn-sm" id="fmtTrayClose">Close</button>
+          </div>
+          <ul id="fmtChangeList" class="fmt-change-list"></ul>
+        </aside>
       </section>
     </div>
   </div>
