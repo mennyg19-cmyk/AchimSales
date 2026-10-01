@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Report Formatter{% endblock %}
+
+{% block content %}
+<div id="fmtRoot"
+     data-format-url="/api/dev/report-format"
+     data-csrf="{{ csrf }}">
+  <div class="page-head">
+    <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Report Formatter</h1>
+  </div>
+  <div class="fmt-bar">
+    <label class="filter-field"><span>Report</span>
+      <select id="fmtReport"></select>
+    </label>
+    <label class="filter-field"><span>Format</span>
+      <select id="fmtName"></select>
+    </label>
+    <label class="filter-field" id="fmtNewWrap" hidden><span>Name</span>
+      <input id="fmtNew" type="text" maxlength="120" placeholder="Name this format" autocomplete="off">
+    </label>
+    <button type="button" id="fmtSave" class="btn btn-primary">Save</button>
+    <p class="flag-desc" id="fmtMsg" hidden></p>
+  </div>
+  <div class="report-surface">
+    <div class="report-tabbar">
+      <div class="report-tabs" id="fmtTabs" role="tablist"></div>
+    </div>
+    <div class="fmt-sheet">
+      <div class="fmt-toolbar">
+        <button type="button" id="fmtAdd" class="btn btn-outline btn-sm">+ Add</button>
+        <label><input type="checkbox" id="fmtShowTab" checked> Show tab</label>
+        <label><input type="checkbox" id="fmtFlat"> Flat list</label>
+      </div>
+      <div id="fmtCols" class="fmt-cols"></div>
+      <div id="fmtRows" class="fmt-levels"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/report_formatter.js?v={{ asset_v }}"></script>
+{% endblock %}
