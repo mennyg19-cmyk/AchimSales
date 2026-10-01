@@ -17,6 +17,24 @@ def test_ordered_tabs_come_from_catalog():
     assert report_format.tabs_for("nope") == []
 
 
+def test_column_order_is_the_on_report_field_order():
+    merged = report_format.apply_format(
+        {"views": {"summary": {"hidden": ["Open$"]}}},
+        [{
+            "key": "summary",
+            "hidden": ["Open$"],
+            "column_order": ["CustomerName", "CustomerAccount", "Open$"],
+            "set_group": False,
+            "group": [],
+            "sorters": [],
+            "filters": [],
+        }],
+    )
+    summary = merged["views"]["summary"]
+    assert summary["order"] == ["CustomerName", "CustomerAccount", "Open$"]
+    assert summary["hidden"] == ["Open$"]
+
+
 def test_apply_format_keeps_other_layout_keys():
     merged = report_format.apply_format(
         {"views": {"summary": {"hidden": ["Open$"], "group": ["CustomerName"]}}},
@@ -56,6 +74,8 @@ def test_run_stores_tabs_and_formatter_can_hide_them(client):
     page = client.get("/dev/report-formatter").text
     assert "Show tab" in page
     assert "fmtCols" in page
+    assert "fmt-split" in page
+    assert 'id="fmtSave"' in page and "disabled" in page
 
 
 def test_formatter_page_and_links(client):

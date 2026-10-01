@@ -117,7 +117,7 @@ def _columns(rows) -> list[dict]:
 
 
 def apply_format(layout: dict | None, tabs_in: list) -> dict:
-    """Merge group / sort / filter into a layout. Hidden columns and order stay."""
+    """Merge group / sort / filter into a layout. Hidden columns stay. column_order is the on-report field order."""
     base = dict(layout or {})
     views = dict(base.get("views") or {})
     for tab in tabs_in or []:
@@ -168,6 +168,10 @@ def apply_format(layout: dict | None, tabs_in: list) -> dict:
         if "hidden" in tab:
             prev["hidden"] = [
                 str(col).strip() for col in (tab.get("hidden") or []) if str(col).strip()
+            ]
+        if "column_order" in tab:
+            prev["order"] = [
+                str(col).strip() for col in (tab.get("column_order") or []) if str(col).strip()
             ]
         if prev:
             views[key] = prev
