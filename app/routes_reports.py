@@ -6,7 +6,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 import catalog
+import config
 import doorway
+import drive
 import lookups
 import report_format
 import reports
@@ -389,6 +391,65 @@ def last_order_xlsx(request: Request, account: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="last-order-{account}.xlsx"'},
     )
+
+
+def _can_sharepoint(user: dict) -> bool:
+    return is_privileged(user) or bool(user.get("sharepoint_access"))
+
+
+@router.get("/api/sharepoint/status")
+def sharepoint_status(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    return {
+        "enabled": _can_sharepoint(user),
+        "configured": drive.configured() and bool(config.sp_site_url()),
+        "root": "SharePoint",
+    }
+
+
+@router.get("/api/sharepoint/folders")
+def sharepoint_folders(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    if not _can_sharepoint(user):
+        return JSONResponse({"error": "You don't have SharePoint access."}, status_code=403)
+    path = (request.query_params.get("path") or "").strip()
+    try:
+        folders = drive.list_sharepoint_folders(path)
+    except drive.DriveError as err:
+        return JSONResponse({"path": path, "folders": [], "error": str(err)}, status_code=502)
+    return {"path": path, "folders": folders}
+
+
+@router.get("/api/onedrive/status")
+def onedrive_status(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    return {
+        "enabled": True,
+        "configured": drive.configured(),
+        "root": "OneDrive",
+    }
+
+
+@router.get("/api/onedrive/folders")
+def onedrive_folders(request: Request):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    path = (request.query_params.get("path") or "").strip()
+    try:
+        folders = drive.list_onedrive_folders(user["email"], path)
+    except drive.DriveError as err:
+        return JSONResponse({"path": path, "folders": [], "error": str(err)}, status_code=502)
+    return {"path": path, "folders": folders}
 
 
 @router.get("/api/jobs")

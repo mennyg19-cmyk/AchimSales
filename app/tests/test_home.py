@@ -1112,6 +1112,26 @@ def test_delete_named_view(client):
     assert view_id not in leftover
 
 
+def test_folder_pickers_list_practice_folders_without_graph(client):
+    login(client)
+    status = client.get("/api/sharepoint/status").json()
+    assert status["enabled"] is True
+    folders = client.get("/api/sharepoint/folders").json()["folders"]
+    assert "Invoiced" in {row["name"] for row in folders}
+    deeper = client.get("/api/sharepoint/folders", params={"path": "Invoiced"}).json()["folders"]
+    assert "Monthly" in {row["name"] for row in deeper}
+    od = client.get("/api/onedrive/folders").json()["folders"]
+    assert "Documents" in {row["name"] for row in od}
+    page = client.get("/schedules").text
+    assert 'id="schedSpPicker"' in page
+    assert 'id="schedOdPicker"' in page
+    assert 'type="text" name="sharepoint_folder"' not in page
+    assert 'id="emailSpPicker"' in client.get("/reports/ordered").text
+    become(client, "salesman@achimonline.com")
+    blocked = client.get("/api/sharepoint/folders")
+    assert blocked.status_code == 403
+
+
 def test_clean_report_page_and_run_page_keep_that_runs_filters(client):
     login(client)
     clean = client.get("/reports/ordered").text

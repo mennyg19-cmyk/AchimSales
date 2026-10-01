@@ -276,7 +276,15 @@
       <p class="muted">{% if graph_configured %}Sends via Microsoft Graph.{% else %}Graph secrets are not set — writes the outbox.{% endif %}</p>
       <label class="modal-field"><span>To</span><input type="text" id="emailTo" value="{{ user.email }}"></label>
       <label class="modal-field"><span>Subject</span><input type="text" id="emailSubject" value="{% if graph_configured %}{{ report_title }}{% else %}[MOCK] {{ report_title }}{% endif %}"></label>
-      <label class="modal-field"><span>SharePoint folder</span><input type="text" id="emailSharepoint" placeholder="optional folder under Direct Reports"></label>
+      {% if is_privileged or user.sharepoint_access %}
+      <div class="modal-field" id="emailSpSection">
+        <span>SharePoint folder <em id="emailSpStatus" class="lookup-status"></em></span>
+        <input type="hidden" id="emailSharepoint">
+        <div id="emailSpBreadcrumb" class="sp-breadcrumb"></div>
+        <div id="emailSpPicker" class="sp-picker"></div>
+        <div id="emailSpSelected" class="sp-selected"></div>
+      </div>
+      {% endif %}
       <div class="modal-foot">
         <button type="button" class="btn btn-outline" id="emailCancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="emailConfirm">{% if graph_configured %}Send{% else %}Queue outbox mail{% endif %}</button>
