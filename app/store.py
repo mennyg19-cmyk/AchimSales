@@ -224,6 +224,91 @@ def get_view(view_id: int) -> dict | None:
         return _hydrate_view(row, conn)
 
 
+def replace_view_layout(view_id: int, layout: dict) -> dict | None:
+    """Write layout columns. Period, salesmen, and customers stay as they are."""
+    with db() as conn:
+        row = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
+        if row is None:
+            return None
+        current = _hydrate_view(row, conn)
+        view_tables.save_filters_and_layout(
+            conn,
+            view_id,
+            current.get("params") or {},
+            layout,
+            current.get("include_period"),
+        )
+        saved = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
+        return _hydrate_view(saved, conn)
+
+
+def replace_catalog(report_key: str, tabs: list[dict]) -> None:
+    """Update tabs this run returned. Leave tabs it did not return."""
+    if not report_key or not tabs:
+        return
+    with db() as conn:
+        for pos, tab in enumerate(tabs, start=1):
+            key = str(tab.get("key") or "").strip()
+            if not key:
+                continue
+            conn.execute(
+                """INSERT INTO report_catalog_tabs (report_key, tab_key, tab_name, position)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(report_key, tab_key) DO UPDATE SET
+                     tab_name = excluded.tab_name,
+                     position = excluded.position""",
+                (report_key, key, str(tab.get("name") or key), pos),
+            )
+            columns = tab.get("columns") or []
+            if not columns:
+                continue
+            conn.execute(
+                "DELETE FROM report_catalog_columns WHERE report_key = ? AND tab_key = ?",
+                (report_key, key),
+            )
+            for cpos, col in enumerate(columns, start=1):
+                field = str(col.get("field") or "").strip()
+                if not field:
+                    continue
+                conn.execute(
+                    """INSERT INTO report_catalog_columns
+                       (report_key, tab_key, position, field, header)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (report_key, key, cpos, field, str(col.get("header") or field)),
+                )
+
+
+def catalog_tabs(report_key: str) -> list[dict]:
+    try:
+        with db() as conn:
+            return _catalog_tabs(conn, report_key)
+    except sqlite3.OperationalError:
+        return []
+
+
+def _catalog_tabs(conn, report_key: str) -> list[dict]:
+    rows = conn.execute(
+        """SELECT tab_key, tab_name FROM report_catalog_tabs
+           WHERE report_key = ? ORDER BY position, tab_key""",
+        (report_key,),
+    ).fetchall()
+    if not rows:
+        return []
+    out = []
+    for row in rows:
+        cols = conn.execute(
+            """SELECT field, header FROM report_catalog_columns
+               WHERE report_key = ? AND tab_key = ? ORDER BY position, field""",
+            (report_key, row["tab_key"]),
+        ).fetchall()
+        out.append({
+            "key": row["tab_key"],
+            "name": row["tab_name"],
+            "columns": [{"field": col["field"], "header": col["header"]} for col in cols],
+        })
+    return out
+
+
 def delete_view(view_id: int) -> None:
     with db() as conn:
         conn.execute("DELETE FROM views WHERE id = ?", (view_id,))

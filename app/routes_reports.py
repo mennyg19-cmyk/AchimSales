@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 import catalog
 import doorway
 import lookups
+import report_format
 import reports
 import store
 from deliver import deliver_report_email
@@ -176,6 +177,7 @@ async def report_run(request: Request, report_key: str):
         payload = _build_payload(report_key, user, params)
     except doorway.DoorwayError as err:
         return JSONResponse({"error": str(err)}, status_code=502)
+    report_format.remember_payload(report_key, payload)
     job_id = store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
     payload["data"]["job_id"] = job_id
     return payload
