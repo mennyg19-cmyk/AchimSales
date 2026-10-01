@@ -82,7 +82,7 @@ function initRecentReports() {
     }
     body.innerHTML = jobs.map((job) => {
       const kept = job.kept ? " · kept " + (job.keep_name || "") : "";
-      return '<div class="recent-row"><a href="/reports/' + job.report_key + '">' + job.title + "</a>"
+      return '<div class="recent-row"><a href="/reports/' + job.report_key + "/runs/" + job.id + '">' + job.title + "</a>"
         + '<div class="muted">' + job.created_at + kept + "</div></div>";
     }).join("");
   }

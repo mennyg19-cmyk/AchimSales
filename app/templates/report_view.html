@@ -24,7 +24,9 @@
      data-filters="{{ filters|join(',') }}"
      data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'
      data-view-layout='{{ (loaded_view.layout if loaded_view else {}) | tojson }}'
-     data-customers='{{ customers | tojson }}'>
+     data-customers='{{ customers | tojson }}'
+     data-run-job-id="{{ run_job_id or '' }}"
+     data-run-filters="{{ (run_filters or {}) | tojson | forceescape }}">
     <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
         <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
         <span class="controls-summary" id="controlsSummary">Last 7 Days</span>
@@ -122,6 +124,10 @@
     <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn">Email me</button>
     </div>
 </form>
+<details class="run-history" id="runHistory">
+    <summary>Past runs</summary>
+    <div id="runHistoryList" class="run-history-list"></div>
+</details>
 {% if privileged %}
 <textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="10" spellcheck="false"></textarea>
 <div id="apiRunWrap" class="api-run-wrap" hidden>
