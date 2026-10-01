@@ -356,7 +356,9 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify(params),
     });
     const data = await res.json().catch(() => ({}));
-    alert(res.ok ? "Mock mail queued to " + data.recipients : (data.error || "Email failed"));
+    alert(res.ok
+      ? (data.mock ? "Saved to the outbox for " : "Sent to ") + data.recipients
+      : (data.error || "Email failed"));
     if (res.ok) closeOverlay("emailOverlay");
   });
   document.getElementById("exportBtn").addEventListener("click", (evt) => {
@@ -592,6 +594,7 @@ async function loadStoredRun(jobId) {
   const res = await fetch("/api/jobs/" + jobId);
   const job = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(job.error || "Could not load that run.");
+  lastJobId = job.id || jobId;
   ReportGrid.renderTabs(job.payload);
   setStatus("Loaded.", false);
 }
