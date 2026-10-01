@@ -226,7 +226,7 @@
     <div class="modal-head"><h3>About this report</h3>
       <button type="button" class="modal-close" id="helpClose">&times;</button></div>
     <div class="modal-body">
-      <p>This preview shows dummy JSON in the same tab layout as live. Run report fills Tabulator from <code>data.tabs</code>. Export writes an .xlsx of those tabs. Email me uses Graph when secrets are set, otherwise the outbox. SharePoint/OneDrive upload uses Graph when the app registration is set; otherwise a mock URL in preview.</p>
+      <p>Run report fills the grid. Export downloads Excel of those tabs. Email me sends through Microsoft Graph when it is configured, and otherwise saves to the outbox. SharePoint upload uses Graph when the app registration is set.</p>
     </div>
   </div>
 </div>
@@ -275,7 +275,7 @@
     <div class="modal-body">
       <p class="muted">{% if graph_configured %}Sends via Microsoft Graph.{% else %}Graph secrets are not set — writes the outbox.{% endif %}</p>
       <label class="modal-field"><span>To</span><input type="text" id="emailTo" value="{{ user.email }}"></label>
-      <label class="modal-field"><span>Subject</span><input type="text" id="emailSubject" value="[MOCK] {{ report_title }}"></label>
+      <label class="modal-field"><span>Subject</span><input type="text" id="emailSubject" value="{% if graph_configured %}{{ report_title }}{% else %}[MOCK] {{ report_title }}{% endif %}"></label>
       <label class="modal-field"><span>SharePoint folder</span><input type="text" id="emailSharepoint" placeholder="optional folder under Direct Reports"></label>
       <div class="modal-foot">
         <button type="button" class="btn btn-outline" id="emailCancel">Cancel</button>

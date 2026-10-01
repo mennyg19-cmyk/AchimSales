@@ -1117,6 +1117,8 @@ def test_clean_report_page_and_run_page_keep_that_runs_filters(client):
     clean = client.get("/reports/ordered").text
     assert 'id="runHistory"' in clean
     assert 'data-run-job-id=""' in clean
+    assert "This preview shows dummy JSON" not in clean
+    assert "lastJobId = job.id" in client.get("/static/js/report.js").text
     assert "<details" in clean
     ran = client.post(
         "/api/reports/ordered/run",
