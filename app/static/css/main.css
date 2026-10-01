@@ -68,3 +68,7 @@ body.dark-theme .customer-chip,body.monochrome-dark-theme .customer-chip{backgro
 .fmt-level .fmt-kind{width:8.5rem;min-width:8.5rem}
 .fmt-row-actions{display:flex;flex:0 0 auto;flex-wrap:nowrap;gap:4px;align-items:center}
 .fmt-row-actions .btn{flex:0 0 auto;min-height:32px;padding:4px 10px}
+.run-history{margin:0 0 12px}
+.run-history>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text-muted)}
+.run-history-list{display:flex;flex-direction:column;gap:4px;margin-top:8px;font-size:13px}
+.run-history-list a{color:var(--primary)}

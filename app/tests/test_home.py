@@ -1110,3 +1110,24 @@ def test_delete_named_view(client):
     assert gone.json() == {"ok": True}
     leftover = [view["id"] for view in client.get("/api/views?report=invoiced").json()["views"]]
     assert view_id not in leftover
+
+
+def test_clean_report_page_and_run_page_keep_that_runs_filters(client):
+    login(client)
+    clean = client.get("/reports/ordered").text
+    assert 'id="runHistory"' in clean
+    assert 'data-run-job-id=""' in clean
+    assert "<details" in clean
+    ran = client.post(
+        "/api/reports/ordered/run",
+        json={"period": "last_7_days"},
+        headers=csrf_headers(client),
+    )
+    assert ran.status_code == 200
+    job_id = ran.json()["data"]["job_id"]
+    page = client.get(f"/reports/ordered/runs/{job_id}").text
+    assert f'data-run-job-id="{job_id}"' in page
+    assert "last_7_days" in page
+    assert client.get(f"/reports/invoiced/runs/{job_id}").status_code == 404
+    become(client, "salesman@achimonline.com")
+    assert client.get(f"/reports/ordered/runs/{job_id}").status_code == 404

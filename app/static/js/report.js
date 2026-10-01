@@ -161,6 +161,11 @@ async function runReport(bodyOverride) {
     const payload = await res.json().catch(function () { return {}; });
     if (!res.ok) throw new Error(payload.error || ("Could not run report (HTTP " + res.status + ")"));
     lastJobId = (payload.data || {}).job_id || lastJobId;
+    const reportKey = params.report_key || document.getElementById("reportControls").getAttribute("data-report-key");
+    if (lastJobId && reportKey) {
+      window.location.assign("/reports/" + encodeURIComponent(reportKey) + "/runs/" + lastJobId);
+      return;
+    }
     logJob("Bound " + Object.keys((payload.data || {}).tabs || {}).length + " tabs");
     ReportGrid.renderTabs(payload);
     setStatus("Loaded.", false);
@@ -543,5 +548,50 @@ document.addEventListener("DOMContentLoaded", () => {
       if (evt.target === overlay) overlay.hidden = true;
     });
   });
-  runReport().catch(() => {});
+  loadRunHistory();
+  const jobId = controls.getAttribute("data-run-job-id");
+  if (jobId) {
+    try {
+      applySavedParams(JSON.parse(controls.getAttribute("data-run-filters") || "{}"));
+    } catch (err) {
+      document.getElementById("reportMeta").textContent =
+        "That run's filters could not be read (" + err.message + ").";
+    }
+    loadStoredRun(jobId).catch((err) => setStatus(err.message, false));
+  }
 });
+
+function loadRunHistory() {
+  const host = document.getElementById("runHistoryList");
+  const controls = document.getElementById("reportControls");
+  if (!host || !controls) return;
+  const key = controls.getAttribute("data-report-key");
+  fetch("/api/jobs").then((res) => res.json()).then((data) => {
+    const jobs = (data.jobs || []).filter((job) => job.report_key === key);
+    host.replaceChildren();
+    if (!jobs.length) {
+      host.textContent = "No runs yet.";
+      return;
+    }
+    jobs.forEach((job) => {
+      const row = document.createElement("div");
+      const link = document.createElement("a");
+      link.href = "/reports/" + encodeURIComponent(job.report_key) + "/runs/" + job.id;
+      const kept = job.keep_name ? " · " + job.keep_name : "";
+      link.textContent = job.created_at + " · " + job.status + kept;
+      row.appendChild(link);
+      host.appendChild(row);
+    });
+  }).catch(() => {
+    host.textContent = "Could not load past runs.";
+  });
+}
+
+async function loadStoredRun(jobId) {
+  setStatus("Loading run…", false);
+  const res = await fetch("/api/jobs/" + jobId);
+  const job = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(job.error || "Could not load that run.");
+  ReportGrid.renderTabs(job.payload);
+  setStatus("Loaded.", false);
+}

@@ -1,3 +1,10 @@
+## 2026-10-01 Report runs have their own page
+**What I had to decide:** Refresh on a past run stays on that URL vs starts a new run.
+**Options I considered:** Refresh reloads the same job in place; Refresh and Run both start a new job and open `/reports/<key>/runs/<id>`.
+**What I chose:** Run and Refresh both start a new job and open that page. The old URL keeps the old result and the filters from that run. `/reports/<key>` stays empty except a collapsed Past runs list. Recent Reports links use the same run URLs. Flask `main` has the same behavior.
+**Why:** Menny: a clean report page must not bring the last run back, and a past run's form shows that run's options.
+**Status:** DECIDED
+
 ## 2026-09-17 Walkthrough + CodeGraph on parked FastAPI
 **What I had to decide:** Apply the Flask `install.sh` / `wsgi` Cloud Agent scripts from the MasterGenAIInstructions patch vs FastAPI boot.
 **Options I considered:** Copy Flask env scripts unchanged; rules-only (no `environment.json`); FastAPI `install.sh` + uvicorn on 8080.

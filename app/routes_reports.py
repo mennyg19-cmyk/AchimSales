@@ -128,12 +128,16 @@ def report_page(request: Request, report_key: str):
         return RedirectResponse("/", status_code=302)
     view_id = request.query_params.get("view")
     loaded = store.get_view(int(view_id)) if view_id and view_id.isdigit() else None
+    return _report_page(request, user, spec, loaded)
+
+
+def _report_page(request, user, spec, loaded, *, run_job_id="", run_filters=None):
     salesmen, customers = _lookups(user)
     return page(
         request,
         "report_view.html",
         active_tab="reports",
-        report_key=report_key,
+        report_key=spec["key"],
         report_title=spec["title"],
         filters=spec["filters"],
         period_options=catalog.PERIOD_OPTIONS,
@@ -146,7 +150,29 @@ def report_page(request: Request, report_key: str):
         privileged=is_privileged(user),
         can_company=is_privileged(user),
         save_for_users=store.list_users() if is_privileged(user) else [],
+        run_job_id=run_job_id,
+        run_filters=run_filters or {},
     )
+
+
+@router.get("/reports/{report_key}/runs/{job_id}")
+def report_run_page(request: Request, report_key: str, job_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    spec = catalog.spec(report_key)
+    if spec is None or spec["in_app"]:
+        return RedirectResponse("/", status_code=302)
+    if not can_see_report(user, report_key):
+        flash(request, "That report is hidden or not available for your role.", "warn")
+        return RedirectResponse("/", status_code=302)
+    job = store.get_job(job_id)
+    if job is None or job.get("report_key") != report_key or not can_read_job(user, job):
+        return JSONResponse({"error": "That run was not found."}, status_code=404)
+    data = (job.get("payload") or {}).get("data") or {}
+    filters = data.get("request_params") if isinstance(data.get("request_params"), dict) else {}
+    return _report_page(request, user, spec, None, run_job_id=str(job_id), run_filters=filters)
 
 
 @router.get("/api/reports/{report_key}/mock")
@@ -184,6 +210,8 @@ async def report_run(request: Request, report_key: str):
         payload = _build_payload(report_key, user, params)
     except doorway.DoorwayError as err:
         return JSONResponse({"error": str(err)}, status_code=502)
+    if isinstance(payload.get("data"), dict):
+        payload["data"]["request_params"] = params
     report_format.remember_payload(report_key, payload)
     job_id = store.save_job(report_key, spec["title"], payload, owner_email=user["email"])
     payload["data"]["job_id"] = job_id
