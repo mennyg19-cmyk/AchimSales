@@ -42,6 +42,15 @@
 
 **Expected behavior:** The company Default used on screen and on a scheduled send is the normalized layout. The explorer format panel is the way to set it before a run.
 
+## Report run URLs
+
+**What to test:**
+- `/reports/ordered` has a collapsed Past runs list and an empty `data-run-job-id`.
+- After a run, `/reports/ordered/runs/<id>` includes that job id and the period that was posted. The job status includes `filters`.
+- Opening that job under a different report key is 404.
+
+**Expected behavior:** The clean page does not resume the last job. Run navigates to the run page. Refresh starts another run page. The old URL still shows the old result.
+
 ## Formatter tab and column visibility
 
 **What to test:**

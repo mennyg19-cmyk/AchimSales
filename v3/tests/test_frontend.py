@@ -172,9 +172,11 @@ def test_report_viewer_meeting_ux():
     assert "function syncSavePeriodRow" in src
     assert 'window.prompt("Save as a company view"' not in src
     assert "layout.clones" in src
-    resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
-    assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
-    assert "if (!st.ok) return false" in resume
+    boot = src.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert "resumeInFlight" not in boot
+    assert 'attr("data-run-job-id")' in boot
+    assert "loadRunHistory()" in boot
+    assert "runPageUrl(legacyJob)" in boot
     cancel = src.split("async function cancelRun", 1)[1].split("async function poll", 1)[0]
     assert "if (!res.ok)" in cancel
     assert "Could not cancel this run." in cancel

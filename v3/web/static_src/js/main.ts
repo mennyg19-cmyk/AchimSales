@@ -311,7 +311,7 @@ function initReportJobsBar(): void {
   function jobHref(job: ActiveReportJob): string {
     if (!job.report_key) return "";
     return reportUrlTpl.replace("__KEY__", encodeURIComponent(job.report_key))
-      + "?job=" + encodeURIComponent(job.job_id);
+      + "/runs/" + encodeURIComponent(job.job_id);
   }
 
   async function renameKept(job: ActiveReportJob): Promise<void> {

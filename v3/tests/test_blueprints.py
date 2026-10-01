@@ -1023,6 +1023,25 @@ def test_admin_unknown_user_access_is_404(tmp_path):
     assert client.get(f"/api/admin/users/{missing}/salesman-access").status_code == 404
 
 
+def test_clean_report_page_has_collapsed_history_and_run_page_keeps_filters(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"ordered_report": []})
+    client = app.test_client()
+    _login(client, app)
+    clean = client.get("/reports/ordered").get_data(as_text=True)
+    assert 'id="runHistory"' in clean
+    assert "<details" in clean and "open" not in clean.split('id="runHistory"', 1)[0][-40:]
+    assert 'data-run-job-id=""' in clean
+    run = client.post("/api/reports/ordered/run", json={"period": "last_7_days"},
+                      headers={"X-CSRF-Token": _CSRF})
+    job_id = run.get_json()["job_id"]
+    page = client.get(f"/reports/ordered/runs/{job_id}").get_data(as_text=True)
+    assert f'data-run-job-id="{job_id}"' in page
+    assert "last_7_days" in page
+    status = client.get(f"/api/jobs/{job_id}").get_json()
+    assert status["filters"]["period"] == "last_7_days"
+    assert client.get(f"/reports/invoiced/runs/{job_id}").status_code == 404
+
+
 def test_report_view_renders_cancel_button(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

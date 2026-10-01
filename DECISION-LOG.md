@@ -1,3 +1,10 @@
+## 2026-10-01 Report runs have their own page
+**What I had to decide:** Refresh on a past run stays on that URL vs starts a new run.
+**Options I considered:** Refresh reloads the same job in place; Refresh and Run both start a new job and open `/reports/<key>/runs/<id>`.
+**What I chose:** Run and Refresh both start a new job and open that page. The old URL keeps the old result and the filters from that run. `/reports/<key>` stays empty except a collapsed Past runs list. Recent Reports links use the same run URLs. Same behavior on the parked FastAPI branch.
+**Why:** Menny: a clean report page must not bring the last run back, and a past run's form shows that run's options.
+**Status:** DECIDED
+
 ## 2026-09-30 Formatter show/hide uses the columns a run actually returned
 **What I had to decide:** Replace the whole tab/column list on every report run, or keep tabs a narrow run did not return.
 **Options I considered:** Replace everything (a salesman run could drop tabs the formatter still needs); union forever (removed API columns never leave); update only the tabs this run returned and replace that tab's columns when the run listed any.
