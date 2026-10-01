@@ -105,22 +105,32 @@
                 <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{YYYY-1}">YYYY-1</button>
             </p>
             <p class="form-hint">Math: <code>{Month-1}</code> last month, <code>{{ '{{Month-1 YYYY}}' }}</code> last month and its year, <code>{Weekday-1}</code> yesterday, <code>{HH-1}</code> an hour earlier. Same for +.</p>
-            {% if is_privileged or user.sharepoint_access %}
-            <label class="auth-field"><span class="auth-label">SharePoint folder</span>
-                <input name="sharepoint_folder" id="schedSharepoint" type="text" placeholder="Salesman Report/Customer Activity/{Month} {YYYY}"></label>
-            <p class="form-hint">Insert:
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Month} {YYYY}">Month year</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{YYYY}">YYYY</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Schedule}">Schedule</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="{Period}">Period</button>
+            <div class="auth-field" id="schedOdSection">
+                <span class="auth-label">OneDrive folder <em id="schedOdStatus" class="lookup-status"></em></span>
+                <input type="hidden" name="onedrive_folder" id="schedOnedrive">
+                <div id="schedOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedOdPicker" class="sp-picker"></div>
+                <div id="schedOdSelected" class="sp-selected"></div>
+            </div>
+            <p class="form-hint">Add a date piece onto the folder you picked:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="/{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="/{{ '{{Month-1 YYYY}}' }}">Last month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="/{YYYY}">YYYY</button>
             </p>
-            <label class="auth-field"><span class="auth-label">OneDrive folder</span>
-                <input name="onedrive_folder" id="schedOnedrive" type="text" placeholder="folder in the owner's OneDrive"></label>
-            <p class="form-hint">Insert:
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{Month} {YYYY}">Month year</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{{ '{{Month-1 YYYY}}' }}">Last month</button>
-                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedOnedrive" data-chip="{YYYY}">YYYY</button>
+            {% if is_privileged or user.sharepoint_access %}
+            <div class="auth-field" id="schedSpSection">
+                <span class="auth-label">SharePoint folder <em id="schedSpStatus" class="lookup-status"></em></span>
+                <input type="hidden" name="sharepoint_folder" id="schedSharepoint">
+                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedSpPicker" class="sp-picker"></div>
+                <div id="schedSpSelected" class="sp-selected"></div>
+            </div>
+            <p class="form-hint">Add a date piece onto the folder you picked:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="/{Month} {YYYY}">Month year</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="/{{ '{{Month-1 YYYY}}' }}">Last month</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="/{YYYY}">YYYY</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="/{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSharepoint" data-chip="/{Period}">Period</button>
             </p>
             {% endif %}
         </div>
@@ -272,10 +282,38 @@
       var field = document.getElementById(btn.getAttribute("data-target"));
       if (!field) return;
       field.value = (field.value || "") + btn.getAttribute("data-chip");
-      field.focus();
+      field.dispatchEvent(new Event("change"));
     });
   });
   show();
+  if (window.mountFolderPicker) {
+    var od = mountFolderPicker({
+      sectionId: "schedOdSection",
+      breadcrumbId: "schedOdBreadcrumb",
+      pickerId: "schedOdPicker",
+      selectedId: "schedOdSelected",
+      statusId: "schedOdStatus",
+      inputId: "schedOnedrive",
+      statusUrl: "/api/onedrive/status",
+      foldersUrl: "/api/onedrive/folders",
+      rootLabel: "OneDrive",
+    });
+    od.init();
+    if (document.getElementById("schedSpSection")) {
+      var sp = mountFolderPicker({
+        sectionId: "schedSpSection",
+        breadcrumbId: "schedSpBreadcrumb",
+        pickerId: "schedSpPicker",
+        selectedId: "schedSpSelected",
+        statusId: "schedSpStatus",
+        inputId: "schedSharepoint",
+        statusUrl: "/api/sharepoint/status",
+        foldersUrl: "/api/sharepoint/folders",
+        rootLabel: "SharePoint",
+      });
+      sp.init();
+    }
+  }
 })();
 </script>
 {% endblock %}

@@ -342,7 +342,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
-  document.getElementById("emailMeBtn").addEventListener("click", () => openOverlay("emailOverlay"));
+  document.getElementById("emailMeBtn").addEventListener("click", () => {
+    openOverlay("emailOverlay");
+    if (!window._emailSp && window.mountFolderPicker && document.getElementById("emailSpSection")) {
+      window._emailSp = mountFolderPicker({
+        sectionId: "emailSpSection",
+        breadcrumbId: "emailSpBreadcrumb",
+        pickerId: "emailSpPicker",
+        selectedId: "emailSpSelected",
+        statusId: "emailSpStatus",
+        inputId: "emailSharepoint",
+        statusUrl: "/api/sharepoint/status",
+        foldersUrl: "/api/sharepoint/folders",
+        rootLabel: "SharePoint",
+      });
+    }
+    if (window._emailSp) window._emailSp.init();
+  });
   document.getElementById("emailConfirm").addEventListener("click", async () => {
     const params = collectParams();
     params.recipients = document.getElementById("emailTo").value;

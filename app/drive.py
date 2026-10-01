@@ -56,6 +56,82 @@ def configured() -> bool:
     return config.entra_configured()
 
 
+_SP_MOCK = {
+    "": ["Invoiced", "Ordered", "Salesman", "Customer Activity"],
+    "Invoiced": ["Daily", "Weekly", "Monthly"],
+    "Ordered": ["Daily", "Weekly", "Pending"],
+    "Invoiced/Monthly": ["2025", "2026"],
+}
+_OD_MOCK = {
+    "": ["Documents", "Reports"],
+    "Documents": ["Sales"],
+    "Reports": ["Ordered", "Invoiced"],
+}
+
+
+def list_sharepoint_folders(rel_path: str) -> list[dict]:
+    rel = strip_reports_home(rel_path)
+    validate_segments(rel)
+    if not configured() or not config.sp_site_url():
+        if config.PRODUCTION:
+            raise DriveError("SharePoint is not configured (cannot list folders)")
+        return _folders_from_tree(_SP_MOCK, rel)
+    drive_id = _sharepoint_drive_id()
+    base = f"{graph_http.GRAPH_BASE}/drives/{quote(drive_id)}"
+    graph_folder = f"{REPORTS_SUBFOLDER}/{rel}".strip("/")
+    return _list_children(base, graph_folder, rel)
+
+
+def list_onedrive_folders(user_email: str, rel_path: str) -> list[dict]:
+    user = (user_email or "").strip().lower()
+    if not user or "@" not in user:
+        raise DriveError("OneDrive folder list needs your email address.")
+    rel = (rel_path or "").replace("\\", "/").strip("/")
+    validate_segments(rel)
+    if not configured():
+        if config.PRODUCTION:
+            raise DriveError("OneDrive is not configured (cannot list folders)")
+        return _folders_from_tree(_OD_MOCK, rel)
+    base = f"{graph_http.GRAPH_BASE}/users/{quote(user)}/drive"
+    return _list_children(base, rel, rel)
+
+
+def _folders_from_tree(tree: dict, rel: str) -> list[dict]:
+    return [
+        {"name": name, "path": f"{rel}/{name}".strip("/"), "id": f"mock-{rel}-{name}".replace(" ", "_")}
+        for name in tree.get(rel, [])
+    ]
+
+
+def _list_children(drive_base: str, graph_folder: str, rel_prefix: str) -> list[dict]:
+    if graph_folder:
+        url = f"{drive_base}/root:/{quote(graph_folder, safe='/')}:/children"
+    else:
+        url = f"{drive_base}/root/children"
+    resp = graph_http.call("GET", url, timeout=TIMEOUT)
+    if resp.status_code == 404:
+        return []
+    if not resp.ok:
+        raise DriveError(f"Folder list failed (HTTP {resp.status_code}).")
+    body = resp.json()
+    items = body.get("value") if isinstance(body, dict) else []
+    rel_clean = (rel_prefix or "").strip("/")
+    folders = []
+    for item in items or []:
+        if not isinstance(item, dict) or "folder" not in item:
+            continue
+        name = str(item.get("name") or "")
+        if not name:
+            continue
+        folders.append({
+            "name": name,
+            "path": f"{rel_clean}/{name}".strip("/"),
+            "id": str(item.get("id") or ""),
+        })
+    folders.sort(key=lambda row: row["name"].lower())
+    return folders
+
+
 def upload_sharepoint(rel_folder: str, filename: str, content: bytes) -> dict:
     rel = strip_reports_home(rel_folder)
     validate_segments(rel)
