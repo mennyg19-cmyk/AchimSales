@@ -407,12 +407,8 @@ def _company_view_cards(p) -> list[dict]:
     return out
 
 
-@reports_bp.get("/reports/<report_key>")
-@require_login
-def report_view(report_key: str):
-    p = _principal_or_401()
+def _render_report(report_key: str, p, *, run_job_id: str = "", run_filters: dict | None = None):
     spec = _built_spec_or_404(report_key)
-    # In-app reports (customer picker driven) have their own pages.
     if spec.in_app and report_key == "customer_last_order":
         return redirect(url_for("reports.customer_last_order_pick"))
     authz = _authz()
@@ -431,7 +427,28 @@ def report_view(report_key: str):
         has_sharepoint=authz.is_privileged(p) and authz.has_sharepoint_access(p),
         hide_commissions=not authz.may_see_commissions(p),
         can_edit_default=authz.can_see_company_schedules(p),
+        run_job_id=run_job_id,
+        run_filters=run_filters or {},
     )
+
+
+@reports_bp.get("/reports/<report_key>")
+@require_login
+def report_view(report_key: str):
+    return _render_report(report_key, _principal_or_401())
+
+
+@reports_bp.get("/reports/<report_key>/runs/<job_id>")
+@require_login
+def report_run_page(report_key: str, job_id: str):
+    p = _principal_or_401()
+    job = _visible_job_or_404(job_id, p)
+    if job.params.get("report_key") != report_key:
+        abort(404, description="That run is for a different report.")
+    filters = job.params.get("params")
+    if not isinstance(filters, dict):
+        filters = {}
+    return _render_report(report_key, p, run_job_id=job_id, run_filters=filters)
 
 
 def _year_options() -> list[int]:
@@ -491,6 +508,9 @@ def _job_status_payload(job, p) -> dict:
         "owned": job.owner_user_id == uid,
         "can_cancel": _can_cancel_job(job, p),
     }
+    filters = job.params.get("params")
+    if isinstance(filters, dict):
+        payload["filters"] = filters
     if _authz().is_developer(p):
         from web.data.repositories.jobs import _step_label
         payload["log"] = job.log

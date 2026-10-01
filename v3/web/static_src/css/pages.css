@@ -905,6 +905,10 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .fmt-bar select, .fmt-bar input[type="text"] { min-height: 36px; }
 .fmt-sheet { padding: 8px 12px 12px; background: var(--bg-card); }
 .fmt-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.run-history { margin: 0 0 12px; }
+.run-history > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.run-history-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 13px; }
+.run-history-list a { color: var(--primary); }
 .fmt-cols { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 8px; }
 .fmt-cols label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); }
 .fmt-levels { display: flex; flex-direction: column; gap: 6px; }

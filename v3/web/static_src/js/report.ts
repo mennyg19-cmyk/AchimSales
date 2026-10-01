@@ -1865,8 +1865,8 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
     });
     if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
     const { job_id } = await res.json();
-    activeRunJobId = job_id;
-    await poll(job_id, opts);
+    window.location.assign(runPageUrl(job_id));
+    return;
   } catch (err) {
     if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
   } finally {
@@ -1897,44 +1897,39 @@ async function resumeJob(jobId: string, elapsedMs = 0): Promise<void> {
   }
 }
 
-/** On page load, pick up a report this user was running (or just finished) for
- *  THIS report and show it, so leaving and coming back doesn't lose the run.
- *  A home-page preset (?preset=) must start a new run instead of replaying
- *  the last job for this report. ?job= still wins when both are present.
- *  Returns true if it found and resumed one. */
-async function resumeInFlight(): Promise<boolean> {
+function runPageUrl(jobId: string): string {
+  return attr("data-run-page").replace("__ID__", encodeURIComponent(jobId));
+}
+
+/** Past runs for this report. Collapsed in the page; links open /runs/<id>. */
+async function loadRunHistory(): Promise<void> {
+  const host = $("runHistoryList");
   const url = attr("data-active-url");
   const key = attr("data-report-key");
-  if (!url || !key) return false;
-  const q = new URLSearchParams(window.location.search);
-  const wanted = q.get("job");
-  if ((q.get("preset") || q.get("cview")) && !wanted) return false;
-  let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
+  if (!host || !url || !key) return;
+  let jobs: { job_id: string; report_key: string | null; status: string; created_at?: string; keep_name?: string }[];
   try {
     const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
-    jobs = (data && data.jobs) || [];
+    jobs = ((data && data.jobs) || []).filter((job) => job.report_key === key);
   } catch {
-    return false;
+    host.textContent = "Could not load past runs.";
+    return;
   }
-  const mine = wanted
-    ? jobs.find((j) => j.job_id === wanted && j.report_key === key)
-    : jobs.find((j) => j.report_key === key &&
-      (j.status === "running" || j.status === "queued" || j.status === "success"));
-  if (wanted && !mine) {
-    const jobUrl = (attr("data-job-url") || "").replace("__ID__", encodeURIComponent(wanted));
-    if (!jobUrl) return false;
-    try {
-      const st = await fetch(jobUrl, { headers: { Accept: "application/json" } });
-      if (!st.ok) return false;
-    } catch {
-      return false;
-    }
+  host.replaceChildren();
+  if (!jobs.length) {
+    host.textContent = "No runs yet.";
+    return;
   }
-  const target = mine || (wanted ? { job_id: wanted, report_key: key, status: "running", age_seconds: 0 } : null);
-  if (!target) return false;
-  state.jobId = target.job_id;
-  await resumeJob(target.job_id, (target.age_seconds || 0) * 1000);
-  return true;
+  jobs.forEach((job) => {
+    const row = document.createElement("div");
+    const link = document.createElement("a");
+    link.href = runPageUrl(job.job_id);
+    const when = job.created_at || job.job_id;
+    const kept = job.keep_name ? ` · ${job.keep_name}` : "";
+    link.textContent = `${when} · ${job.status}${kept}`;
+    row.appendChild(link);
+    host.appendChild(row);
+  });
 }
 
 function syncLoadedViewLabel(): void {
@@ -3688,17 +3683,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   setToolbarEnabled(false);
   loadExports();  // pick up any in-flight exports started before a navigation/reload
   await Promise.all([initLookups(), loadCompanyDefault()]);
-  // If this user was already running (or just finished) this report, reconnect
-  // to it instead of starting fresh -- leaving the page and coming back keeps it.
-  const resumed = await resumeInFlight();
-  if (!resumed) {
-    await autoOpenPresetIfRequested();
-    const q = new URLSearchParams(window.location.search);
-    if (!q.get("cview") && !loadedNamedView) {
-      rememberNamedView({ id: DEFAULT_VIEW_ID, name: "Default", params: companyDefaultParams });
+  void loadRunHistory();
+  const explicitJob = attr("data-run-job-id");
+  if (explicitJob) {
+    const rawFilters = attr("data-run-filters");
+    if (rawFilters) {
+      try { applyParamsObject(JSON.parse(rawFilters)); } catch { /* form stays at its defaults */ }
     }
-    if (autoRunRequested) { autoRunRequested = false; run(); }
+    await resumeJob(explicitJob);
+    return;
   }
+  const legacyJob = new URLSearchParams(window.location.search).get("job");
+  if (legacyJob) {
+    window.location.replace(runPageUrl(legacyJob));
+    return;
+  }
+  await autoOpenPresetIfRequested();
+  const q = new URLSearchParams(window.location.search);
+  if (!q.get("cview") && !loadedNamedView) {
+    rememberNamedView({ id: DEFAULT_VIEW_ID, name: "Default", params: companyDefaultParams });
+  }
+  if (autoRunRequested) { autoRunRequested = false; run(); }
 });
 
 export {};
