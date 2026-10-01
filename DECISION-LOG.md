@@ -1,3 +1,10 @@
+## 2026-10-01 Formatter columns are a sortable list
+**What I had to decide:** Where a column's on-report order is stored, and when Save turns on.
+**Options I considered:** A separate order field; reuse each tab's existing `views[tab].order` field list; enable Save on any click even when the layout matches what was loaded.
+**What I chose:** The left list's order is `column_order` and `apply_format` writes it to `views[tab].order` (the same field the report grid already uses). Save stays off until a tab differs from the loaded layout, or a new format name is typed. The red count is that tab's changes. Flat list checked means no group rows. Unchecked with no Group by levels leaves the report's built-in groups.
+**Why:** Menny wants an 80/20 formatter: sortable show/hide columns, sort/group/filter beside them, and a change tray before saving. Same behavior on Flask `main`.
+**Status:** DECIDED
+
 ## 2026-10-01 Report runs have their own page
 **What I had to decide:** Refresh on a past run stays on that URL vs starts a new run.
 **Options I considered:** Refresh reloads the same job in place; Refresh and Run both start a new job and open `/reports/<key>/runs/<id>`.
