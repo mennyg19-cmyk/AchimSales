@@ -2,28 +2,7 @@
 
 Status: **cut over 2026-09-29.** Live reads and scheduled sends use `views` + `layout_*` only. `saved_reports`, `company_views`, and `report_defaults` are dropped on migrate after one last copy. `schedules` / `master_schedules` stay for the clock.
 
-## Silent dual-build + daily digest (live)
-
-Every scheduled/emailed report delivery:
-
-1. Builds and sends the workbook from the **new** (assembled) layout.
-2. Also builds the **old** `layout_json` workbook under `{precious parent}/view-parity/YYYY-MM-DD/` (or `VIEW_PARITY_DIR`), as `__new.xlsx` / `__old.xlsx`.
-3. Compares sheet cell grids and writes a row to `view_workbook_parity`.
-
-Parity never fails the real send. Toggle off with app_settings `view_workbook_parity=0`.
-
-Once a day (Eastern **7:05**), the scheduler emails yesterday’s match/diff scores to `view_parity_digest_emails` (fallback: schedule test emails, then `V3_ADMIN_EMAILS`). Idempotent per Eastern day (`view_parity_digest_sent_day`).
-
-Manual one-shot still available:
-
-```bash
-cd v3
-PRECIOUS_DB_PATH=/path/to/precious.db \
-REPORTING_API_BASE_URL=… REPORTING_API_KEY=… \
-python -m tools.compare_view_workbooks
-```
-
-Writes `.scratch/view-workbook-compare/<stamp>/` with both xlsx files + INDEX.md.
+Scheduled and emailed reports build one workbook from the saved view. There is no second copy and no morning comparison email.
 
 This replaces three view tables and the layout/params copies on schedules with one `views` tree. The report page and the clock job both read that tree. JSON blobs stay on jobs, notifications, and job logs.
 
