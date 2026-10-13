@@ -1,3 +1,10 @@
+## 2026-10-13 Silent dual-build is removed
+**What I had to decide:** Leave the second workbook and morning score email behind a setting, or delete them.
+**Options I considered:** Keep `view_workbook_parity=0` as an off switch; delete the compare, the score table, and the 7:05 digest.
+**What I chose:** Delete them. A scheduled or emailed report builds one workbook from the saved view and sends that. Migration `0026` drops `view_workbook_parity` and the three settings keys.
+**Why:** Menny: the dual-build checker is not needed anymore.
+**Status:** DECIDED
+
 ## 2026-10-01 Formatter split is columns 25, sort 75
 **What I had to decide:** Which pane is the wide one.
 **Options I considered:** Columns on the left at 80%; columns on the left at 25% with sort, group, and filter taking the rest.

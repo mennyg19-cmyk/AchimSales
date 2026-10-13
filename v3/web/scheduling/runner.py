@@ -37,7 +37,6 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
-from web.delivery.workbook_parity import raw_legacy_layout
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import test_sharepoint_path
 from web.scheduling.company_layouts import WINDOW_KEYS, has_date_window
@@ -336,84 +335,6 @@ class ScheduleRunner:
             )
             return vid, f"{source} seeded_from_layout_json schedule_id={sched.id}"
 
-    def _legacy_view_ref(self, sched, schedule_type: str) -> dict:
-        """Resolve which legacy JSON row backs silent parity (JSON garbage only).
-
-        Keys: ``source`` (saved_reports|company_views|report_defaults|snapshot),
-        ``legacy_id``, ``report_key``, ``snapshot`` (layout dict when source=snapshot).
-        """
-        name = getattr(sched, "view_name", None)
-        norm = normalize_view_name(name)
-        if norm == DEFAULT_VIEW_NAME:
-            return {"source": "report_defaults", "report_key": sched.report_key}
-        if norm == CUSTOM_VIEW_NAME:
-            return {"source": "snapshot", "snapshot": dict(getattr(sched, "layout", None) or {}),
-                    "report_key": sched.report_key}
-        stored = dict(getattr(sched, "params", None) or {})
-        use_company = schedule_type == MASTER or stored.get("view_source") == "company"
-        if schedule_type == PERSONAL and not use_company:
-            owner_id = getattr(sched, "owner_user_id", None)
-            personal = (
-                self.saved_reports.get_by_name(owner_id, sched.report_key, name)
-                if owner_id else None
-            )
-            if personal is not None:
-                return {"source": "saved_reports", "legacy_id": personal.id}
-            use_company = True
-        if use_company:
-            cv = self.company_views.get_by_name(sched.report_key, name)
-            if cv is not None:
-                return {"source": "company_views", "legacy_id": cv.id}
-        return {"source": "snapshot",
-                "snapshot": dict(getattr(sched, "layout", None) or {}),
-                "report_key": sched.report_key}
-
-    def _legacy_json_layout(self, sched, schedule_type: str) -> dict | None:
-        """Raw layout_json for silent parity only (bypass live assemble)."""
-        from web.data.normalized_views import loads_json_object
-
-        ref = self._legacy_view_ref(sched, schedule_type)
-        source = ref.get("source")
-        if source == "snapshot":
-            return ref.get("snapshot") or {}
-        if source == "report_defaults":
-            with self.user_repo.db.precious() as conn:
-                alive = conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_defaults'"
-                ).fetchone()
-                if alive is None:
-                    return None
-                row = conn.execute(
-                    "SELECT layout_json FROM report_defaults WHERE report_key=?",
-                    (ref.get("report_key"),),
-                ).fetchone()
-            if row is None:
-                return {}
-            return loads_json_object(row["layout_json"])
-        return raw_legacy_layout(self.user_repo.db, source, int(ref["legacy_id"]))
-
-    def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
-        view_id, _origin = self._live_view_id(sched, schedule_type)
-        return view_id
-
-    def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
-        if not self.settings.view_workbook_parity_enabled():
-            return {}
-        try:
-            compare = self._legacy_json_layout(sched, schedule_type)
-            if compare is None:
-                return {}
-            return {
-                "compare_layout": compare,
-                "parity_view_name": normalize_view_name(getattr(sched, "view_name", None)),
-                "parity_view_id": self._resolved_view_id(sched, schedule_type),
-                "parity_schedule_kind": schedule_type,
-                "parity_schedule_id": getattr(sched, "id", None),
-            }
-        except Exception:  # noqa: BLE001 - never fail a real send on parity lookup
-            log.exception("view workbook parity lookup failed (delivery continues)")
-            return {}
-
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
             include_regular: bool = True, recovered: bool = False,
@@ -665,7 +586,6 @@ class ScheduleRunner:
                         schedule_name=schedule_name,
                         subject_template=str(params.get("email_subject") or ""),
                         body_html_template=str(params.get("email_html") or ""),
-                        **self._parity_deliver_kwargs(sched, schedule_type),
                     )
                 if not outcome.result.ok:
                     if _inbox_already_got_mail(outcome.result):
@@ -793,7 +713,6 @@ class ScheduleRunner:
                 ),
                 subject_template=str(params.get("email_subject") or ""),
                 body_html_template=str(params.get("email_html") or ""),
-                **self._parity_deliver_kwargs(sched, MASTER),
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -822,7 +741,6 @@ class ScheduleRunner:
                 schedule_name=f"{sched_name} - {key}",
                 body_text=body_text,
                 email_on_empty=False,
-                **self._parity_deliver_kwargs(sched, MASTER),
             )
             if outcome.row_count == 0:
                 notice_fn = getattr(self.delivery, "send_no_data_notice", None)
