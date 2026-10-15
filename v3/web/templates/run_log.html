@@ -18,13 +18,13 @@
   <tbody>
     {% for e in entries %}
     <tr>
-      <td>{{ e.created_at }}</td>
-      <td>{{ e.user_email or '\u2014' }}</td>
-      <td>{{ e.report_key }}</td>
-      <td><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
-      <td>{{ e.rows if e.rows is not none else '\u2014' }}</td>
-      <td>{{ '%d ms'|format(e.duration_ms) if e.duration_ms is not none else '\u2014' }}</td>
-      <td>{{ e.source }}</td>
+      <td data-label="When">{{ e.created_at }}</td>
+      <td data-label="User">{{ e.user_email or '\u2014' }}</td>
+      <td data-label="Report">{{ e.report_key }}</td>
+      <td data-label="Status"><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
+      <td data-label="Rows">{{ e.rows if e.rows is not none else '\u2014' }}</td>
+      <td data-label="Duration">{{ '%d ms'|format(e.duration_ms) if e.duration_ms is not none else '\u2014' }}</td>
+      <td data-label="Source">{{ e.source }}</td>
     </tr>
     {% endfor %}
   </tbody>

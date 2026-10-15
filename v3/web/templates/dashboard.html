@@ -42,14 +42,14 @@
     <tbody>
         {% for c in customers %}
         <tr data-status="{{ c.status }}" {% if c.customer_account in excluded %}class="row-excluded"{% endif %}>
-            <td><a href="{{ url_for('dashboard.customer_detail', account=c.customer_account) }}">{{ c.customer_name or c.customer_account }}</a>
+            <td data-label="Customer"><a href="{{ url_for('dashboard.customer_detail', account=c.customer_account) }}">{{ c.customer_name or c.customer_account }}</a>
                 {% if c.customer_account in excluded %}<span class="mini-flag">excluded</span>{% endif %}</td>
-            <td>{{ c.sales_group or '\u2014' }}</td>
-            <td><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
-            <td>{{ c.last_order_date|iso_date or '\u2014' }}</td>
-            <td>{{ c.days_since_last if c.days_since_last is not none else '\u2014' }}</td>
-            <td>{{ c.avg_gap_days if c.avg_gap_days is not none else '\u2014' }}</td>
-            <td>{{ c.overdue_threshold if c.overdue_threshold is not none else '\u2014' }}</td>
+            <td data-label="Salesman">{{ c.sales_group or '\u2014' }}</td>
+            <td data-label="Status"><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
+            <td data-label="Last order">{{ c.last_order_date|iso_date or '\u2014' }}</td>
+            <td data-label="Days since">{{ c.days_since_last if c.days_since_last is not none else '\u2014' }}</td>
+            <td data-label="Avg freq">{{ c.avg_gap_days if c.avg_gap_days is not none else '\u2014' }}</td>
+            <td data-label="Threshold">{{ c.overdue_threshold if c.overdue_threshold is not none else '\u2014' }}</td>
         </tr>
         {% endfor %}
     </tbody>

@@ -49,10 +49,10 @@
           data-test="{{ 1 if u.test_access else 0 }}"
           data-company-views="{{ 1 if u.can_see_company_views else 0 }}"
           data-sales-group="{{ u.sales_group }}">
-        <td class="cell-email">{{ u.email }}</td>
-        <td>{{ u.display_name or '\u2014' }}</td>
-        <td>{{ role_badge(u.role) }}</td>
-        <td class="cell-flags">
+        <td class="cell-email" data-label="Email">{{ u.email }}</td>
+        <td data-label="Name">{{ u.display_name or '\u2014' }}</td>
+        <td data-label="Role">{{ role_badge(u.role) }}</td>
+        <td class="cell-flags" data-label="Flags">
           {% if not u.is_active %}<span class="mini-flag mini-off">Disabled</span>{% endif %}
           {% if u.dashboard_enabled %}<span class="mini-flag">Dashboard</span>{% endif %}
           {% if u.sharepoint_access %}<span class="mini-flag">SharePoint</span>{% endif %}
@@ -60,7 +60,7 @@
           {% if u.can_see_company_views %}<span class="mini-flag">Company views</span>{% endif %}
           {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
         </td>
-        <td class="cell-actions">
+        <td class="cell-actions" data-label="Actions">
           {% if user and u.email != user.email and ((is_beta and user._dev) or not is_beta) %}
           <form method="post" class="view-as-form" action="{% if is_beta %}{{ url_for('auth.role_picker') }}{% else %}{{ url_for('auth.impersonate_start') }}{% endif %}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
