@@ -1796,20 +1796,11 @@ def test_schedule_create_named_view_shows_on_page(tmp_path):
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
     html = client.get("/schedules").get_data(as_text=True)
-    assert "<th>View</th>" in html
     assert 'data-view-name="Last month"' in html
+    assert 'class="try-row-name">Last month' in html
+    assert 'class="try-row-view">Ordered' in html
     assert 'id="psWizard"' in html
-    assert "/schedules/try/cards" in html
-    for layout, marker in (
-        ("cards", "try-card"),
-        ("rows", "try-row"),
-        ("agenda", "try-agenda-item"),
-    ):
-        page = client.get(f"/schedules/try/{layout}").get_data(as_text=True)
-        assert page.find(marker) != -1
-        assert 'data-view-name="Last month"' in page
-        assert 'class="btn btn-sm btn-outline js-edit"' in page
-    assert client.get("/schedules/try/nope").status_code == 404
+    assert 'try-owner-block" open' in html
 
 
 def test_schedule_from_layout_snapshot_is_rejected(tmp_path):
@@ -2105,10 +2096,15 @@ def test_personal_schedules_page_uses_one_table(tmp_path):
     admin = app.test_client()
     _login(admin, app)
     html = admin.get("/schedules").get_data(as_text=True)
-    assert html.count("ps-sched-table") == 1
-    assert html.count("ps-owner-row") == 2
+    assert html.count("try-owner-block") == 2
+    assert 'try-owner-block" open' not in html
     assert "avi@x.com" in html
     assert "heshy@x.com" in html
+    assert 'class="try-row-name">Avi view' in html
+    assert 'class="try-row-view">Ordered' in html
+    one = avi.get("/schedules").get_data(as_text=True)
+    assert one.count("try-owner-block") == 1
+    assert 'try-owner-block" open' in one
 
 
 def test_personal_schedule_row_has_edit(tmp_path):

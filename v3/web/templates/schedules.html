@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "schedule_try_macros.html" import attrs, actions %}
 {% block title %}Schedules{% endblock %}
 
 {% block content %}
@@ -18,7 +19,6 @@
     </div>
 </div>
 
-{% include "schedules_try_nav.html" %}
 {% include "schedules_run_log.html" %}
 
 {% include "personal_schedule_wizard.html" %}
@@ -31,95 +31,40 @@
         Each row is a named saved view on a timer. Email goes to the person who owns the view.
     </p>
     </div>
-    {% if is_developer and schedules %}
-    <div class="page-head-actions">
-        <button type="button" class="btn btn-outline" id="psGridEditBtn" title="Edit fields in this table">
-            <i data-feather="edit-2" style="width:14px;height:14px;"></i>
-            <span>Edit table</span>
-        </button>
-    </div>
-    {% endif %}
 </div>
 
 {% if schedules %}
 <div id="schedulesRoot" data-csrf="{{ csrf_token() }}"
      data-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}">
-    <div class="table-wrap">
-    <table class="data-table ps-sched-table">
-        <colgroup>
-            <col class="ps-col-report">
-            <col class="ps-col-view">
-            <col class="ps-col-cadence">
-            <col class="ps-col-recipients">
-            <col class="ps-col-folder">
-            <col class="ps-col-lastrun">
-            <col class="ps-col-active">
-            <col class="ps-col-actions">
-        </colgroup>
-        <thead>
-            <tr>
-                <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>Folder</th>
-                <th>Last run</th><th>Active</th><th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for g in schedule_groups %}
-            {% if is_privileged %}
-            <tr class="ps-owner-row">
-                <td colspan="8">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></td>
-            </tr>
-            {% endif %}
+    {% for g in schedule_groups %}
+    <details class="try-owner-block"{% if schedule_groups|length == 1 %} open{% endif %}>
+        <summary class="try-owner-summary">
+            {{ g.owner_name or current_user_name }}
+            {% if g.owner_email %}<span class="muted">{{ g.owner_email }}</span>{% endif %}
+        </summary>
+        <div class="try-list">
             {% for s in g.schedules %}
-            <tr data-id="{{ s.id }}"
-                data-kind="personal"
-                data-name="{{ s.report_title }}"
-                data-report-key="{{ s.report_key }}"
-                data-cadence='{{ (s.cadence_raw or {})|tojson }}'
-                data-params='{{ (s.params or {})|tojson }}'
-                data-recipients="{{ s.recipients }}"
-                data-sharepoint-path="{{ s.sharepoint_path }}"
-                data-filename-template="{{ s.filename_template or '' }}"
-                data-view-name="{{ s.view_name or '' }}"
-                data-saved-report-id="{{ s.saved_report_id or '' }}"
-                data-owner-name="{{ s.owner_name }}"
-                data-owner-email="{{ s.owner_email }}"
-                data-folder-kind="{{ s.folder_kind or 'onedrive' }}">
-                <td>{{ s.report_title }}</td>
-                <td>{{ s.view_name or '—' }}</td>
-                <td>{{ s.cadence }}</td>
-                <td>
-                    <span class="js-grid-text">{{ s.recipients or '—' }}</span>
-                    <input class="js-grid-input" hidden data-field="recipients" value="{{ s.recipients }}">
-                </td>
-                <td>
-                    <span class="js-grid-text">{{ s.sharepoint_path or '—' }}</span>
-                    <input class="js-grid-input" hidden data-field="folder" value="{{ s.sharepoint_path }}">
-                </td>
-                <td>{{ s.last_run or 'never' }}</td>
-                <td>
-                    <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
-                            data-url="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}"
-                            data-active="{{ 'false' if s.is_active else 'true' }}">
-                        {{ 'On' if s.is_active else 'Off' }}
-                    </button>
-                </td>
-                <td class="row-actions">
-                    <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
-                    <button type="button" class="btn btn-sm btn-outline js-run"
-                            data-url="{{ url_for('schedules.run_schedule', schedule_id=s.id) }}">Run now</button>
-                    <button type="button" class="btn btn-sm btn-outline js-copy"
-                            data-url="{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}">Copy</button>
-                    <a class="btn btn-sm btn-outline" href="{{ url_for('schedules.schedule_history', schedule_id=s.id) }}">History</a>
-                    <button type="button" class="btn btn-sm btn-outline js-delete"
-                            data-url="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
-                            data-confirm="Delete this schedule?">Delete</button>
-                </td>
-            </tr>
+            <details class="try-row {% if not s.is_active %}is-off{% endif %}" {{ attrs(s) }}>
+                <summary>
+                    <span class="try-row-main">
+                        <span class="try-row-name">{{ s.view_name or '—' }}</span>
+                        <span class="try-row-view">{{ s.report_title }}</span>
+                    </span>
+                    <span class="try-row-when">{{ s.cadence }}</span>
+                </summary>
+                <div class="try-row-body">
+                    <dl class="try-fields">
+                        <div><dt>To</dt><dd>{{ s.recipients or '—' }}</dd></div>
+                        <div><dt>Folder</dt><dd>{{ s.sharepoint_path or '—' }}</dd></div>
+                        <div><dt>Last run</dt><dd>{{ s.last_run or 'never' }}</dd></div>
+                    </dl>
+                    {{ actions(s) }}
+                </div>
+            </details>
             {% endfor %}
-            {% endfor %}
-        </tbody>
-    </table>
-    </div>
+        </div>
+    </details>
+    {% endfor %}
 </div>
 {% else %}
 <div class="empty-state" id="psEmpty">
