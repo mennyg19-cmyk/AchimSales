@@ -361,7 +361,7 @@ function extrasFromRecipients(recipients: string, email: string): string {
   return recipients.split(",").map((s) => s.trim()).filter((s) => s && s.toLowerCase() !== mine).join(", ");
 }
 
-async function enterEdit(row: HTMLTableRowElement): Promise<void> {
+async function enterEdit(row: HTMLElement): Promise<void> {
   const form = formEl();
   if (!form) return;
   (document.getElementById("psEditingId") as HTMLInputElement).value = row.dataset.id || "";
@@ -591,7 +591,7 @@ export function bindPersonalWizard(): void {
   });
   document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) => {
     b.addEventListener("click", () => {
-      const row = b.closest("tr") as HTMLTableRowElement | null;
+      const row = b.closest("[data-kind='personal']") as HTMLElement | null;
       if (row?.dataset.kind === "personal") void enterEdit(row);
     });
   });

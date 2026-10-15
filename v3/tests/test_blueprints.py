@@ -1799,6 +1799,17 @@ def test_schedule_create_named_view_shows_on_page(tmp_path):
     assert "<th>View</th>" in html
     assert 'data-view-name="Last month"' in html
     assert 'id="psWizard"' in html
+    assert "/schedules/try/cards" in html
+    for layout, marker in (
+        ("cards", "try-card"),
+        ("rows", "try-row"),
+        ("agenda", "try-agenda-item"),
+    ):
+        page = client.get(f"/schedules/try/{layout}").get_data(as_text=True)
+        assert page.find(marker) != -1
+        assert 'data-view-name="Last month"' in page
+        assert 'class="btn btn-sm btn-outline js-edit"' in page
+    assert client.get("/schedules/try/nope").status_code == 404
 
 
 def test_schedule_from_layout_snapshot_is_rejected(tmp_path):

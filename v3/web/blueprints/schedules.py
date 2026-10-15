@@ -515,9 +515,7 @@ def _drain_if_dev():
 
 # --- personal schedules ----------------------------------------------------
 
-@schedules_bp.get("/schedules")
-@require_login
-def schedules_page():
+def _personal_schedules_context() -> dict:
     p = _principal()
     uid = _uid(p.email)
     authz = _authz()
@@ -582,7 +580,33 @@ def schedules_page():
         context["test_mode_on"] = test_settings.is_schedule_test_mode()
         context["test_emails"] = test_settings.test_emails() if context["test_mode_on"] else []
         context["company_schedules_url"] = url_for("schedules.company_schedules_page")
+    return context
+
+
+_TRY_LAYOUTS = {
+    "cards": "schedules_try_cards.html",
+    "rows": "schedules_try_rows.html",
+    "agenda": "schedules_try_agenda.html",
+}
+
+
+@schedules_bp.get("/schedules")
+@require_login
+def schedules_page():
+    context = _personal_schedules_context()
+    context["try_layout"] = ""
     return render_template("schedules.html", **context)
+
+
+@schedules_bp.get("/schedules/try/<layout>")
+@require_login
+def schedules_try(layout: str):
+    template = _TRY_LAYOUTS.get(layout)
+    if template is None:
+        abort(404)
+    context = _personal_schedules_context()
+    context["try_layout"] = layout
+    return render_template(template, **context)
 
 
 def _has_schedulable_views(p, privileged: bool) -> bool:
