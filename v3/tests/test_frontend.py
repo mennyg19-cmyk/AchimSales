@@ -288,13 +288,13 @@ def test_report_viewer_meeting_ux():
     assert 'view_name: selectedViewName()' in wiz_js
     assert 'group.label = "Company views"' in wiz_js
     sched = (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
-    assert "<th>View</th>" in sched
+    assert "try-row-name" in sched
     assert 'personal_schedule_wizard.html' in sched
     assert "container-narrow" not in sched
-    assert "ps-sched-table" in sched
-    assert "ps-owner-row" in sched
-    assert 'id="psGridEditBtn"' in sched
-    assert "data-job-url" in sched
+    assert "try-owner-block" in sched
+    assert "schedules_run_log.html" in sched
+    run_log = (_V3 / "web" / "templates" / "schedules_run_log.html").read_text(encoding="utf-8")
+    assert "data-job-url" in run_log
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
     assert "function pollJob" in sched_js
     assert "data-job-url" in sched_js

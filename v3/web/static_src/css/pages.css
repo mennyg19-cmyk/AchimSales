@@ -1302,6 +1302,15 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 }
 .try-group { margin: 0 0 20px; }
 .try-owner { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.try-owner-block { margin: 0 0 12px; }
+.try-owner-summary {
+    min-height: 44px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 15px; font-weight: 700; cursor: pointer; list-style: none;
+}
+.try-owner-summary::-webkit-details-marker { display: none; }
+.try-owner-summary::before { content: "▸"; color: var(--text-muted); font-weight: 400; }
+.try-owner-block[open] > .try-owner-summary::before { content: "▾"; }
+.try-owner-summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .try-title { margin: 0; font-size: 18px; font-weight: 700; text-wrap: balance; line-height: 1.25; }
 .try-fields { display: grid; gap: 8px; margin: 0; }
 .try-fields div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; align-items: start; }

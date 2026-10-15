@@ -583,30 +583,10 @@ def _personal_schedules_context() -> dict:
     return context
 
 
-_TRY_LAYOUTS = {
-    "cards": "schedules_try_cards.html",
-    "rows": "schedules_try_rows.html",
-    "agenda": "schedules_try_agenda.html",
-}
-
-
 @schedules_bp.get("/schedules")
 @require_login
 def schedules_page():
-    context = _personal_schedules_context()
-    context["try_layout"] = ""
-    return render_template("schedules.html", **context)
-
-
-@schedules_bp.get("/schedules/try/<layout>")
-@require_login
-def schedules_try(layout: str):
-    template = _TRY_LAYOUTS.get(layout)
-    if template is None:
-        abort(404)
-    context = _personal_schedules_context()
-    context["try_layout"] = layout
-    return render_template(template, **context)
+    return render_template("schedules.html", **_personal_schedules_context())
 
 
 def _has_schedulable_views(p, privileged: bool) -> bool:
