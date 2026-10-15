@@ -1,0 +1,6 @@
+<nav class="sched-try-nav" aria-label="Schedule layouts">
+    <a href="{{ url_for('schedules.schedules_page') }}" {% if not try_layout %}aria-current="page"{% endif %}>Table</a>
+    <a href="{{ url_for('schedules.schedules_try', layout='cards') }}" {% if try_layout == 'cards' %}aria-current="page"{% endif %}>Cards</a>
+    <a href="{{ url_for('schedules.schedules_try', layout='rows') }}" {% if try_layout == 'rows' %}aria-current="page"{% endif %}>Rows</a>
+    <a href="{{ url_for('schedules.schedules_try', layout='agenda') }}" {% if try_layout == 'agenda' %}aria-current="page"{% endif %}>Agenda</a>
+</nav>
