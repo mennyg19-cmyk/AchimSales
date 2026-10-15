@@ -1357,3 +1357,52 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 @media (max-width: 380px) {
     .try-agenda-item { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* Phone: lists become stacked rows. Wide data grids scroll inside their box. */
+@media (max-width: 799px) {
+    .page-title, .page-subtitle { overflow-wrap: anywhere; }
+    .settings-card, .dbx-page, .dbx-layout, .company-schedules-section { min-width: 0; max-width: 100%; }
+    .dbx-layout > * { min-width: 0; }
+    .table-wrap, .table-scroll, .ms-table-wrap, .report-table-scroll, .run-log-table-wrap {
+        width: 100%; max-width: 100%; min-width: 0; overflow-x: auto;
+    }
+    .tabulator { max-width: 100%; }
+    .report-top .report-controls { min-width: 0; flex-basis: 100%; }
+    .filter-field, .filter-field-wide, .filter-field-customers { flex: 1 1 100%; min-width: 0; width: 100%; }
+    .filter-field select, .filter-field input:not([type="checkbox"]) { width: 100%; min-width: 0; max-width: 100%; }
+    .view-owner-field { white-space: normal; flex-wrap: wrap; }
+    .view-owner-field select { max-width: 100%; }
+    .loaded-view-label { white-space: normal; }
+    .fmt-level, .fmt-extra, .fmt-row-actions { flex-wrap: wrap; }
+    .dbx-toolbar, .dbx-sql-run { grid-template-columns: 1fr; }
+    .report-override-row { flex-wrap: wrap; }
+    .auth-card .btn { max-width: 100%; white-space: normal; }
+    .simple-table, .run-log-table {
+        display: block; width: 100%; border: 0; background: transparent; overflow: visible;
+    }
+    .simple-table thead, .run-log-table thead {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    .simple-table tbody, .run-log-table tbody,
+    .simple-table tr, .run-log-table tr { display: block; }
+    .simple-table tr, .run-log-table tr {
+        margin: 0 0 10px; padding: 10px 12px;
+        border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);
+    }
+    .simple-table td, .run-log-table td {
+        display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 8px; align-items: start;
+        padding: 4px 0; border: 0; text-align: left; white-space: normal; overflow-wrap: anywhere;
+    }
+    .simple-table td::before, .run-log-table td::before {
+        content: attr(data-label); color: var(--text-muted); font-size: 12px; font-weight: 700;
+    }
+    .simple-table td.cell-flags { display: block; }
+    .simple-table td.cell-flags::before { display: block; margin-bottom: 4px; }
+    .simple-table td.cell-actions {
+        display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .simple-table td.cell-actions::before { content: none; }
+    .cell-actions { white-space: normal; }
+    .cell-actions .view-as-form { display: inline-flex; margin: 0; }
+}

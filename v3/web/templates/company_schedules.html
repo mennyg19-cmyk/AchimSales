@@ -58,20 +58,20 @@
             <tbody id="runLogRows">
                 {% for r in recent_runs %}
                 <tr>
-                    <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
-                    <td>
+                    <td class="run-log-when" data-label="When">{{ r.finished_at or r.started_at or '—' }}</td>
+                    <td data-label="Schedule">
                         <span class="mini-flag">{{ r.kind }}</span>
                         {{ r.title }}
                     </td>
-                    <td>
+                    <td data-label="Status">
                         <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
                             {{ r.status|title }}
                         </span>
                     </td>
-                    <td>{{ r.rows if r.rows is not none else '—' }}</td>
-                    <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    <td data-label="Rows">{{ r.rows if r.rows is not none else '—' }}</td>
+                    <td class="run-log-msg" data-label="What happened">{{ r.message or '—' }}</td>
                     {% if is_developer %}
-                    <td><a class="btn btn-sm btn-outline" href="{{ r.log_url }}">Log</a></td>
+                    <td data-label="Log"><a class="btn btn-sm btn-outline" href="{{ r.log_url }}">Log</a></td>
                     {% endif %}
                 </tr>
                 {% endfor %}

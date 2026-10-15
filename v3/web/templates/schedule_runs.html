@@ -18,11 +18,11 @@
   <tbody>
     {% for e in entries %}
     <tr>
-      <td>{{ e.started_at or '—' }}</td>
-      <td>{{ e.label }}</td>
-      <td>{{ e.schedule_type }}</td>
-      <td><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
-      <td>{{ e.rows if e.rows is not none else '—' }}</td>
+      <td data-label="When">{{ e.started_at or '—' }}</td>
+      <td data-label="Schedule">{{ e.label }}</td>
+      <td data-label="Kind">{{ e.schedule_type }}</td>
+      <td data-label="Status"><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
+      <td data-label="Rows">{{ e.rows if e.rows is not none else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>
