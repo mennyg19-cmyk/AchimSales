@@ -98,6 +98,10 @@
         if (salesmanEl && salesmanEl.value) url += "?salesman=" + encodeURIComponent(salesmanEl.value);
         fetch(url).then(function (r) { return r.json(); }).then(function (data) {
             all = (data && data.customers) || [];
+            if (!all.length && data && data.warming) {
+                setTimeout(load, 1500);
+                return;
+            }
             if (!all.length && attempts < 15) {
                 attempts++;
                 setTimeout(load, 1500);  // lookups warming on a background thread

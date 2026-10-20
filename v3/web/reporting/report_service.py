@@ -25,10 +25,10 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from datetime import date
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_eastern
-from report_engine.facts import InvoiceChargeFact, SalesmanFact
+from report_engine.facts import CustomerFact, InvoiceChargeFact, SalesmanFact
 from report_engine.lib import filter_facts_by_scope, salesman_key, sales_group_value
 from report_engine.reports import customer_activity as rpt_customer_activity
 from report_engine.reports import customer_transaction_detail as rpt_customer_transaction_detail
@@ -62,7 +62,7 @@ def _log_built_tabs(report_key: str, tabs: list[dict]) -> None:
 
 # Optional fallback that returns customer_master-shaped rows from a local
 # mirror when the live SP is unreachable (owner decision #15).
-CustomerMirror = Callable[[], list[dict]]
+CustomerMirror = Callable[[], list]
 
 
 def _is_numeric_sales_group(value: str) -> bool:
@@ -220,16 +220,48 @@ class ReportService:
         _log_built_tabs(report_key, tabs)
         return {"report_key": report_key, "tabs": tabs, "row_count": row_count, **extra}
 
+    def _facts_from_customer_mirror(self) -> list:
+        """CustomerFact list from the shared mirror, or [] if it is empty or down."""
+        if self.customer_mirror is None:
+            return []
+        try:
+            raw_rows = list(self.customer_mirror())
+        except Exception:  # noqa: BLE001 - the mirror is a best-effort fallback
+            log.warning("customer mirror unreadable", exc_info=True)
+            return []
+        facts: list[CustomerFact] = []
+        for row in raw_rows:
+            if isinstance(row, Mapping):
+                facts.append(src_customers.to_fact(row))
+                continue
+            acct = (getattr(row, "customer_account", "") or "").strip()
+            if not acct:
+                continue
+            facts.append(CustomerFact(
+                source="reporting_api",
+                customer_account=acct,
+                customer_name=(getattr(row, "customer_name", "") or "").strip(),
+                sales_group=(getattr(row, "sales_group", "") or "").strip(),
+                last_order_date=(getattr(row, "last_order_date", None) or "") or "",
+            ))
+        return facts
+
     def _customer_universe(self) -> list:
-        """Live customer_master each run; fall back to the local mirror if down."""
+        """Live customer_master. On failure, the shared mirror if it has rows.
+
+        A failed call must not look like a successful empty list. Callers that
+        cache that list would stop retrying, and the customer dropdown would
+        stay blank.
+        """
         try:
             rows = self._rows("customer_master", {})
             return src_customers.to_facts(rows)
         except ReportingApiError:
             log.warning("customer_master SP unreachable; using mirror fallback")
-            if self.customer_mirror is not None:
-                return src_customers.to_facts(self.customer_mirror())
-            return []
+            mirrored = self._facts_from_customer_mirror()
+            if mirrored:
+                return mirrored
+            raise
 
     def _customer_sales_groups(self) -> dict[str, str]:
         """{account -> SalesGroup} from the same source as the report dropdowns."""
@@ -242,7 +274,11 @@ class ReportService:
                 if mapped:
                     return mapped
         mapped: dict[str, str] = {}
-        for f in self._customer_universe():
+        try:
+            facts = self._customer_universe()
+        except ReportingApiError:
+            return mapped
+        for f in facts:
             acct = (getattr(f, "customer_account", "") or "").strip()
             sg = sales_group_value(getattr(f, "sales_group", ""), acct)
             if acct and sg and acct not in mapped:

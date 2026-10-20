@@ -18,6 +18,7 @@ disappears.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
@@ -26,13 +27,19 @@ from report_engine.lib import salesman_key, sales_group_value
 from web.reporting.report_service import ReportService
 from web.reporting.salesman_directory import SalesmanDirectory
 
+log = logging.getLogger(__name__)
+
 
 class LookupService:
     def __init__(self, service: ReportService, directory: SalesmanDirectory,
-                 *, mirror_customers=None, ttl_seconds: int = 3600,
-                 retry_cooldown_seconds: int = 15):
+                 *, mirror_customers=None, remember_customers=None,
+                 ttl_seconds: int = 3600, retry_cooldown_seconds: int = 15):
         self.service = service
         self.directory = directory
+        # Called with the live CustomerFact list after a successful populate.
+        # Used to copy that list into the shared mirror so other workers can
+        # serve it before their own populate finishes.
+        self.remember_customers = remember_customers
         # Persisted customer universe (the dashboard mirror). Each gunicorn worker
         # warms its OWN in-process live cache, so a dropdown request can land on a
         # worker that hasn't populated yet; the mirror is the shared, durable
@@ -90,6 +97,11 @@ class LookupService:
                 elapsed_ms=int((time.monotonic() - started) * 1000),
                 row_count=len(rows), error=None,
             )
+            if rows and self.remember_customers:
+                try:
+                    self.remember_customers(rows)
+                except Exception:  # noqa: BLE001 - the dropdown still has this worker's cache
+                    log.warning("could not remember customer universe", exc_info=True)
         except Exception as exc:  # noqa: BLE001 - report it, never crash the thread
             self._state.update(status="error", finished_at=time.time(),
                                elapsed_ms=int((time.monotonic() - started) * 1000),
@@ -145,17 +157,38 @@ class LookupService:
             out.append({"key": sg, "name": sg})
         return sorted(out, key=lambda r: r["name"].lower())
 
+    def _salesman_filter_key(self, salesman: str | None) -> str | None:
+        """Normalized salesman key for a dropdown filter, or None for all.
+
+        The dropdown value is the raw SalesGroup. A saved view or a deep link
+        can send that same salesman in a different case, or as the display
+        name. An exact compare then matches nobody.
+        """
+        raw = (salesman or "").strip()
+        if not raw:
+            return None
+        want = salesman_key(raw)
+        want_name = raw.casefold()
+        for row in self.salesmen():
+            key = row.get("key") or ""
+            name = (row.get("name") or "").strip().casefold()
+            if salesman_key(key) == want or name == want_name:
+                return salesman_key(key)
+            if name.startswith(want_name + " ") or name.startswith(want_name + ","):
+                return salesman_key(key)
+        return want
+
     def customers(self, salesman: str | None = None) -> list[dict]:
         """Distinct customers (optionally narrowed to one salesman). Never blocks."""
         rows = self._universe()
-        sm = (salesman or "").strip() or None
+        sm = self._salesman_filter_key(salesman)
         seen: dict[str, dict] = {}
         for f in rows:
             acct = (getattr(f, "customer_account", "") or "").strip()
             if not acct:
                 continue
             sg = sales_group_value(getattr(f, "sales_group", ""), acct)
-            if sm and sg != sm:
+            if sm and salesman_key(sg) != sm:
                 continue
             if acct in seen:
                 continue
@@ -173,6 +206,20 @@ class LookupService:
         if visible_keys is not None:
             rows = [c for c in rows if salesman_key(c.get("salesman", "")) in visible_keys]
         return rows
+
+    def customer_dropdown(self, visible_keys: set[str] | None,
+                          salesman: str | None = None) -> dict:
+        """Customer picker payload.
+
+        ``warming`` is true when this worker has neither a live cache nor the
+        shared mirror, so an empty list is "still loading", not "no customers".
+        The page keeps polling until a worker that has the list answers.
+        """
+        cached = self._cached_rows()
+        mirror_count = len(self._mirror_rows())
+        rows = self.customers_visible(visible_keys, salesman)
+        warming = cached is None and mirror_count == 0 and not rows
+        return {"customers": rows, "warming": warming}
 
     def customer(self, account: str) -> dict | None:
         """Authoritative customer-master record for one account (key/name/salesman),
@@ -250,3 +297,39 @@ class LookupService:
                 state["finished_at"] = None
                 state["error"] = None
         return state
+
+
+def seed_customer_mirror(repo, facts) -> int:
+    """Copy a live customer list into the shared mirror when that mirror is empty.
+
+    Gunicorn workers do not share the in-process cache. The first worker that
+    loads customer_master writes it here so the others can fill the dropdown
+    before their own load finishes. A mirror the dashboard refresh already
+    filled is left alone.
+    """
+    if not facts or repo.count():
+        return 0
+    from web.data.repositories.dashboard import DashboardCustomer
+
+    records = []
+    seen: set[str] = set()
+    for fact in facts:
+        acct = (getattr(fact, "customer_account", "") or "").strip()
+        if not acct or acct in seen:
+            continue
+        seen.add(acct)
+        records.append(DashboardCustomer(
+            customer_account=acct,
+            customer_name=(getattr(fact, "customer_name", "") or "").strip() or acct,
+            sales_group=sales_group_value(getattr(fact, "sales_group", ""), acct),
+            last_order_date=None,
+            order_count=0,
+            avg_gap_days=None,
+            gap_stdev=None,
+            overdue_threshold=None,
+            days_since_last=None,
+            status="new",
+        ))
+    if not records:
+        return 0
+    return repo.replace_all(records)
