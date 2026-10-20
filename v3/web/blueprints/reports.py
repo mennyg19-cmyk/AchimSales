@@ -794,15 +794,6 @@ def _assert_clo_access(p):
     _authz().assert_can_view_report(p, _CLO_KEY)
 
 
-def _visible_customers(p, salesman: str | None) -> list[dict]:
-    """Customer picker list, narrowed to the principal's visible salesman scope."""
-    customers = _lookups().customers(salesman)
-    keys = _authz().visible_salesman_keys(p)
-    if keys is None:
-        return customers
-    return [c for c in customers if salesman_key(c.get("salesman")) in keys]
-
-
 @reports_bp.get("/report/customer-last-order")
 @require_login
 def customer_last_order_pick():
@@ -823,7 +814,8 @@ def customer_last_order_customers():
     p = _principal_or_401()
     _assert_clo_access(p)
     salesman = (request.args.get("salesman") or "").strip() or None
-    return jsonify({"customers": _visible_customers(p, salesman)})
+    return jsonify(_lookups().customer_dropdown(
+        _authz().visible_salesman_keys(p), salesman))
 
 
 @reports_bp.get("/api/report/customer-last-order/salesmen")
@@ -1018,7 +1010,7 @@ def report_customers(report_key: str):
     _authz().assert_report_runnable(p, report_key)
     salesman = (request.args.get("salesman") or "").strip() or None
     visible = _authz().visible_salesman_keys(p)
-    return jsonify({"customers": _lookups().customers_visible(visible, salesman)})
+    return jsonify(_lookups().customer_dropdown(visible, salesman))
 
 
 @reports_bp.get("/api/reports/<report_key>/years")

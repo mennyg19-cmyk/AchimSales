@@ -1291,6 +1291,90 @@ def test_salesmen_and_customers_lookups(tmp_path):
     assert {c["key"] for c in one} == {"100", "300"}
 
 
+def test_customer_lookup_matches_salesman_case_and_display_name(tmp_path):
+    """A saved view can send the salesman in another case, or as the display name."""
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "JSmith"},
+    ]
+    master = [{"SalesGroup": "REdwards", "SalesmanName": "Reggie Edwards"}]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows, master_rows=master)
+    client = app.test_client()
+    _login(client, app)
+
+    low = client.get("/api/reports/ordered/customers?salesman=redwards").get_json()
+    assert {c["key"] for c in low["customers"]} == {"100"}
+    assert low["warming"] is False
+    named = client.get("/api/reports/ordered/customers?salesman=Reggie%20Edwards").get_json()
+    assert {c["key"] for c in named["customers"]} == {"100"}
+
+
+def test_customer_dropdown_stays_warming_until_a_worker_has_rows(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    body = client.get("/api/reports/ordered/customers").get_json()
+    assert body["customers"] == []
+    assert body["warming"] is True
+
+
+def test_failed_customer_master_is_not_an_empty_list(tmp_path):
+    from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+    from web.reporting.http_client import ReportingApiError
+    from web.reporting.lookups import LookupService, seed_customer_mirror
+    from web.reporting.salesman_directory import SalesmanDirectory
+
+    class _Down:
+        configured = True
+
+        def run_report(self, report_id, params):
+            raise ReportingApiError("down")
+
+    app = _make_app(tmp_path)
+    repo = DashboardRepository(app.config["DB"])
+    repo.replace_all([
+        DashboardCustomer("100", "Acme", "REdwards", None, 0, None, None, None, None, "new"),
+    ])
+    service = ReportService(_Down(), _FakeSalesmen(), customer_mirror=repo.all)
+    assert service._customer_universe()[0].customer_account == "100"
+
+    empty = ReportService(_Down(), _FakeSalesmen())
+    with pytest.raises(ReportingApiError):
+        empty._customer_universe()
+
+    directory = SalesmanDirectory(_Down(), app.config["DB"])
+    lookup = LookupService(service, directory, mirror_customers=repo.all)
+    lookup._populate()
+    assert lookup.status()["status"] == "ready"
+    assert {c["key"] for c in lookup.customers()} == {"100"}
+
+    failed = LookupService(empty, directory, mirror_customers=lambda: [])
+    failed._populate()
+    assert failed.status()["status"] == "error"
+    assert failed._cached_rows() is None
+
+    seeded = seed_customer_mirror(repo, [])
+    assert seeded == 0
+    assert repo.count() == 1
+
+
+def test_seed_customer_mirror_fills_an_empty_mirror_only(tmp_path):
+    from report_engine.facts import CustomerFact
+    from web.data.repositories.dashboard import DashboardRepository
+    from web.reporting.lookups import seed_customer_mirror
+
+    app = _make_app(tmp_path)
+    repo = DashboardRepository(app.config["DB"])
+    facts = [CustomerFact("reporting_api", "100", "Acme", "REdwards", "")]
+    assert seed_customer_mirror(repo, facts) == 1
+    assert repo.get("100").customer_name == "Acme"
+    assert seed_customer_mirror(repo, [
+        CustomerFact("reporting_api", "200", "Other", "JSmith", ""),
+    ]) == 0
+    assert repo.get("200") is None
+
+
 def test_salesman_dropdowns_list_master_salesman_with_no_customers(tmp_path):
     """Report filters, Users & access, company wizard, and Customer's Last Order
     all read the salesmen_master SP, so a new salesman shows before owning a customer."""

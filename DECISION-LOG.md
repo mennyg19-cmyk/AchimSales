@@ -1,3 +1,10 @@
+## 2026-10-20 Customer dropdown shares one list across workers
+**What I had to decide:** Where a successful customer_master load is stored so every gunicorn worker can fill the report customer box.
+**Options I considered:** Leave the list only in each worker's memory; add a new cache table; copy it into dashboard_customers when that table is empty.
+**What I chose:** Copy it into dashboard_customers only when that table is empty. A mirror the dashboard refresh already filled is left alone. A failed customer_master call is not stored as an empty success, so the page keeps retrying.
+**Why:** The home site does not run the dashboard refresh, so the shared customer table stays empty. The report page was stopping as soon as any one worker said it was ready, and the next request could hit a worker with no list.
+**Status:** DECIDED
+
 ## 2026-10-13 Silent dual-build is removed
 **What I had to decide:** Leave the second workbook and morning score email behind a setting, or delete them.
 **Options I considered:** Keep `view_workbook_parity=0` as an off switch; delete the compare, the score table, and the 7:05 digest.

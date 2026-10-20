@@ -2267,12 +2267,18 @@ function applySalesman(val: string): void {
   }
 }
 
+let customersFetchDone = false;
+
 async function loadCustomers(): Promise<void> {
   if (!hasFilter("customerPicker")) return;
   const sel = $("salesmanSelect") as HTMLSelectElement | null;
   const salesmanVal = sel?.value || pendingSalesman || "";
   const salesman = salesmanVal ? `?salesman=${encodeURIComponent(salesmanVal)}` : "";
-  const data = await getJSON<{ customers: LookupRow[] }>(attr("data-customers-url") + salesman);
+  const data = await getJSON<{ customers: LookupRow[]; warming?: boolean }>(
+    attr("data-customers-url") + salesman,
+  );
+  // warming: this worker has no list yet. An empty array is not the answer.
+  customersFetchDone = !!data && !data.warming;
   customerOptions = data?.customers || [];
   renderCustomerPicker();
 }
@@ -2375,7 +2381,9 @@ function renderCustomerOptions(): void {
   if (!matches.length) {
     const empty = document.createElement("div");
     empty.className = "customer-empty";
-    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
+    empty.textContent = customerOptions.length
+      ? "No matches"
+      : (customersFetchDone ? "No customers" : "Loading…");
     list.appendChild(empty);
   }
   list.hidden = false;
@@ -2424,16 +2432,20 @@ function pollLookupStatus(): void {
   const tick = async () => {
     const s = await getJSON<any>(url);
     if (!s) return;
-    if (s.status === "ready" || (s.cached_row_count || 0) > 0) {
-      setLookupStatusText("");
-      if (lookupPollTimer) { window.clearInterval(lookupPollTimer); lookupPollTimer = null; }
-      await loadSalesmen();
-      await loadCustomers();
-      return;
-    }
+    const hasRows = (s.cached_row_count || 0) > 0 || (s.mirror_row_count || 0) > 0;
     if (s.status === "loading") setLookupStatusText("(loading…)");
     else if (s.status === "error") setLookupStatusText("(using cached list)");
-    else if (!s.configured) setLookupStatusText("");
+    else setLookupStatusText("");
+    // One worker can be ready while the customers request hits another that
+    // has not loaded yet. Keep polling until the list itself arrives.
+    if (s.status === "ready" || s.status === "error" || hasRows) {
+      await loadSalesmen();
+      await loadCustomers();
+    }
+    const genuineEmpty = s.status === "ready" && !hasRows;
+    if (customerOptions.length || (customersFetchDone && genuineEmpty)) {
+      if (lookupPollTimer) { window.clearInterval(lookupPollTimer); lookupPollTimer = null; }
+    }
   };
   tick();
   lookupPollTimer = window.setInterval(tick, 2500);

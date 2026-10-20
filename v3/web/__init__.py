@@ -104,7 +104,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.reporting.export_jobs import EXPORT_JOB_TYPE, make_export_handler
     from web.reporting.http_client import ReportingApiClient
     from web.reporting.jobs import JOB_TYPE, make_report_run_handler
-    from web.reporting.lookups import LookupService
+    from web.reporting.lookups import LookupService, seed_customer_mirror
     from web.reporting.report_service import ReportService
     from web.reporting.runner import ReportRunner
     from web.reporting.salesman_directory import SalesmanDirectory
@@ -137,6 +137,9 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     worker.register(SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler(schedule_runner))
 
     dash_repo = DashboardRepository(db)
+    # Home leaves the dashboard refresh off, so this table is the shared
+    # customer list the dropdown reads when a worker has not loaded yet.
+    service.customer_mirror = dash_repo.all
     mirror = MirrorService(
         customers_fetch=service.customer_universe, orders_fetch=service.all_orders, repo=dash_repo)
     worker.register(DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler(mirror, db))
@@ -150,7 +153,8 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     # universe is per-process and may not be warm yet on the worker serving the
     # request. Mirrors how the test app feeds its dropdown from a refreshed table.
     app.config["LOOKUP_SERVICE"] = LookupService(
-        service, salesmen, mirror_customers=dash_repo.all)
+        service, salesmen, mirror_customers=dash_repo.all,
+        remember_customers=lambda facts: seed_customer_mirror(dash_repo, facts))
     app.config["REPORT_CACHE"] = cache
     app.config["EXPORT_REPO"] = exports
     app.config["JOB_REPO"] = JobRepository(db)
