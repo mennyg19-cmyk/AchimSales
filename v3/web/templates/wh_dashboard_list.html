@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Warehouse{% endblock %}
+
+{% block head %}
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row" id="whListRoot"
+     data-status-column="{{ status_column }}">
+    <div>
+        <a class="back-link" href="{{ url_for('wh_dashboard.wh_dashboard') }}">
+            <i data-feather="arrow-left"></i> Warehouse
+        </a>
+        <h1 class="page-title">{{ title }}</h1>
+        <p class="page-subtitle">
+            {{ row_count }} open
+            · Data as of {{ data_as_of }}
+        </p>
+    </div>
+</div>
+
+<div class="wh-list-controls filter-bar filter-bar-row">
+    <label class="filter-field">
+        <span>Search</span>
+        <input type="search" id="whSearch" placeholder="Search open {{ title|lower }}…" autocomplete="off">
+    </label>
+    <label class="filter-field">
+        <span>Status</span>
+        <select id="whStatusFilter">
+            <option value="">All statuses</option>
+            {% for status, count in status_counts.items() %}
+            <option value="{{ status }}">{{ status }} ({{ count }})</option>
+            {% endfor %}
+        </select>
+    </label>
+    <div class="filter-field">
+        <span>&nbsp;</span>
+        <button type="button" class="btn btn-outline" id="whColumnsBtn">Columns</button>
+    </div>
+</div>
+
+<div id="whColumnsPanel" class="wh-columns-panel" hidden>
+    <p class="wh-columns-hint">Toggle columns. Defaults show the common fields; everything else is available.</p>
+    <div id="whColumnsList" class="wh-columns-list"></div>
+</div>
+
+<div id="whTable" class="wh-table-host"></div>
+
+<script type="application/json" id="whTableData">{{ table_data_json|safe }}</script>
+<script type="application/json" id="whColumns">{{ columns_json|safe }}</script>
+<script type="application/json" id="whDefaultVisible">{{ default_visible_json|safe }}</script>
+<script type="application/json" id="whStatusColumn">{{ status_column_json|safe }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/wh_dashboard.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

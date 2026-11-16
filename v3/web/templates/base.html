@@ -94,6 +94,14 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
+        {% if wh_dashboard_enabled and nav.wh_dashboard and nav.wh_dashboard != '#' %}
+        <a href="{{ nav.wh_dashboard }}" class="bottom-nav-item {% if active_tab == 'wh_dashboard' %}active{% endif %}">
+            <div class="bottom-nav-icon">
+                <i data-feather="package"></i>
+            </div>
+            <span class="bottom-nav-label">Warehouse</span>
+        </a>
+        {% endif %}
         <a href="{{ nav.schedules }}" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="clock"></i>

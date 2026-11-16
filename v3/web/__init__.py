@@ -165,6 +165,21 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["DELIVERY_SERVICE"] = delivery
     app.config["SCHEDULE_RUNNER"] = schedule_runner
 
+    # Warehouse dashboard: sample by default; reporting_api only when configured.
+    from web.warehouse import get_warehouse_provider
+
+    wh_name = cfg.wh_dashboard_provider
+    if wh_name in {"reporting_api", "live", "api"} and not client.configured:
+        app.logger.warning(
+            "WH_DASHBOARD_PROVIDER=%s but Reporting API is not configured; "
+            "falling back to sample", wh_name,
+        )
+        wh_name = "sample"
+    app.config["WH_DASHBOARD_PROVIDER"] = get_warehouse_provider(
+        wh_name, reporting_client=client if wh_name != "sample" else None,
+    )
+    app.config["WH_DASHBOARD_PROVIDER_NAME"] = wh_name
+
 
 def _build_schedule_runner(db, delivery, authz, salesmen):
     from web.data.repositories.schedules import (
@@ -251,6 +266,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         nav = {
             "reports": _safe_url("reports.reports_list"),
             "dashboard": _safe_url("dashboard.dashboard"),
+            "wh_dashboard": _safe_url("wh_dashboard.wh_dashboard"),
             "schedules": _safe_url("schedules.schedules_page"),
             "master_schedules": _safe_url("schedules.master_page"),
             "settings": _safe_url("settings.settings_page"),
@@ -265,6 +281,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         order_entry_enabled = False
         test_site_enabled = False
         is_developer = False
+        wh_dashboard_enabled = False
         theme = session.get("theme")
         if p is not None:
             user = {
@@ -277,6 +294,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             }
             try:
                 is_developer = app.config["AUTHZ"].is_developer(p)
+                wh_dashboard_enabled = app.config["AUTHZ"].is_privileged(p)
                 flag_map = flags.all()
                 order_entry_enabled = flag_map.get("order_entry_enabled", False)
                 row = users.get_by_email(p.email)
@@ -306,6 +324,8 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
             "test_site_enabled": test_site_enabled,
             "is_developer": is_developer,
+            # Warehouse dashboard: admins/developers on home and /test.
+            "wh_dashboard_enabled": wh_dashboard_enabled,
         }
 
 
@@ -335,7 +355,11 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
     from web.blueprints.schedules import schedules_bp
 
     app.register_blueprint(schedules_bp)
-    # Beta is reports + schedules; dashboard stays Live-only.
+    # Warehouse dashboard is available on home (beta) and /test — admin-only.
+    from web.blueprints.wh_dashboard import wh_dashboard_bp
+
+    app.register_blueprint(wh_dashboard_bp)
+    # Customer dashboard stays Live-only (/test); home is reports + schedules.
     if not cfg.is_beta:
         from web.blueprints.dashboard import dashboard_bp
 

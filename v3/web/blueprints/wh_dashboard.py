@@ -1,0 +1,111 @@
+"""Warehouse operations dashboard (/WHdashboard).
+
+Admin/developer only (AUTHZ.is_privileged). Data comes from WH_DASHBOARD_PROVIDER
+(default: sample). Does not change the customer /dashboard page.
+"""
+
+from __future__ import annotations
+
+import json
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    render_template,
+    url_for,
+)
+
+from web.auth.decorators import require_login
+from web.auth.session import current_principal
+from web.warehouse.filters import counts_by_status
+from web.warehouse.schema import (
+    AREA_TITLES,
+    AREAS,
+    COLUMNS,
+    DEFAULT_VISIBLE,
+    PLACEHOLDER_AREAS,
+    STATUS_COLUMNS,
+)
+
+wh_dashboard_bp = Blueprint("wh_dashboard", __name__)
+
+
+def _require_wh_admin():
+    p = current_principal()
+    if not current_app.config["AUTHZ"].is_privileged(p):
+        abort(403, description="Warehouse dashboard is limited to admins for now")
+    return p
+
+
+def _provider():
+    return current_app.config["WH_DASHBOARD_PROVIDER"]
+
+
+def _rows_for(area: str) -> list[dict]:
+    prov = _provider()
+    if area == "shipments":
+        return prov.get_open_shipments()
+    if area == "loads":
+        return prov.get_open_loads()
+    if area == "work":
+        return prov.get_open_work()
+    if area == "clusters":
+        return prov.get_open_clusters()
+    abort(404)
+
+
+@wh_dashboard_bp.get("/WHdashboard")
+@require_login
+def wh_dashboard():
+    _require_wh_admin()
+    summary = _provider().tile_summary()
+    # Fill hrefs with url_for so mounts (/test) stay correct.
+    for tile in summary["tiles"]:
+        if tile.get("coming_soon"):
+            tile["href"] = None
+        elif tile.get("key") in AREAS:
+            tile["href"] = url_for("wh_dashboard.wh_list", area=tile["key"])
+    return render_template(
+        "wh_dashboard.html",
+        active_tab="wh_dashboard",
+        data_as_of=summary["data_as_of"],
+        tiles=summary["tiles"],
+        provider_name=summary.get("provider", "sample"),
+    )
+
+
+@wh_dashboard_bp.get("/WHdashboard/<area>")
+@require_login
+def wh_list(area: str):
+    _require_wh_admin()
+    area = (area or "").strip().lower()
+    if area in PLACEHOLDER_AREAS:
+        abort(404, description=f"{AREA_TITLES.get(area, area)} is coming soon")
+    if area not in AREAS:
+        abort(404)
+
+    rows = _rows_for(area)
+    status_col = STATUS_COLUMNS[area]
+    columns = COLUMNS[area]
+    visible = DEFAULT_VISIBLE[area]
+    status_counts = counts_by_status(rows, status_col)
+    # JSON for Tabulator — keep keys as returned (column schema order).
+    payload = [{col: row.get(col) for col in columns} for row in rows]
+
+    return render_template(
+        "wh_dashboard_list.html",
+        active_tab="wh_dashboard",
+        area=area,
+        title=AREA_TITLES[area],
+        status_column=status_col,
+        columns=columns,
+        default_visible=visible,
+        status_counts=status_counts,
+        row_count=len(rows),
+        data_as_of=_provider().data_as_of(),
+        table_data_json=json.dumps(payload, default=str),
+        columns_json=json.dumps(columns),
+        default_visible_json=json.dumps(visible),
+        status_column_json=json.dumps(status_col),
+    )
