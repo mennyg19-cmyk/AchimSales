@@ -70,7 +70,7 @@ class ReportingApiWarehouseProvider:
                 "total": len(rows),
                 "by_status": counts_by_status(rows, status_col),
                 "coming_soon": False,
-                "href": f"/WHdashboard/{area}",
+                "href": f"/whdashboard/{area}",
             })
         tiles.append({
             "key": "waves", "title": "Waves", "total": None,

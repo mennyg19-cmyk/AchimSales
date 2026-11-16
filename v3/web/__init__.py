@@ -294,7 +294,11 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             }
             try:
                 is_developer = app.config["AUTHZ"].is_developer(p)
-                wh_dashboard_enabled = app.config["AUTHZ"].is_privileged(p)
+                from web.warehouse.access import email_may_access_wh_dashboard
+
+                wh_dashboard_enabled = email_may_access_wh_dashboard(
+                    p.email, cfg.wh_dashboard_allowed_emails,
+                )
                 flag_map = flags.all()
                 order_entry_enabled = flag_map.get("order_entry_enabled", False)
                 row = users.get_by_email(p.email)
@@ -324,7 +328,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
             "test_site_enabled": test_site_enabled,
             "is_developer": is_developer,
-            # Warehouse dashboard: admins/developers on home and /test.
+            # Warehouse dashboard: WH_DASHBOARD_ALLOWED_EMAILS only (not role).
             "wh_dashboard_enabled": wh_dashboard_enabled,
         }
 

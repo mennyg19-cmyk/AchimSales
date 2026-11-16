@@ -54,15 +54,17 @@
     </section>
 </details>
 
-{% if is_admin %}
+{% if wh_dashboard_enabled %}
 <details class="settings-cat">
     <summary>Warehouse</summary>
     <section class="settings-card">
-        <p class="flag-desc">Open shipments, loads, work, and clusters. Admins only for now.</p>
+        <p class="flag-desc">Open shipments, loads, work, and clusters. Restricted to the allowlisted account.</p>
         <a class="btn btn-outline btn-sm" href="{{ url_for('wh_dashboard.wh_dashboard') }}">Warehouse dashboard</a>
     </section>
 </details>
+{% endif %}
 
+{% if is_admin %}
 <details class="settings-cat">
     <summary>People</summary>
     <section class="settings-card">

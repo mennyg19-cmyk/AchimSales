@@ -1,9 +1,16 @@
+## 2026-11-16 Warehouse dashboard locked to Baruch email allowlist
+**What I had to decide:** Keep admin/developer role gate vs lock to one person.
+**Options I considered:** Keep `AUTHZ.is_privileged`; per-user DB flag; env email allowlist.
+**What I chose:** `WH_DASHBOARD_ALLOWED_EMAILS` (default `bgrossman@achimonline.com`), case-insensitive match on signed-in email. No role bypass. Canonical route `/whdashboard` with `/WHdashboard` alias. Draft PR only.
+**Why:** Baruch: EVP Ops owner; everyone else including magic-link reps must get 403.
+**Status:** DECIDED
+
 ## 2026-11-16 Warehouse dashboard uses sample provider + admin gate
 **What I had to decide:** Where `/WHdashboard` lives (home beta vs `/test` only), who can open it, and which data source ships first.
 **Options I considered:** Live-only like customer dashboard; Settings link only with no bottom nav; wire Reporting API immediately with gateway `whs_*` ids; sample-only with a disabled stub.
 **What I chose:** Register the blueprint on home **and** `/test` (home is beta; customer dashboard stays Live-only). Gate with `AUTHZ.is_privileged` (admin + developer). Default `WH_DASHBOARD_PROVIDER=sample` with synthetic rows matching Nov 11 2026 status totals. Stub `ReportingApiWarehouseProvider` behind config; do not call production. Document that Flask `REPORT_ID_MAP` has no warehouse ids; gateway names `whs_shipment_table` / `whs_load_table` / `whs_work_table` / `whs_work_cluster_table` / `whs_wave_table` and procedures `rpt.usp_*` — office must confirm the same ids on the on-prem catalog. Draft PR only; do not push `main` or deploy (overrides standing “push to main” preference for this safety ask).
 **Why:** Baruch: front end first, read-only, public-repo safe fixtures, no auto-deploy risk.
-**Status:** DECIDED
+**Status:** SUPERSEDED (email allowlist 2026-11-16)
 
 ## 2026-10-20 Customer dropdown shares one list across workers
 **What I had to decide:** Where a successful customer_master load is stored so every gunicorn worker can fill the report customer box.

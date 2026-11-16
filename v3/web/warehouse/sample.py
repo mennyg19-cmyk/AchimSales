@@ -78,7 +78,7 @@ class SampleWarehouseProvider:
                 "total": sum(totals.values()),
                 "by_status": dict(totals),
                 "coming_soon": False,
-                "href": f"/WHdashboard/{area}",
+                "href": f"/whdashboard/{area}",
             })
         # Prefer readable titles from schema on the blueprint; keep keys here.
         tiles[0]["title"] = "Shipments"
