@@ -3705,9 +3705,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     await resumeJob(explicitJob);
     return;
   }
-  const legacyJob = new URLSearchParams(window.location.search).get("job");
-  if (legacyJob) {
-    window.location.replace(runPageUrl(legacyJob));
+  // Legacy ?job=<id> bookmarks: only accept uuid4().hex (32 hex chars), then
+  // resume in-place like data-run-job-id. Never feed the raw query into
+  // location.replace (open-redirect / javascript: URI).
+  const legacyJobRaw = new URLSearchParams(window.location.search).get("job");
+  const legacyJobMatch = legacyJobRaw ? /^([0-9a-f]{32})$/i.exec(legacyJobRaw) : null;
+  if (legacyJobMatch) {
+    const jobId = legacyJobMatch[1].toLowerCase();
+    history.replaceState(null, "", runPageUrl(jobId));
+    await resumeJob(jobId);
     return;
   }
   await autoOpenPresetIfRequested();
