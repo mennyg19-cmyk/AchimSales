@@ -1,8 +1,26 @@
-# Warehouse Dashboard (`/WHdashboard`)
+# Warehouse Dashboard (`/whdashboard`)
 
-Admin/developer-only page on the v3 home site. Front end first: tiles + drill-down
-lists over a provider interface. This branch defaults to **sample** (synthetic)
-data so nothing hits the on-prem Reporting API.
+Allowlist-only page on the v3 home site (default: `bgrossman@achimonline.com`).
+Front end first: tiles + drill-down lists over a provider interface. This branch
+defaults to **sample** (synthetic) data so nothing hits the on-prem Reporting API.
+
+## Access
+
+| Setting | Meaning |
+|---------|---------|
+| `WH_DASHBOARD_ALLOWED_EMAILS` | Comma-separated emails, compared case-insensitively to the signed-in user's email/UPN. Default `bgrossman@achimonline.com`. |
+
+Not role-based. Admins, developers, magic-link reps, and anyone else off the list get HTTP 403. Check lives in `v3/web/blueprints/wh_dashboard.py` → `_require_wh_access()` (uses `web.warehouse.access.email_may_access_wh_dashboard`). Nav/Settings visibility uses the same allowlist via `wh_dashboard_enabled` in `inject_globals`.
+
+## Routes
+
+| Path | Notes |
+|------|-------|
+| `/whdashboard` | Canonical main page |
+| `/WHdashboard` | Same view (bookmark-friendly casing) |
+| `/whdashboard/{shipments\|loads\|work\|clusters}` | Open lists |
+| `/WHdashboard/{…}` | Same lists |
+| `/whdashboard/waves`, `/whdashboard/due_dates` | 404 — coming soon |
 
 ## Local preview
 
@@ -10,11 +28,12 @@ data so nothing hits the on-prem Reporting API.
 cd v3
 export APP_ENV=dev AUTH_MODE=dev FLASK_SECRET=dev
 export WH_DASHBOARD_PROVIDER=sample
+export WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com
 python -m flask --app web.wsgi:application run --port 5055
 ```
 
-Sign in with the dev login as an **admin** (or developer), then open
-`http://127.0.0.1:5055/WHdashboard`.
+Sign in with the allowlisted email (dev login), then open
+`http://127.0.0.1:5055/whdashboard` (or `/WHdashboard`).
 
 ## Provider switch
 
@@ -33,7 +52,7 @@ The site calls the on-prem Reporting API with:
 
 - `ReportingApiClient` in `v3/web/reporting/http_client.py`
 - In-app `REPORT_ID_MAP` in `v3/web/reporting/params.py` — **no warehouse keys**
-- No `whs_shipment_table` / `whs_load_table` / `whs_work_*` / `whs_wave_table` strings under `v3/`
+- Stub provider: `v3/web/warehouse/reporting_api.py` (disabled by default)
 
 Repo-wide `whs_*` elsewhere is Ordered-report OData (`fetch_whs_sales_lines`), not these tables.
 
@@ -47,10 +66,9 @@ Repo-wide `whs_*` elsewhere is Ordered-report OData (`fetch_whs_sales_lines`), n
 | `whs_work_cluster_table` | `rpt.usp_whsworkclustertable` |
 | `whs_wave_table` | `rpt.usp_whswavetable` |
 
-Gateway notes: SQL Reporting snapshots (not live F&O), `MaxRows` default 100 / max 10000,
-filters such as company, ids, status, date range, `IncludeDeleted`. Column schemas in
-this repo’s sample provider come from the Nov 11 2026 gateway snapshot attached to
-the build brief — **not verified** against the office Reporting API response shape.
+Gateway notes: SQL Reporting snapshots (not live F&O), `MaxRows` default 100 / max 10000.
+Column schemas in the sample provider come from the Nov 11 2026 gateway snapshot —
+**not verified** against the office Reporting API response shape.
 
 ### What office needs to expose for the live provider
 
@@ -64,8 +82,8 @@ the build brief — **not verified** against the office Reporting API response s
    present so “Data as of” can convert true UTC → Eastern.
 5. Do **not** point `REPORTING_API_BASE_URL` at reports.achimonline.com.
 
-The stub provider is `v3/web/warehouse/reporting_api.py`. It is never called unless
-`WH_DASHBOARD_PROVIDER=reporting_api` and the client is configured.
+The stub provider is never called unless `WH_DASHBOARD_PROVIDER=reporting_api` and
+the client is configured.
 
 ## Open-status rules (data layer)
 

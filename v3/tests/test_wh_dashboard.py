@@ -1,15 +1,18 @@
-"""Warehouse dashboard: open-status filters, UTC→ET stamps, routes + sample totals."""
+"""Warehouse dashboard: open-status filters, UTC→ET stamps, allowlist routes."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import timezone
 
 from web import create_app
 from web.config import Config
 from web.data.migrate import migrate
 from web.data.repositories.users import UserRepository
+from web.warehouse.access import (
+    DEFAULT_ALLOWED_EMAILS,
+    email_may_access_wh_dashboard,
+    parse_allowed_emails,
+)
 from web.warehouse.filters import (
     filter_open_rows,
     is_open_cluster,
@@ -20,6 +23,8 @@ from web.warehouse.filters import (
 )
 from web.warehouse.sample import SampleWarehouseProvider
 from web.warehouse.timeutil import parse_utc_timestamp, utc_to_eastern_display
+
+_ALLOWED = "bgrossman@achimonline.com"
 
 
 def test_open_shipment_excludes_shipped():
@@ -67,7 +72,6 @@ def test_filter_open_rows_work():
 
 
 def test_utc_refresh_stamp_converts_to_eastern():
-    # 2026-11-11 20:13:03 UTC → 15:13 EST (EDT ended Nov 1 2026 → EST).
     display = utc_to_eastern_display("2026-11-11T20:13:03Z")
     assert display is not None
     assert display.startswith("2026-11-11 15:13")
@@ -94,10 +98,18 @@ def test_sample_provider_matches_nov11_totals():
     }
     assert by_key["waves"]["coming_soon"] is True
     assert by_key["due_dates"]["coming_soon"] is True
-    assert "sample" in summary["data_as_of"].lower() or "2026-11-11" in summary["data_as_of"]
+    assert "2026-11-11" in summary["data_as_of"]
 
 
-def _cfg(tmp_path) -> Config:
+def test_parse_allowed_emails_default_and_casefold():
+    assert parse_allowed_emails(None) == frozenset(DEFAULT_ALLOWED_EMAILS)
+    assert parse_allowed_emails("") == frozenset(DEFAULT_ALLOWED_EMAILS)
+    assert parse_allowed_emails("  A@X.com , b@y.com ") == frozenset({"a@x.com", "b@y.com"})
+    assert email_may_access_wh_dashboard("BGROSSMAN@achimonline.com", DEFAULT_ALLOWED_EMAILS)
+    assert not email_may_access_wh_dashboard("admin@x.com", DEFAULT_ALLOWED_EMAILS)
+
+
+def _cfg(tmp_path, *, allowed=_ALLOWED) -> Config:
     return Config(
         app_env="dev", auth_mode="dev", flask_secret="t",
         tenant_id="", client_id="", client_secret="",
@@ -106,56 +118,64 @@ def _cfg(tmp_path) -> Config:
         litestream_blob_url="", new_app_marker=True,
         outbox_dir=tmp_path / "outbox",
         wh_dashboard_provider="sample",
+        wh_dashboard_allowed_emails=(allowed,),
     )
 
 
-def _login(client, app, *, email="admin@x.com", role="admin"):
-    UserRepository(app.config["DB"]).upsert(email, display_name="Admin", role=role)
+def _login(client, app, *, email=_ALLOWED, role="salesman"):
+    UserRepository(app.config["DB"]).upsert(email, display_name=email, role=role)
     with client.session_transaction() as s:
         s["v3_user"] = {
-            "email": email, "name": "Admin", "role": role, "is_dev": False,
+            "email": email, "name": email, "role": role, "is_dev": False,
         }
 
 
-def test_wh_dashboard_admin_ok(tmp_path):
+def test_wh_dashboard_allowlisted_ok(tmp_path):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     client = app.test_client()
-    _login(client, app, role="admin")
-    resp = client.get("/WHdashboard")
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "Warehouse Dashboard" in body
-    assert "Shipments" in body
-    assert "Coming soon" in body
-    assert "642" in body
+    _login(client, app, email=_ALLOWED, role="salesman")
+    for path in ("/whdashboard", "/WHdashboard"):
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        body = resp.get_data(as_text=True)
+        assert "Warehouse Dashboard" in body
+        assert "642" in body
 
 
-def test_wh_dashboard_salesman_forbidden(tmp_path):
+def test_wh_dashboard_admin_not_on_list_forbidden(tmp_path):
+    app = create_app(_cfg(tmp_path))
+    migrate(app.config["DB"])
+    client = app.test_client()
+    _login(client, app, email="admin@x.com", role="admin")
+    assert client.get("/whdashboard").status_code == 403
+    assert client.get("/WHdashboard").status_code == 403
+
+
+def test_wh_dashboard_other_user_forbidden(tmp_path):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
-    resp = client.get("/WHdashboard")
-    assert resp.status_code == 403
+    assert client.get("/whdashboard").status_code == 403
 
 
-def test_wh_list_shipments(tmp_path):
+def test_wh_list_shipments_allowlisted(tmp_path):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     client = app.test_client()
-    _login(client, app, role="admin")
-    resp = client.get("/WHdashboard/shipments")
+    _login(client, app, email="BGrossman@AchimOnline.com")
+    resp = client.get("/whdashboard/shipments")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "642 open" in body
     assert "SHP-DEMO-" in body
-    assert "whSearch" in body
+    assert client.get("/WHdashboard/shipments").status_code == 200
 
 
 def test_wh_list_waves_coming_soon_404(tmp_path):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     client = app.test_client()
-    _login(client, app, role="admin")
-    assert client.get("/WHdashboard/waves").status_code == 404
+    _login(client, app)
+    assert client.get("/whdashboard/waves").status_code == 404

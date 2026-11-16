@@ -54,6 +54,8 @@ class Config:
     # Warehouse dashboard data source: "sample" (default) or "reporting_api".
     # reporting_api stays disabled until office confirms whs_* report ids.
     wh_dashboard_provider: str = "sample"
+    # Comma-separated allowlist (case-insensitive). Not role-based.
+    wh_dashboard_allowed_emails: tuple[str, ...] = ("bgrossman@achimonline.com",)
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
@@ -116,6 +118,12 @@ class Config:
 
 
 _DEFAULT_SECRET_SENTINEL = "CHANGE_ME"
+
+
+def _parse_wh_dashboard_emails(raw: str | None) -> frozenset[str]:
+    from web.warehouse.access import parse_allowed_emails
+
+    return parse_allowed_emails(raw)
 
 
 def _is_unc(path: Path) -> bool:
@@ -181,6 +189,11 @@ def load_config(*, is_beta: bool = False) -> Config:
         wh_dashboard_provider=os.environ.get(
             "WH_DASHBOARD_PROVIDER", "sample"
         ).strip().lower() or "sample",
+        wh_dashboard_allowed_emails=tuple(
+            _parse_wh_dashboard_emails(
+                os.environ.get("WH_DASHBOARD_ALLOWED_EMAILS")
+            )
+        ),
         precious_db_path=_env_path(precious_env, precious_default),
         cache_db_path=_env_path(cache_env, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
