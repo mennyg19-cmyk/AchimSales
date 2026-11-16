@@ -1,3 +1,10 @@
+## 2026-11-16 Warehouse reporting_api provider wired (draft only)
+**What I had to decide:** How to call verified `whs_*` reports without silent truncation or unverified API filters.
+**Options I considered:** One unfiltered MaxRows call per area; server-only status filters; send Company=achm / InventLocationId=MAIN on the wire; no cache.
+**What I chose:** Per known open status, `MaxRows="10000"` + status param; merge/dedupe; always re-filter open rules + Company/dataAreaId=achm client-side; no unverified company/location API params; visible truncated warning if any call `row_count >= 10000`; ~5 min cache; API error → sample + SAMPLE DATA banner; RFC 822 GMT refresh stamps → ET; default provider stays `sample`. Draft PR only; Baruch enables with `WH_DASHBOARD_PROVIDER=reporting_api`.
+**Why:** Baruch production probe confirmed ids, MaxRows string, ShipmentStatus filter, response shape, and time rules; other status filter names unverified.
+**Status:** DECIDED
+
 ## 2026-11-16 Warehouse dashboard locked to Baruch email allowlist
 **What I had to decide:** Keep admin/developer role gate vs lock to one person.
 **Options I considered:** Keep `AUTHZ.is_privileged`; per-user DB flag; env email allowlist.

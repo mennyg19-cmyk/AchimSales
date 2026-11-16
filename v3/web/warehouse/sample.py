@@ -67,7 +67,16 @@ class SampleWarehouseProvider:
 
     def data_as_of(self) -> str:
         stamp = max(_AREA_AS_OF_ET.values())
-        return stamp.strftime("%Y-%m-%d %H:%M %Z")
+        return stamp.strftime("%Y-%m-%d %H:%M") + " ET"
+
+    def view_meta(self) -> dict[str, Any]:
+        return {
+            "provider": "sample",
+            "using_sample_fallback": False,
+            "error_message": None,
+            "possibly_truncated": False,
+            "truncated_areas": [],
+        }
 
     def tile_summary(self) -> dict[str, Any]:
         tiles = []
@@ -79,6 +88,7 @@ class SampleWarehouseProvider:
                 "by_status": dict(totals),
                 "coming_soon": False,
                 "href": f"/whdashboard/{area}",
+                "possibly_truncated": False,
             })
         # Prefer readable titles from schema on the blueprint; keep keys here.
         tiles[0]["title"] = "Shipments"
@@ -88,12 +98,18 @@ class SampleWarehouseProvider:
         tiles.append({
             "key": "waves", "title": "Waves", "total": None,
             "by_status": {}, "coming_soon": True, "href": None,
+            "possibly_truncated": False,
         })
         tiles.append({
             "key": "due_dates", "title": "Due dates", "total": None,
             "by_status": {}, "coming_soon": True, "href": None,
+            "possibly_truncated": False,
         })
-        return {"data_as_of": self.data_as_of(), "tiles": tiles, "provider": "sample"}
+        return {
+            "data_as_of": self.data_as_of(),
+            "tiles": tiles,
+            **self.view_meta(),
+        }
 
     def _rows(self, area: str) -> list[dict]:
         if area not in self._cache:

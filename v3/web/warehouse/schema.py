@@ -16,6 +16,15 @@ STATUS_COLUMNS = {
     "waves": "WaveStatus",
 }
 
+# Known open statuses for per-status Reporting API fetches (Baruch production probe).
+# Open rules in filters.py may accept additional statuses; client always re-filters.
+OPEN_STATUS_FETCH = {
+    "shipments": ("Open", "Waved", "InProcess", "Loaded"),
+    "loads": ("Open", "Waved", "InProcess", "Loaded"),
+    "work": ("Open", "InProcess"),
+    "clusters": ("Open", "Passed", "InProcess"),
+}
+
 AREA_TITLES = {
     "shipments": "Shipments",
     "loads": "Loads",

@@ -7,12 +7,33 @@
         <h1 class="page-title">Warehouse Dashboard</h1>
         <p class="page-subtitle">
             Data as of {{ data_as_of }}
-            {% if provider_name == 'sample' %}
+            {% if provider_name == 'sample' and not using_sample_fallback %}
             <span class="mini-flag">sample data</span>
+            {% elif provider_name == 'reporting_api' %}
+            <span class="mini-flag">live</span>
             {% endif %}
         </p>
     </div>
 </div>
+
+{% if using_sample_fallback %}
+<div class="alert alert-error" role="alert">
+    <strong>SAMPLE DATA</strong>
+    Live Reporting API failed{% if error_message %}: {{ error_message }}{% endif %}.
+    Showing synthetic sample rows instead.
+</div>
+{% endif %}
+
+{% if possibly_truncated %}
+<div class="alert alert-warn" role="status">
+    <strong>Possibly truncated.</strong>
+    One or more Reporting API calls returned the MaxRows cap (10000)
+    {% if truncated_areas %}
+    ({{ truncated_areas|join(', ') }})
+    {% endif %}.
+    Open totals may be incomplete.
+</div>
+{% endif %}
 
 <div class="stat-grid wh-tiles">
     {% for tile in tiles %}
@@ -26,7 +47,12 @@
     <a class="stat-card wh-tile dash-tile" href="{{ tile.href }}">
         <div class="stat-label">{{ tile.title }}</div>
         <div class="stat-value">{{ tile.total }}</div>
-        <p class="wh-tile-hint">Open total</p>
+        <p class="wh-tile-hint">
+            Open total
+            {% if tile.possibly_truncated %}
+            <span class="mini-flag">possibly truncated</span>
+            {% endif %}
+        </p>
         <ul class="wh-status-list">
             {% for status, count in tile.by_status.items() %}
             <li><span>{{ status }}</span><strong>{{ count }}</strong></li>

@@ -17,9 +17,30 @@
         <p class="page-subtitle">
             {{ row_count }} open
             · Data as of {{ data_as_of }}
+            {% if provider_name == 'sample' and not using_sample_fallback %}
+            <span class="mini-flag">sample data</span>
+            {% elif provider_name == 'reporting_api' %}
+            <span class="mini-flag">live</span>
+            {% endif %}
         </p>
     </div>
 </div>
+
+{% if using_sample_fallback %}
+<div class="alert alert-error" role="alert">
+    <strong>SAMPLE DATA</strong>
+    Live Reporting API failed{% if error_message %}: {{ error_message }}{% endif %}.
+    Showing synthetic sample rows instead.
+</div>
+{% endif %}
+
+{% if possibly_truncated %}
+<div class="alert alert-warn" role="status">
+    <strong>Possibly truncated.</strong>
+    At least one Reporting API call for this list returned the MaxRows cap (10000).
+    Open rows may be incomplete.
+</div>
+{% endif %}
 
 <div class="wh-list-controls filter-bar filter-bar-row">
     <label class="filter-field">

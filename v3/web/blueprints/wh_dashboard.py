@@ -46,6 +46,19 @@ def _provider():
     return current_app.config["WH_DASHBOARD_PROVIDER"]
 
 
+def _view_meta(prov) -> dict:
+    getter = getattr(prov, "view_meta", None)
+    if callable(getter):
+        return getter()
+    return {
+        "provider": "sample",
+        "using_sample_fallback": False,
+        "error_message": None,
+        "possibly_truncated": False,
+        "truncated_areas": [],
+    }
+
+
 def _rows_for(area: str) -> list[dict]:
     prov = _provider()
     if area == "shipments":
@@ -77,6 +90,10 @@ def wh_dashboard():
         data_as_of=summary["data_as_of"],
         tiles=summary["tiles"],
         provider_name=summary.get("provider", "sample"),
+        using_sample_fallback=bool(summary.get("using_sample_fallback")),
+        error_message=summary.get("error_message"),
+        possibly_truncated=bool(summary.get("possibly_truncated")),
+        truncated_areas=summary.get("truncated_areas") or [],
     )
 
 
@@ -91,12 +108,15 @@ def wh_list(area: str):
     if area not in AREAS:
         abort(404)
 
+    prov = _provider()
     rows = _rows_for(area)
+    meta = _view_meta(prov)
     status_col = STATUS_COLUMNS[area]
     columns = COLUMNS[area]
     visible = DEFAULT_VISIBLE[area]
     status_counts = counts_by_status(rows, status_col)
     payload = [{col: row.get(col) for col in columns} for row in rows]
+    truncated_areas = meta.get("truncated_areas") or []
 
     return render_template(
         "wh_dashboard_list.html",
@@ -108,9 +128,14 @@ def wh_list(area: str):
         default_visible=visible,
         status_counts=status_counts,
         row_count=len(rows),
-        data_as_of=_provider().data_as_of(),
+        data_as_of=prov.data_as_of(),
         table_data_json=json.dumps(payload, default=str),
         columns_json=json.dumps(columns),
         default_visible_json=json.dumps(visible),
         status_column_json=json.dumps(status_col),
+        provider_name=meta.get("provider", "sample"),
+        using_sample_fallback=bool(meta.get("using_sample_fallback")),
+        error_message=meta.get("error_message"),
+        possibly_truncated=area in truncated_areas,
+        truncated_areas=truncated_areas,
     )
