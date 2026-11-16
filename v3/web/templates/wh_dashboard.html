@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Warehouse Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Warehouse Dashboard</h1>
+        <p class="page-subtitle">
+            Data as of {{ data_as_of }}
+            {% if provider_name == 'sample' %}
+            <span class="mini-flag">sample data</span>
+            {% endif %}
+        </p>
+    </div>
+</div>
+
+<div class="stat-grid wh-tiles">
+    {% for tile in tiles %}
+    {% if tile.coming_soon %}
+    <div class="stat-card wh-tile wh-tile-soon" aria-disabled="true">
+        <div class="stat-label">{{ tile.title }}</div>
+        <div class="stat-value wh-soon-label">Coming soon</div>
+        <p class="wh-tile-hint">Not available yet</p>
+    </div>
+    {% else %}
+    <a class="stat-card wh-tile dash-tile" href="{{ tile.href }}">
+        <div class="stat-label">{{ tile.title }}</div>
+        <div class="stat-value">{{ tile.total }}</div>
+        <p class="wh-tile-hint">Open total</p>
+        <ul class="wh-status-list">
+            {% for status, count in tile.by_status.items() %}
+            <li><span>{{ status }}</span><strong>{{ count }}</strong></li>
+            {% endfor %}
+        </ul>
+    </a>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}

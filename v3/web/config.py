@@ -51,6 +51,9 @@ class Config:
     # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
     # Dashboard stays off. Login is Live's (/legacy/login).
     is_beta: bool = False
+    # Warehouse dashboard data source: "sample" (default) or "reporting_api".
+    # reporting_api stays disabled until office confirms whs_* report ids.
+    wh_dashboard_provider: str = "sample"
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
@@ -175,6 +178,9 @@ def load_config(*, is_beta: bool = False) -> Config:
             False if is_beta else _env_bool("DASHBOARD_REFRESH_ENABLED", True)
         ),
         is_beta=is_beta,
+        wh_dashboard_provider=os.environ.get(
+            "WH_DASHBOARD_PROVIDER", "sample"
+        ).strip().lower() or "sample",
         precious_db_path=_env_path(precious_env, precious_default),
         cache_db_path=_env_path(cache_env, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),

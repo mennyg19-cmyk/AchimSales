@@ -77,6 +77,12 @@ https://reports.achimonline.com. Side branches (including Cloud Agent
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
 dynamic urllib, SHA1 cache fingerprints).
 
+**Warehouse dashboard (`/WHdashboard`):** admin/developer-only tiles + open lists
+(shipments, loads, work, clusters). Defaults to synthetic sample data
+(`WH_DASHBOARD_PROVIDER=sample`). Live Reporting API wiring is stubbed and
+documented in `v3/docs/WH-DASHBOARD.md` — do not enable until office confirms
+`whs_*` report ids on the on-prem catalog.
+
 **Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
 it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New
 Azure Web App first (`app/startup.sh` + `app/deploy.ps1`), DNS last. Leftover
