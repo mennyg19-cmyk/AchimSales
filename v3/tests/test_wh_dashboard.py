@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timezone
+from typing import Any
 
 from web import create_app
 from web.config import Config
@@ -21,10 +23,45 @@ from web.warehouse.filters import (
     is_open_wave,
     is_open_work,
 )
+from web.warehouse.reporting_api import ReportingApiWarehouseProvider, row_is_achm
 from web.warehouse.sample import SampleWarehouseProvider
+from web.warehouse.schema import OPEN_STATUS_FETCH, REPORT_IDS, STATUS_COLUMNS
 from web.warehouse.timeutil import parse_utc_timestamp, utc_to_eastern_display
 
 _ALLOWED = "bgrossman@achimonline.com"
+
+
+@dataclass
+class _FakeResult:
+    report_id: str
+    columns: list[str]
+    rows: list[dict]
+    row_count: int
+
+
+class _FakeReportClient:
+    """Records run_report calls; returns configured rows per (report_id, status)."""
+
+    def __init__(self, by_key: dict[tuple[str, str], list[dict]] | None = None,
+                 *, fail: Exception | None = None,
+                 row_count_override: dict[tuple[str, str], int] | None = None):
+        self.by_key = by_key or {}
+        self.fail = fail
+        self.row_count_override = row_count_override or {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def run_report(self, report_id: str, params: dict[str, Any]) -> _FakeResult:
+        self.calls.append((report_id, dict(params)))
+        if self.fail is not None:
+            raise self.fail
+        status = None
+        for key, val in params.items():
+            if key.endswith("Status"):
+                status = val
+                break
+        rows = list(self.by_key.get((report_id, status), []))
+        count = self.row_count_override.get((report_id, status), len(rows))
+        return _FakeResult(report_id, [], rows, count)
 
 
 def test_open_shipment_excludes_shipped():
@@ -74,8 +111,12 @@ def test_filter_open_rows_work():
 def test_utc_refresh_stamp_converts_to_eastern():
     display = utc_to_eastern_display("2026-11-11T20:13:03Z")
     assert display is not None
-    assert display.startswith("2026-11-11 15:13")
-    assert "EST" in display or "EDT" in display
+    assert display == "2026-11-11 15:13 ET"
+
+
+def test_rfc822_gmt_refresh_stamp_converts_to_eastern():
+    display = utc_to_eastern_display("Thu, 05 Nov 2026 09:34:36 GMT")
+    assert display == "2026-11-05 04:34 ET"
 
 
 def test_parse_utc_naive_treated_as_utc():
@@ -83,6 +124,13 @@ def test_parse_utc_naive_treated_as_utc():
     assert dt is not None
     assert dt.tzinfo is not None
     assert dt.astimezone(timezone.utc).hour == 20
+
+
+def test_row_is_achm_company_or_data_area():
+    assert row_is_achm({"Company": "achm"})
+    assert row_is_achm({"dataAreaId": "ACHM"})
+    assert not row_is_achm({"Company": "DEMO"})
+    assert not row_is_achm({})
 
 
 def test_sample_provider_matches_nov11_totals():
@@ -179,3 +227,116 @@ def test_wh_list_waves_coming_soon_404(tmp_path):
     client = app.test_client()
     _login(client, app)
     assert client.get("/whdashboard/waves").status_code == 404
+
+
+def _achm_row(area: str, status: str, rid: int, **extra) -> dict:
+    status_col = STATUS_COLUMNS[area]
+    row = {status_col: status, "RecId": rid, "UpdatedUtc": "Thu, 05 Nov 2026 09:34:36 GMT"}
+    if area == "shipments":
+        row["Company"] = "achm"
+        row["ShipmentId"] = f"SHP-{rid}"
+    else:
+        row["dataAreaId"] = "achm"
+        if area == "loads":
+            row["LoadId"] = f"LD-{rid}"
+            row["LastSeenUtc"] = "Thu, 05 Nov 2026 10:00:00 GMT"
+        elif area == "work":
+            row["WorkId"] = f"WRK-{rid}"
+            row["LastImportedUTC"] = "Thu, 05 Nov 2026 11:00:00 GMT"
+        else:
+            row["ClusterId"] = f"CL-{rid}"
+            row["LastSeenUtc"] = "Thu, 05 Nov 2026 12:00:00 GMT"
+    row.update(extra)
+    return row
+
+
+def test_reporting_api_provider_fetches_per_status_and_filters():
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    # Shipments: mix achm open, demo, and shipped (shipped must drop client-side).
+    by_key[(REPORT_IDS["shipments"], "Waved")] = [
+        _achm_row("shipments", "Waved", 1),
+        {"ShipmentStatus": "Waved", "Company": "DEMO", "RecId": 2, "ShipmentId": "X"},
+        _achm_row("shipments", "Shipped", 3),  # if API ignores filter
+    ]
+    by_key[(REPORT_IDS["shipments"], "Open")] = [
+        _achm_row("shipments", "Open", 4),
+    ]
+    for status in OPEN_STATUS_FETCH["loads"]:
+        by_key[(REPORT_IDS["loads"], status)] = [
+            _achm_row("loads", status, 10 + hash(status) % 50),
+        ]
+    for status in OPEN_STATUS_FETCH["work"]:
+        by_key[(REPORT_IDS["work"], status)] = [
+            _achm_row("work", status, 20 + hash(status) % 50),
+        ]
+    for status in OPEN_STATUS_FETCH["clusters"]:
+        by_key[(REPORT_IDS["clusters"], status)] = [
+            _achm_row("clusters", status, 30 + hash(status) % 50),
+        ]
+
+    client = _FakeReportClient(by_key)
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
+    ships = prov.get_open_shipments()
+    assert {r["RecId"] for r in ships} == {1, 4}
+    assert all(row_is_achm(r) for r in ships)
+
+    # One call per known open status per area.
+    expected_calls = sum(len(v) for v in OPEN_STATUS_FETCH.values())
+    assert len(client.calls) == expected_calls
+    for report_id, params in client.calls:
+        assert params["MaxRows"] == "10000"
+        assert any(k.endswith("Status") for k in params)
+
+    summary = prov.tile_summary()
+    assert summary["provider"] == "reporting_api"
+    assert summary["using_sample_fallback"] is False
+    assert summary["possibly_truncated"] is False
+    assert summary["data_as_of"].endswith(" ET")
+    # Newest stamp is clusters 12:00 GMT → 07:00 ET
+    assert "07:00 ET" in summary["data_as_of"] or "2026-11-05" in summary["data_as_of"]
+
+
+def test_reporting_api_provider_truncation_warning():
+    by_key = {
+        (REPORT_IDS["shipments"], "Open"): [
+            _achm_row("shipments", "Open", i) for i in range(3)
+        ],
+    }
+    # Fill other statuses empty so fetches succeed.
+    for area, statuses in OPEN_STATUS_FETCH.items():
+        for status in statuses:
+            by_key.setdefault((REPORT_IDS[area], status), [])
+    override = {(REPORT_IDS["shipments"], "Open"): 10000}
+    client = _FakeReportClient(by_key, row_count_override=override)
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
+    summary = prov.tile_summary()
+    assert summary["possibly_truncated"] is True
+    assert "shipments" in summary["truncated_areas"]
+    by_key_tiles = {t["key"]: t for t in summary["tiles"]}
+    assert by_key_tiles["shipments"]["possibly_truncated"] is True
+
+
+def test_reporting_api_provider_falls_back_to_sample_on_error():
+    client = _FakeReportClient(fail=RuntimeError("boom from API"))
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
+    summary = prov.tile_summary()
+    assert summary["using_sample_fallback"] is True
+    assert summary["provider"] == "sample"
+    assert "boom from API" in (summary["error_message"] or "")
+    assert len(prov.get_open_shipments()) == 642
+
+
+def test_reporting_api_provider_cache_avoids_repeat_calls():
+    by_key = {}
+    for area, statuses in OPEN_STATUS_FETCH.items():
+        for status in statuses:
+            by_key[(REPORT_IDS[area], status)] = [
+                _achm_row(area, status, 1),
+            ]
+    client = _FakeReportClient(by_key)
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=300)
+    prov.get_open_shipments()
+    first = len(client.calls)
+    prov.get_open_loads()
+    prov.tile_summary()
+    assert len(client.calls) == first

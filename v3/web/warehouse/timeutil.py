@@ -2,25 +2,27 @@
 
 Record fields like createdDateTime / modifiedDateTime are already Eastern wall
 clocks (even when a source labels them GMT). Refresh stamps UpdatedUtc,
-LastSeenUtc, and LastImportedUTC are true UTC and must convert to ET for the
-"Data as of" line.
+LastSeenUtc, and LastImportedUTC are true GMT/UTC and must convert to ET for
+the "Data as of" line. Production shape example:
+'Thu, 05 Nov 2026 09:34:36 GMT' (RFC 822).
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
 
 _REFRESH_STAMP_KEYS = frozenset({
-    "UpdatedUtc", "LastSeenUtc", "LastImportedUTC", "InsertedUtc",
+    "UpdatedUtc", "LastSeenUtc", "LastImportedUTC",
 })
 
 
 def parse_utc_timestamp(value) -> datetime | None:
-    """Parse a true-UTC stamp into an aware datetime. Returns None if unusable."""
+    """Parse a true-UTC/GMT stamp into an aware datetime. Returns None if unusable."""
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -32,16 +34,20 @@ def parse_utc_timestamp(value) -> datetime | None:
     text = str(value).strip()
     if not text:
         return None
-    cleaned = (
-        text.replace(" GMT", "")
-        .replace(" UTC", "")
-        .replace("GMT", "")
-        .replace("UTC", "")
-        .strip()
-    )
+
+    # Production Reporting API often returns RFC 822: 'Thu, 05 Nov 2026 09:34:36 GMT'
+    try:
+        dt = parsedate_to_datetime(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError, IndexError):
+        pass
+
+    cleaned = text
     if cleaned.endswith("Z"):
         cleaned = cleaned[:-1] + "+00:00"
-    if " " in cleaned and "T" not in cleaned[:19]:
+    if " " in cleaned and "T" not in cleaned[:19] and "," not in cleaned:
         cleaned = cleaned.replace(" ", "T", 1)
 
     try:
@@ -67,14 +73,14 @@ def parse_utc_timestamp(value) -> datetime | None:
 
 
 def utc_to_eastern_display(value, *, seconds: bool = False) -> str | None:
-    """Format a true-UTC stamp as America/New_York wall time."""
+    """Format a true-UTC stamp as America/New_York wall time, labeled ET."""
     dt = parse_utc_timestamp(value)
     if dt is None:
         return None
     local = dt.astimezone(ET)
     if seconds:
-        return local.strftime("%Y-%m-%d %H:%M:%S %Z")
-    return local.strftime("%Y-%m-%d %H:%M %Z")
+        return local.strftime("%Y-%m-%d %H:%M:%S") + " ET"
+    return local.strftime("%Y-%m-%d %H:%M") + " ET"
 
 
 def latest_refresh_utc(
