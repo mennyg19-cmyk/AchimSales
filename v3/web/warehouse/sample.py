@@ -85,6 +85,7 @@ class SampleWarehouseProvider:
             "possibly_truncated": False,
             "truncated_areas": [],
             "unrecognized_statuses": {},
+            "area_errors": {},
         }
 
     def tile_summary(self) -> dict[str, Any]:
@@ -99,6 +100,8 @@ class SampleWarehouseProvider:
                 "coming_soon": False,
                 "href": f"/whdashboard/{area}",
                 "possibly_truncated": False,
+                "unavailable": False,
+                "error_message": None,
             })
         for key in PLACEHOLDER_AREAS:
             tiles.append({
@@ -109,6 +112,8 @@ class SampleWarehouseProvider:
                 "coming_soon": True,
                 "href": None,
                 "possibly_truncated": False,
+                "unavailable": False,
+                "error_message": None,
             })
         return {
             "data_as_of": self.data_as_of(),

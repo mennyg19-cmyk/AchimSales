@@ -19,8 +19,7 @@ STATUS_COLUMNS = {
 
 # Known open statuses for per-status Reporting API fetches.
 # Waves: non-Shipped statuses seen in Gateway preview 2026-11-19 (Created,
-# Released, Held). Waves also do a broad MaxRows pull so unknown open statuses
-# are not silently dropped (see BROAD_FETCH_AREAS / KNOWN_WAVE_STATUSES).
+# Released, Held). No broad unfiltered MaxRows pull (that 500'd in prod).
 OPEN_STATUS_FETCH = {
     "shipments": ("Open", "Waved", "InProcess", "Loaded"),
     "loads": ("Open", "Waved", "InProcess", "Loaded"),
@@ -32,9 +31,6 @@ OPEN_STATUS_FETCH = {
 # WaveStatus values observed in Gateway preview (company=achm, MaxRows=100).
 # Any other status that survives the open filter is flagged as unrecognized.
 KNOWN_WAVE_STATUSES = frozenset({"Created", "Released", "Held", "Shipped"})
-
-# Areas that also request MaxRows with no status filter (safety net).
-BROAD_FETCH_AREAS = frozenset({"waves"})
 
 AREA_TITLES = {
     "shipments": "Shipments",

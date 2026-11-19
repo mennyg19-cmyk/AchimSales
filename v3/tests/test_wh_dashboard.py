@@ -27,7 +27,6 @@ from web.warehouse.filters import row_is_not_deleted
 from web.warehouse.reporting_api import ReportingApiWarehouseProvider, row_is_achm
 from web.warehouse.sample import SampleWarehouseProvider
 from web.warehouse.schema import (
-    BROAD_FETCH_AREAS,
     OPEN_STATUS_FETCH,
     REPORT_IDS,
     STATUS_COLUMNS,
@@ -48,11 +47,17 @@ class _FakeResult:
 class _FakeReportClient:
     """Records run_report calls; returns configured rows per (report_id, status)."""
 
-    def __init__(self, by_key: dict[tuple[str, str], list[dict]] | None = None,
-                 *, fail: Exception | None = None,
-                 row_count_override: dict[tuple[str, str], int] | None = None):
+    def __init__(
+        self,
+        by_key: dict[tuple[str, str], list[dict]] | None = None,
+        *,
+        fail: Exception | None = None,
+        fail_report_ids: dict[str, Exception] | None = None,
+        row_count_override: dict[tuple[str, str], int] | None = None,
+    ):
         self.by_key = by_key or {}
         self.fail = fail
+        self.fail_report_ids = fail_report_ids or {}
         self.row_count_override = row_count_override or {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
@@ -60,6 +65,8 @@ class _FakeReportClient:
         self.calls.append((report_id, dict(params)))
         if self.fail is not None:
             raise self.fail
+        if report_id in self.fail_report_ids:
+            raise self.fail_report_ids[report_id]
         status = None
         for key, val in params.items():
             if key.endswith("Status"):
@@ -284,8 +291,6 @@ def _seed_empty_status_keys(by_key: dict) -> None:
     for area, statuses in OPEN_STATUS_FETCH.items():
         for status in statuses:
             by_key.setdefault((REPORT_IDS[area], status), [])
-        if area in BROAD_FETCH_AREAS:
-            by_key.setdefault((REPORT_IDS[area], None), [])
 
 
 def test_reporting_api_provider_fetches_per_status_and_filters():
@@ -315,7 +320,6 @@ def test_reporting_api_provider_fetches_per_status_and_filters():
         by_key[(REPORT_IDS["waves"], status)] = [
             _achm_row("waves", status, 40 + hash(status) % 50),
         ]
-    by_key[(REPORT_IDS["waves"], None)] = []
 
     client = _FakeReportClient(by_key)
     prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
@@ -323,23 +327,27 @@ def test_reporting_api_provider_fetches_per_status_and_filters():
     assert {r["RecId"] for r in ships} == {1, 4}
     assert all(row_is_achm(r) for r in ships)
 
-    # One call per known open status per area, plus broad MaxRows for waves.
-    expected_calls = (
-        sum(len(v) for v in OPEN_STATUS_FETCH.values()) + len(BROAD_FETCH_AREAS)
-    )
+    # One call per known open status per area (no broad unfiltered MaxRows).
+    expected_calls = sum(len(v) for v in OPEN_STATUS_FETCH.values())
     assert len(client.calls) == expected_calls
     for report_id, params in client.calls:
         assert params["MaxRows"] == "10000"
+        assert any(k.endswith("Status") for k in params)
+    wave_calls = [p for rid, p in client.calls if rid == REPORT_IDS["waves"]]
+    assert len(wave_calls) == len(OPEN_STATUS_FETCH["waves"])
+    assert {p["WaveStatus"] for p in wave_calls} == set(OPEN_STATUS_FETCH["waves"])
 
     summary = prov.tile_summary()
     assert summary["provider"] == "reporting_api"
     assert summary["using_sample_fallback"] is False
     assert summary["possibly_truncated"] is False
+    assert summary["area_errors"] == {}
     assert summary["data_as_of"].endswith(" ET")
     # Newest stamp is waves 13:00 GMT → 08:00 ET
     assert "08:00 ET" in summary["data_as_of"] or "2026-11-05" in summary["data_as_of"]
     by_key_tiles = {t["key"]: t for t in summary["tiles"]}
     assert by_key_tiles["waves"]["coming_soon"] is False
+    assert by_key_tiles["waves"]["unavailable"] is False
     assert by_key_tiles["due_dates"]["coming_soon"] is True
 
 
@@ -360,15 +368,45 @@ def test_reporting_api_provider_truncation_warning():
     assert by_key_tiles["shipments"]["possibly_truncated"] is True
 
 
-def test_reporting_api_provider_falls_back_to_sample_on_error():
+def test_reporting_api_provider_falls_back_to_sample_when_every_area_fails():
     client = _FakeReportClient(fail=RuntimeError("boom from API"))
     prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
     summary = prov.tile_summary()
     assert summary["using_sample_fallback"] is True
     assert summary["provider"] == "sample"
     assert "boom from API" in (summary["error_message"] or "")
+    assert summary["area_errors"] == {}
     assert len(prov.get_open_shipments()) == 642
     assert len(prov.get_open_waves()) == 60
+
+
+def test_reporting_api_provider_isolates_single_area_failure():
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    _seed_empty_status_keys(by_key)
+    rid = 1000
+    for area in ("shipments", "loads", "work", "clusters"):
+        for status in OPEN_STATUS_FETCH[area]:
+            by_key[(REPORT_IDS[area], status)] = [_achm_row(area, status, rid)]
+            rid += 1
+
+    client = _FakeReportClient(
+        by_key,
+        fail_report_ids={REPORT_IDS["waves"]: RuntimeError("waves 500")},
+    )
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
+    summary = prov.tile_summary()
+    assert summary["using_sample_fallback"] is False
+    assert summary["provider"] == "reporting_api"
+    assert summary["error_message"] is None
+    assert "waves" in summary["area_errors"]
+    assert "waves 500" in summary["area_errors"]["waves"]
+    by_key_tiles = {t["key"]: t for t in summary["tiles"]}
+    assert by_key_tiles["waves"]["unavailable"] is True
+    assert "waves 500" in (by_key_tiles["waves"]["error_message"] or "")
+    assert by_key_tiles["shipments"]["unavailable"] is False
+    assert by_key_tiles["shipments"]["total"] == len(OPEN_STATUS_FETCH["shipments"])
+    assert len(prov.get_open_shipments()) == len(OPEN_STATUS_FETCH["shipments"])
+    assert prov.get_open_waves() == []
 
 
 def test_reporting_api_provider_cache_avoids_repeat_calls():
@@ -378,8 +416,6 @@ def test_reporting_api_provider_cache_avoids_repeat_calls():
             by_key[(REPORT_IDS[area], status)] = [
                 _achm_row(area, status, 1),
             ]
-        if area in BROAD_FETCH_AREAS:
-            by_key[(REPORT_IDS[area], None)] = []
     client = _FakeReportClient(by_key)
     prov = ReportingApiWarehouseProvider(client, cache_seconds=300)
     prov.get_open_shipments()
@@ -391,14 +427,12 @@ def test_reporting_api_provider_cache_avoids_repeat_calls():
 
 
 def test_reporting_api_waves_filters_deleted_and_flags_unknown_status():
-    by_key: dict[tuple[str, str | None], list[dict]] = {}
+    by_key: dict[tuple[str, str], list[dict]] = {}
     _seed_empty_status_keys(by_key)
     by_key[(REPORT_IDS["waves"], "Created")] = [
         _achm_row("waves", "Created", 1),
         _achm_row("waves", "Created", 2, IsDeleted=1),
-    ]
-    # Broad pull surfaces an open status not in OPEN_STATUS_FETCH / known set.
-    by_key[(REPORT_IDS["waves"], None)] = [
+        # Status filter ignored by API → open unrecognized status still kept.
         _achm_row("waves", "Executing", 3),
         _achm_row("waves", "Shipped", 4),
     ]
@@ -408,3 +442,41 @@ def test_reporting_api_waves_filters_deleted_and_flags_unknown_status():
     assert {r["RecId"] for r in waves} == {1, 3}
     summary = prov.tile_summary()
     assert summary["unrecognized_statuses"]["waves"] == ["Executing"]
+
+
+def test_wh_dashboard_live_area_error_renders_unavailable(tmp_path):
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    _seed_empty_status_keys(by_key)
+    for status in OPEN_STATUS_FETCH["shipments"]:
+        by_key[(REPORT_IDS["shipments"], status)] = [
+            _achm_row("shipments", status, 1),
+        ]
+    fake = _FakeReportClient(
+        by_key,
+        fail_report_ids={REPORT_IDS["waves"]: RuntimeError("waves down")},
+    )
+    app = create_app(_cfg(tmp_path))
+    migrate(app.config["DB"])
+    app.config["WH_DASHBOARD_PROVIDER"] = ReportingApiWarehouseProvider(
+        fake, cache_seconds=60
+    )
+    client = app.test_client()
+    _login(client, app)
+    overview = client.get("/whdashboard")
+    assert overview.status_code == 200
+    body = overview.get_data(as_text=True)
+    assert "Unavailable" in body
+    assert "waves down" in body
+    assert "SAMPLE DATA" not in body
+    assert "live" in body
+    detail = client.get("/whdashboard/waves")
+    assert detail.status_code == 200
+    detail_body = detail.get_data(as_text=True)
+    assert "Unavailable" in detail_body
+    assert "waves down" in detail_body
+    assert "SAMPLE DATA" not in detail_body
+    ships = client.get("/whdashboard/shipments")
+    assert ships.status_code == 200
+    ships_body = ships.get_data(as_text=True)
+    assert "Unavailable" not in ships_body
+    assert "SHP-1" in ships_body or "1 open" in ships_body

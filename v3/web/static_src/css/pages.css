@@ -831,6 +831,9 @@ a.wh-tile { text-decoration: none; color: inherit; display: block; }
 .wh-status-list li { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text); }
 .wh-status-list strong { font-variant-numeric: tabular-nums; }
 .wh-tile-soon { opacity: 0.72; cursor: default; }
+.wh-tile-error { border-color: var(--error); }
+.wh-tile-error .wh-soon-label { color: var(--error); }
+.wh-tile-error-msg { margin: 0; font-size: 12px; color: var(--error); word-break: break-word; }
 .wh-soon-label { font-size: 18px; color: var(--text-muted); }
 .wh-list-controls { margin-bottom: 12px; }
 .wh-columns-panel { margin: 0 0 12px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }

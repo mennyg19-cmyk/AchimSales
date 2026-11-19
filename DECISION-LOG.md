@@ -1,9 +1,16 @@
+## 2026-11-19 WH dashboard: drop waves broad pull + isolate area failures
+**What I had to decide:** Keep the unfiltered waves MaxRows safety pull after it 500'd in prod wiping all tiles; keep all-or-nothing sample fallback vs per-area errors.
+**Options I considered:** Keep broad pull and only fix global catch; drop broad pull but keep all-or-nothing fallback; drop broad pull and isolate failures per area.
+**What I chose:** Waves fetch only Created/Released/Held at MaxRows=10000 each (same pattern as other areas); keep client re-filter, unrecognized-status warning, and truncated warning. Per-area try/except: failed tile/drill-down shows Unavailable + error; other areas stay live. Global SAMPLE DATA banner only when every area fails (or provider unconfigured at boot). No silent sample rows in a failed live tile.
+**Why:** Baruch approved both parts after the waves 500 wiped the whole dashboard.
+**Status:** DECIDED
+
 ## 2026-11-19 Warehouse Waves tile goes live
 **What I had to decide:** Which WaveStatus values to fetch, and how to avoid silently dropping unknown open statuses.
 **Options I considered:** Hardcode only Created/Released from an earlier note; fetch Created/Released/Held from Gateway preview only; broad MaxRows-only pull with client filter.
 **What I chose:** Open = not Shipped. Fetch Created/Released/Held (seen in Gateway preview 2026-11-19) plus one unfiltered MaxRows=10000 merge; client re-filter not Shipped + achm + IsDeleted=0; flag any open status outside KNOWN_WAVE_STATUSES={Created,Released,Held,Shipped}. Due dates stay coming soon.
 **Why:** Baruch asked for live Waves now; preview showed Held as a real open status; safety pull + unrecognized warning matches “don’t hardcode guesses that drop a status.”
-**Status:** DECIDED
+**Status:** SUPERSEDED (drop broad pull + per-area isolation 2026-11-19)
 
 ## 2026-11-16 Warehouse reporting_api provider wired (draft only)
 **What I had to decide:** How to call verified `whs_*` reports without silent truncation or unverified API filters.

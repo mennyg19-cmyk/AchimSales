@@ -53,6 +53,15 @@
         <div class="stat-value wh-soon-label">Coming soon</div>
         <p class="wh-tile-hint">Not available yet</p>
     </div>
+    {% elif tile.unavailable %}
+    <a class="stat-card wh-tile dash-tile wh-tile-error" href="{{ tile.href }}">
+        <div class="stat-label">{{ tile.title }}</div>
+        <div class="stat-value wh-soon-label">Unavailable</div>
+        <p class="wh-tile-hint">Live fetch failed</p>
+        {% if tile.error_message %}
+        <p class="wh-tile-error-msg">{{ tile.error_message }}</p>
+        {% endif %}
+    </a>
     {% else %}
     <a class="stat-card wh-tile dash-tile" href="{{ tile.href }}">
         <div class="stat-label">{{ tile.title }}</div>

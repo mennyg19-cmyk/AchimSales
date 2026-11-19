@@ -2,9 +2,10 @@
 
 Fetches open rows per known status (MaxRows=10000 each), merges, then always
 re-filters client-side by open rules and Company/dataAreaId=achm. Waves also
-drop IsDeleted≠0 and pull an unfiltered MaxRows page so unknown open statuses
-are not silently missed. Caches briefly. On any API error, falls back to
-SampleWarehouseProvider and surfaces SAMPLE DATA.
+drop IsDeleted≠0. Caches briefly.
+
+Per-area failures are isolated: a failed area is marked unavailable (no silent
+sample rows). Global sample fallback is used only when every area fails.
 
 Not used until WH_DASHBOARD_PROVIDER=reporting_api. Default stays sample.
 """
@@ -21,7 +22,6 @@ from web.warehouse.sample import SampleWarehouseProvider
 from web.warehouse.schema import (
     AREA_TITLES,
     AREAS,
-    BROAD_FETCH_AREAS,
     KNOWN_WAVE_STATUSES,
     OPEN_STATUS_FETCH,
     PLACEHOLDER_AREAS,
@@ -69,6 +69,7 @@ class _Snapshot:
     error_message: str | None
     provider_label: str
     unrecognized_by_area: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    area_errors: dict[str, str] = field(default_factory=dict)
 
 
 def row_is_achm(row: dict) -> bool:
@@ -165,6 +166,8 @@ class ReportingApiWarehouseProvider:
             return self._fallback.data_as_of()
         stamps = []
         for area in AREAS:
+            if area in snap.area_errors:
+                continue
             latest = latest_refresh_utc(snap.rows_by_area.get(area, []))
             if latest is not None:
                 stamps.append(latest)
@@ -187,12 +190,27 @@ class ReportingApiWarehouseProvider:
             "possibly_truncated": bool(truncated),
             "truncated_areas": truncated,
             "unrecognized_statuses": unrecognized,
+            "area_errors": dict(snap.area_errors),
         }
 
     def tile_summary(self) -> dict[str, Any]:
         snap = self._ensure_snapshot()
         tiles = []
         for area in AREAS:
+            err = snap.area_errors.get(area)
+            if err:
+                tiles.append({
+                    "key": area,
+                    "title": AREA_TITLES[area],
+                    "total": None,
+                    "by_status": {},
+                    "coming_soon": False,
+                    "href": f"/whdashboard/{area}",
+                    "possibly_truncated": False,
+                    "unavailable": True,
+                    "error_message": err,
+                })
+                continue
             rows = snap.rows_by_area.get(area, [])
             status_col = STATUS_COLUMNS[area]
             tiles.append({
@@ -203,6 +221,8 @@ class ReportingApiWarehouseProvider:
                 "coming_soon": False,
                 "href": f"/whdashboard/{area}",
                 "possibly_truncated": area in snap.truncated_areas,
+                "unavailable": False,
+                "error_message": None,
             })
         for key in PLACEHOLDER_AREAS:
             tiles.append({
@@ -213,6 +233,8 @@ class ReportingApiWarehouseProvider:
                 "coming_soon": True,
                 "href": None,
                 "possibly_truncated": False,
+                "unavailable": False,
+                "error_message": None,
             })
         meta = self.view_meta()
         return {
@@ -222,7 +244,10 @@ class ReportingApiWarehouseProvider:
         }
 
     def _rows(self, area: str) -> list[dict]:
-        return self._ensure_snapshot().rows_by_area.get(area, [])
+        snap = self._ensure_snapshot()
+        if area in snap.area_errors and not snap.using_fallback:
+            return []
+        return snap.rows_by_area.get(area, [])
 
     def _ensure_snapshot(self) -> _Snapshot:
         now = time.monotonic()
@@ -253,19 +278,32 @@ class ReportingApiWarehouseProvider:
             error_message=error,
             provider_label="sample",
             unrecognized_by_area={},
+            area_errors={},
         )
 
     def _fetch_live(self, now: float) -> _Snapshot:
         rows_by_area: dict[str, list[dict]] = {}
         truncated: set[str] = set()
         unrecognized_by_area: dict[str, tuple[str, ...]] = {}
+        area_errors: dict[str, str] = {}
         for area in AREAS:
-            bundle = self._fetch_area(area)
-            rows_by_area[area] = bundle.rows
-            if bundle.truncated:
-                truncated.add(area)
-            if bundle.unrecognized_statuses:
-                unrecognized_by_area[area] = bundle.unrecognized_statuses
+            try:
+                bundle = self._fetch_area(area)
+                rows_by_area[area] = bundle.rows
+                if bundle.truncated:
+                    truncated.add(area)
+                if bundle.unrecognized_statuses:
+                    unrecognized_by_area[area] = bundle.unrecognized_statuses
+            except Exception as exc:
+                log.exception("WH dashboard area %s failed", area)
+                area_errors[area] = str(exc)
+                rows_by_area[area] = []
+
+        if len(area_errors) == len(AREAS):
+            combined = "; ".join(f"{a}: {area_errors[a]}" for a in AREAS)
+            log.error("WH dashboard: every area failed; using sample data")
+            return self._fallback_snapshot(now, combined)
+
         return _Snapshot(
             rows_by_area=rows_by_area,
             truncated_areas=frozenset(truncated),
@@ -274,6 +312,7 @@ class ReportingApiWarehouseProvider:
             error_message=None,
             provider_label="reporting_api",
             unrecognized_by_area=unrecognized_by_area,
+            area_errors=area_errors,
         )
 
     def _fetch_area(self, area: str) -> _AreaBundle:
@@ -287,15 +326,6 @@ class ReportingApiWarehouseProvider:
                 status_col: status,
             }
             result = self._client.run_report(report_id, params)
-            rows = _result_rows(result)
-            if _result_row_count(result, rows) >= _MAX_ROWS_CAP:
-                truncated = True
-            merged.extend(rows)
-
-        # Safety net: unfiltered MaxRows so open statuses not in OPEN_STATUS_FETCH
-        # still appear (then client open-filter drops Shipped/etc.).
-        if area in BROAD_FETCH_AREAS:
-            result = self._client.run_report(report_id, {"MaxRows": _MAX_ROWS})
             rows = _result_rows(result)
             if _result_row_count(result, rows) >= _MAX_ROWS_CAP:
                 truncated = True
