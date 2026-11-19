@@ -28,9 +28,17 @@ def is_open_cluster(status: str | None) -> bool:
 
 
 def is_open_wave(status: str | None) -> bool:
-    """Waves open = not Picked or Shipped (placeholder until Waves tile ships)."""
-    s = (status or "").strip().casefold()
-    return s not in {"picked", "shipped"}
+    """Waves open = WaveStatus not Shipped (Baruch, Nov 19 2026)."""
+    return (status or "").strip().casefold() != "shipped"
+
+
+def row_is_not_deleted(row: dict) -> bool:
+    """Keep rows that are not tombstoned (IsDeleted=0 / false / blank)."""
+    val = row.get("IsDeleted")
+    if val is None:
+        return True
+    s = str(val).strip().casefold()
+    return s in {"", "0", "false", "no"}
 
 
 _OPEN_PREDICATES = {

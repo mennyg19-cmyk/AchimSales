@@ -1,9 +1,8 @@
 # Warehouse Dashboard (`/whdashboard`)
 
 Allowlist-only page on the v3 home site (default: `bgrossman@achimonline.com`).
-Front end first: tiles + drill-down lists over a provider interface. This branch
-defaults to **sample** (synthetic) data so nothing hits the on-prem Reporting API
-until Baruch sets `WH_DASHBOARD_PROVIDER=reporting_api`.
+Tiles + drill-down lists over a provider interface. Defaults to **sample**
+(synthetic) data; live data when `WH_DASHBOARD_PROVIDER=reporting_api`.
 
 ## Access
 
@@ -19,9 +18,9 @@ Not role-based. Admins, developers, magic-link reps, and anyone else off the lis
 |------|-------|
 | `/whdashboard` | Canonical main page |
 | `/WHdashboard` | Same view (bookmark-friendly casing) |
-| `/whdashboard/{shipments\|loads\|work\|clusters}` | Open lists |
+| `/whdashboard/{shipments\|loads\|work\|clusters\|waves}` | Open lists |
 | `/WHdashboard/{…}` | Same lists |
-| `/whdashboard/waves`, `/whdashboard/due_dates` | 404 — coming soon |
+| `/whdashboard/due_dates` | 404 — coming soon |
 
 ## Local preview
 
@@ -40,26 +39,24 @@ Sign in with the allowlisted email (dev login), then open
 
 | `WH_DASHBOARD_PROVIDER` | Behavior |
 |-------------------------|----------|
-| `sample` (default) | Synthetic open rows sized to the Nov 11 2026 status totals |
+| `sample` (default) | Synthetic open rows (Nov 11 2026 status totals + synthetic waves) |
 | `reporting_api` | Live `ReportingApiClient.run_report` for the warehouse ids below |
 
-### How Baruch turns live data on
+### How to turn live data on
 
-Do **not** change App Settings in the UI for this. Set environment (Azure App
-Settings / process env) only when ready:
+Do **not** change in-app App Settings for this. Set process env / Azure App Setting:
 
-1. Keep `REPORTING_API_BASE_URL` and `REPORTING_API_KEY` as already configured
-   for the site (same key that works for `/api/dev/reporting/<id>/run`).
+1. Keep `REPORTING_API_BASE_URL` and `REPORTING_API_KEY` configured.
 2. Set `WH_DASHBOARD_PROVIDER=reporting_api`.
-3. Keep `WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com` (single-user lock).
-4. Restart / redeploy the app process so the env is picked up.
+3. Keep `WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com`.
+4. Restart the app process so the env is picked up.
 5. Open `/whdashboard` while signed in as that email.
 
-Until step 2, production stays on sample. If the live provider is selected but
-the Reporting API client is not configured, the app logs a warning and falls
-back to sample at boot.
+Read at **boot only** (`load_config` → `create_app`). If the live provider is
+selected but the Reporting API client is not configured, the app logs a warning
+and falls back to sample at boot.
 
-## Live Reporting API contract (verified 2026-11-16)
+## Live Reporting API contract
 
 Site calls:
 
@@ -75,22 +72,30 @@ with `X-API-Key`. Response shape:
 | Loads | `whs_load_table` | `LoadStatus` (by analogy) | Open, Waved, InProcess, Loaded |
 | Work | `whs_work_table` | `WorkStatus` (by analogy) | Open, InProcess |
 | Clusters | `whs_work_cluster_table` | `WorkClusterStatus` (by analogy) | Open, Passed, InProcess |
+| Waves | `whs_wave_table` | `WaveStatus` (by analogy) | Created, Released, Held (+ broad MaxRows safety pull) |
+
+Wave statuses **seen** in Gateway preview 2026-11-19 (`company=achm`, MaxRows=100):
+`Created`, `Released`, `Held`, `Shipped`. Known set is recorded in
+`KNOWN_WAVE_STATUSES`. Waves also request one unfiltered `MaxRows=10000` page
+and merge it so an open status missing from the fetch list is not dropped.
+Any open status not in `KNOWN_WAVE_STATUSES` is shown as an
+**Unrecognized status values** warning.
 
 Per tile the provider:
 
-1. Calls each open status separately with `MaxRows=10000` (string).
-2. Merges and dedupes.
-3. Always re-filters client-side with the open-status rules below (so an ignored
-   server filter cannot leak closed rows).
-4. Keeps only `Company` / `dataAreaId` = `achm` client-side (no unverified
-   company / InventLocationId API params).
-5. If any single call returns `row_count >= 10000`, shows a visible
+1. Calls each known open status separately with `MaxRows=10000` (string).
+2. Waves: also one broad `MaxRows` call with no status filter.
+3. Merges and dedupes.
+4. Always re-filters client-side with the open-status rules below.
+5. Keeps only `Company` / `dataAreaId` = `achm` client-side.
+6. Waves: also keep `IsDeleted=0` (blank/`false` treated as active).
+7. If any single call returns `row_count >= 10000`, shows a visible
    **Possibly truncated** warning.
-6. Caches the snapshot for ~5 minutes.
-7. On any API error: shows the error, falls back to sample rows, and a clear
+8. Caches the snapshot for ~5 minutes.
+9. On any API error: shows the error, falls back to sample rows, and a clear
    **SAMPLE DATA** banner.
 
-Waves and due dates stay “coming soon”.
+Due dates stay “coming soon”.
 
 ## Open-status rules (data layer)
 
@@ -100,7 +105,7 @@ Waves and due dates stay “coming soon”.
 | Loads | `LoadStatus` ≠ Shipped |
 | Work | `WorkStatus` not Closed; Cancelled excluded |
 | Clusters | `WorkClusterStatus` ≠ Closed (Open, Passed, InProcess) |
-| Waves (placeholder) | not Picked or Shipped |
+| Waves | `WaveStatus` ≠ Shipped (Baruch, Nov 19 2026) |
 
 ## Time rules
 
@@ -108,8 +113,8 @@ Waves and due dates stay “coming soon”.
   display as-is (even when a source labels them GMT).
 - Refresh stamps (`UpdatedUtc`, `LastSeenUtc`, `LastImportedUTC`): true GMT/UTC
   (often RFC 822 like `Thu, 05 Nov 2026 09:34:36 GMT`) → America/New_York for
-  “Data as of”, labeled `ET`. Newest stamp across shipments, loads, work, and
-  clusters.
+  “Data as of”, labeled `ET`. Newest stamp across shipments, loads, work,
+  clusters, and waves.
 
 ## Code map
 

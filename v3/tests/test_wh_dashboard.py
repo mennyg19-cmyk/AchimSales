@@ -23,9 +23,15 @@ from web.warehouse.filters import (
     is_open_wave,
     is_open_work,
 )
+from web.warehouse.filters import row_is_not_deleted
 from web.warehouse.reporting_api import ReportingApiWarehouseProvider, row_is_achm
 from web.warehouse.sample import SampleWarehouseProvider
-from web.warehouse.schema import OPEN_STATUS_FETCH, REPORT_IDS, STATUS_COLUMNS
+from web.warehouse.schema import (
+    BROAD_FETCH_AREAS,
+    OPEN_STATUS_FETCH,
+    REPORT_IDS,
+    STATUS_COLUMNS,
+)
 from web.warehouse.timeutil import parse_utc_timestamp, utc_to_eastern_display
 
 _ALLOWED = "bgrossman@achimonline.com"
@@ -91,10 +97,21 @@ def test_open_cluster_excludes_closed():
     assert not is_open_cluster("Closed")
 
 
-def test_open_wave_excludes_picked_and_shipped():
-    assert is_open_wave("Open")
-    assert not is_open_wave("Picked")
+def test_open_wave_excludes_shipped_only():
+    assert is_open_wave("Created")
+    assert is_open_wave("Released")
+    assert is_open_wave("Held")
+    assert is_open_wave("Picked")  # not Shipped → open per Nov 19 rule
     assert not is_open_wave("Shipped")
+    assert not is_open_wave("shipped")
+
+
+def test_row_is_not_deleted():
+    assert row_is_not_deleted({"IsDeleted": 0})
+    assert row_is_not_deleted({"IsDeleted": "0"})
+    assert row_is_not_deleted({})
+    assert not row_is_not_deleted({"IsDeleted": 1})
+    assert not row_is_not_deleted({"IsDeleted": "1"})
 
 
 def test_filter_open_rows_work():
@@ -139,12 +156,16 @@ def test_sample_provider_matches_nov11_totals():
     assert len(prov.get_open_loads()) == 608
     assert len(prov.get_open_work()) == 729
     assert len(prov.get_open_clusters()) == 111
+    assert len(prov.get_open_waves()) == 60
     summary = prov.tile_summary()
     by_key = {t["key"]: t for t in summary["tiles"]}
     assert by_key["shipments"]["by_status"] == {
         "Waved": 311, "InProcess": 292, "Open": 34, "Loaded": 5,
     }
-    assert by_key["waves"]["coming_soon"] is True
+    assert by_key["waves"]["coming_soon"] is False
+    assert by_key["waves"]["by_status"] == {
+        "Released": 40, "Created": 18, "Held": 2,
+    }
     assert by_key["due_dates"]["coming_soon"] is True
     assert "2026-11-11" in summary["data_as_of"]
 
@@ -221,12 +242,17 @@ def test_wh_list_shipments_allowlisted(tmp_path):
     assert client.get("/WHdashboard/shipments").status_code == 200
 
 
-def test_wh_list_waves_coming_soon_404(tmp_path):
+def test_wh_list_waves_allowlisted(tmp_path):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     client = app.test_client()
     _login(client, app)
-    assert client.get("/whdashboard/waves").status_code == 404
+    resp = client.get("/whdashboard/waves")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "60 open" in body
+    assert "WV-DEMO-" in body
+    assert client.get("/whdashboard/due_dates").status_code == 404
 
 
 def _achm_row(area: str, status: str, rid: int, **extra) -> dict:
@@ -243,11 +269,23 @@ def _achm_row(area: str, status: str, rid: int, **extra) -> dict:
         elif area == "work":
             row["WorkId"] = f"WRK-{rid}"
             row["LastImportedUTC"] = "Thu, 05 Nov 2026 11:00:00 GMT"
+        elif area == "waves":
+            row["WaveId"] = f"WV-{rid}"
+            row["IsDeleted"] = 0
+            row["LastSeenUtc"] = "Thu, 05 Nov 2026 13:00:00 GMT"
         else:
             row["ClusterId"] = f"CL-{rid}"
             row["LastSeenUtc"] = "Thu, 05 Nov 2026 12:00:00 GMT"
     row.update(extra)
     return row
+
+
+def _seed_empty_status_keys(by_key: dict) -> None:
+    for area, statuses in OPEN_STATUS_FETCH.items():
+        for status in statuses:
+            by_key.setdefault((REPORT_IDS[area], status), [])
+        if area in BROAD_FETCH_AREAS:
+            by_key.setdefault((REPORT_IDS[area], None), [])
 
 
 def test_reporting_api_provider_fetches_per_status_and_filters():
@@ -273,6 +311,11 @@ def test_reporting_api_provider_fetches_per_status_and_filters():
         by_key[(REPORT_IDS["clusters"], status)] = [
             _achm_row("clusters", status, 30 + hash(status) % 50),
         ]
+    for status in OPEN_STATUS_FETCH["waves"]:
+        by_key[(REPORT_IDS["waves"], status)] = [
+            _achm_row("waves", status, 40 + hash(status) % 50),
+        ]
+    by_key[(REPORT_IDS["waves"], None)] = []
 
     client = _FakeReportClient(by_key)
     prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
@@ -280,20 +323,24 @@ def test_reporting_api_provider_fetches_per_status_and_filters():
     assert {r["RecId"] for r in ships} == {1, 4}
     assert all(row_is_achm(r) for r in ships)
 
-    # One call per known open status per area.
-    expected_calls = sum(len(v) for v in OPEN_STATUS_FETCH.values())
+    # One call per known open status per area, plus broad MaxRows for waves.
+    expected_calls = (
+        sum(len(v) for v in OPEN_STATUS_FETCH.values()) + len(BROAD_FETCH_AREAS)
+    )
     assert len(client.calls) == expected_calls
     for report_id, params in client.calls:
         assert params["MaxRows"] == "10000"
-        assert any(k.endswith("Status") for k in params)
 
     summary = prov.tile_summary()
     assert summary["provider"] == "reporting_api"
     assert summary["using_sample_fallback"] is False
     assert summary["possibly_truncated"] is False
     assert summary["data_as_of"].endswith(" ET")
-    # Newest stamp is clusters 12:00 GMT → 07:00 ET
-    assert "07:00 ET" in summary["data_as_of"] or "2026-11-05" in summary["data_as_of"]
+    # Newest stamp is waves 13:00 GMT → 08:00 ET
+    assert "08:00 ET" in summary["data_as_of"] or "2026-11-05" in summary["data_as_of"]
+    by_key_tiles = {t["key"]: t for t in summary["tiles"]}
+    assert by_key_tiles["waves"]["coming_soon"] is False
+    assert by_key_tiles["due_dates"]["coming_soon"] is True
 
 
 def test_reporting_api_provider_truncation_warning():
@@ -302,10 +349,7 @@ def test_reporting_api_provider_truncation_warning():
             _achm_row("shipments", "Open", i) for i in range(3)
         ],
     }
-    # Fill other statuses empty so fetches succeed.
-    for area, statuses in OPEN_STATUS_FETCH.items():
-        for status in statuses:
-            by_key.setdefault((REPORT_IDS[area], status), [])
+    _seed_empty_status_keys(by_key)
     override = {(REPORT_IDS["shipments"], "Open"): 10000}
     client = _FakeReportClient(by_key, row_count_override=override)
     prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
@@ -324,6 +368,7 @@ def test_reporting_api_provider_falls_back_to_sample_on_error():
     assert summary["provider"] == "sample"
     assert "boom from API" in (summary["error_message"] or "")
     assert len(prov.get_open_shipments()) == 642
+    assert len(prov.get_open_waves()) == 60
 
 
 def test_reporting_api_provider_cache_avoids_repeat_calls():
@@ -333,10 +378,33 @@ def test_reporting_api_provider_cache_avoids_repeat_calls():
             by_key[(REPORT_IDS[area], status)] = [
                 _achm_row(area, status, 1),
             ]
+        if area in BROAD_FETCH_AREAS:
+            by_key[(REPORT_IDS[area], None)] = []
     client = _FakeReportClient(by_key)
     prov = ReportingApiWarehouseProvider(client, cache_seconds=300)
     prov.get_open_shipments()
     first = len(client.calls)
     prov.get_open_loads()
+    prov.get_open_waves()
     prov.tile_summary()
     assert len(client.calls) == first
+
+
+def test_reporting_api_waves_filters_deleted_and_flags_unknown_status():
+    by_key: dict[tuple[str, str | None], list[dict]] = {}
+    _seed_empty_status_keys(by_key)
+    by_key[(REPORT_IDS["waves"], "Created")] = [
+        _achm_row("waves", "Created", 1),
+        _achm_row("waves", "Created", 2, IsDeleted=1),
+    ]
+    # Broad pull surfaces an open status not in OPEN_STATUS_FETCH / known set.
+    by_key[(REPORT_IDS["waves"], None)] = [
+        _achm_row("waves", "Executing", 3),
+        _achm_row("waves", "Shipped", 4),
+    ]
+    client = _FakeReportClient(by_key)
+    prov = ReportingApiWarehouseProvider(client, cache_seconds=60)
+    waves = prov.get_open_waves()
+    assert {r["RecId"] for r in waves} == {1, 3}
+    summary = prov.tile_summary()
+    assert summary["unrecognized_statuses"]["waves"] == ["Executing"]

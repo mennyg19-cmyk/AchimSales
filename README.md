@@ -78,13 +78,12 @@ https://reports.achimonline.com. Side branches (including Cloud Agent
 dynamic urllib, SHA1 cache fingerprints).
 
 **Warehouse dashboard (`/whdashboard`):** allowlist-only tiles + open lists
-(shipments, loads, work, clusters). Default allowlist
-`WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com` (not role-based).
-Defaults to synthetic sample data (`WH_DASHBOARD_PROVIDER=sample`). Live
-provider is wired behind `WH_DASHBOARD_PROVIDER=reporting_api` (per-status
-fetches, client re-filter + achm, 5‑min cache, truncated warning, sample
-fallback). See `v3/docs/WH-DASHBOARD.md`. Keep the draft PR; do not enable in
-prod until Baruch sets that env var.
+(shipments, loads, work, clusters, waves; due dates coming soon). Default
+allowlist `WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com` (not
+role-based). Defaults to synthetic sample data (`WH_DASHBOARD_PROVIDER=sample`).
+Live provider behind `WH_DASHBOARD_PROVIDER=reporting_api` (per-status fetches,
+waves broad safety pull, client re-filter + achm, 5‑min cache, truncated /
+unrecognized-status warnings, sample fallback). See `v3/docs/WH-DASHBOARD.md`.
 
 **Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
 it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New
