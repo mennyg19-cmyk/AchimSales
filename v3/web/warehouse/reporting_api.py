@@ -1,8 +1,10 @@
 """Reporting API warehouse provider.
 
 Fetches open rows per known status (MaxRows=10000 each), merges, then always
-re-filters client-side by open rules and Company/dataAreaId=achm. Caches briefly.
-On any API error, falls back to SampleWarehouseProvider and surfaces SAMPLE DATA.
+re-filters client-side by open rules and Company/dataAreaId=achm. Waves also
+drop IsDeleted≠0 and pull an unfiltered MaxRows page so unknown open statuses
+are not silently missed. Caches briefly. On any API error, falls back to
+SampleWarehouseProvider and surfaces SAMPLE DATA.
 
 Not used until WH_DASHBOARD_PROVIDER=reporting_api. Default stays sample.
 """
@@ -14,12 +16,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from web.warehouse.filters import counts_by_status, filter_open_rows
+from web.warehouse.filters import counts_by_status, filter_open_rows, row_is_not_deleted
 from web.warehouse.sample import SampleWarehouseProvider
 from web.warehouse.schema import (
     AREA_TITLES,
     AREAS,
+    BROAD_FETCH_AREAS,
+    KNOWN_WAVE_STATUSES,
     OPEN_STATUS_FETCH,
+    PLACEHOLDER_AREAS,
     REPORT_IDS,
     STATUS_COLUMNS,
 )
@@ -40,6 +45,7 @@ _DEDUP_KEYS = {
     "loads": ("RecId", "LoadId"),
     "work": ("RecId", "WorkId"),
     "clusters": ("RecId", "ClusterId"),
+    "waves": ("RecId", "WaveId"),
 }
 
 
@@ -51,6 +57,7 @@ class _ReportClient(Protocol):
 class _AreaBundle:
     rows: list[dict] = field(default_factory=list)
     truncated: bool = False
+    unrecognized_statuses: tuple[str, ...] = ()
 
 
 @dataclass
@@ -61,6 +68,7 @@ class _Snapshot:
     using_fallback: bool
     error_message: str | None
     provider_label: str
+    unrecognized_by_area: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def row_is_achm(row: dict) -> bool:
@@ -111,6 +119,16 @@ def _result_rows(result: Any) -> list[dict]:
     return list(rows or [])
 
 
+def _unrecognized_wave_statuses(rows: list[dict]) -> tuple[str, ...]:
+    status_col = STATUS_COLUMNS["waves"]
+    found: set[str] = set()
+    for row in rows:
+        label = (row.get(status_col) or "").strip()
+        if label and label not in KNOWN_WAVE_STATUSES:
+            found.add(label)
+    return tuple(sorted(found))
+
+
 class ReportingApiWarehouseProvider:
     """Read-only warehouse lists via ReportingApiClient."""
 
@@ -138,6 +156,9 @@ class ReportingApiWarehouseProvider:
     def get_open_clusters(self) -> list[dict]:
         return list(self._rows("clusters"))
 
+    def get_open_waves(self) -> list[dict]:
+        return list(self._rows("waves"))
+
     def data_as_of(self) -> str:
         snap = self._ensure_snapshot()
         if snap.using_fallback:
@@ -154,12 +175,18 @@ class ReportingApiWarehouseProvider:
     def view_meta(self) -> dict[str, Any]:
         snap = self._ensure_snapshot()
         truncated = sorted(snap.truncated_areas)
+        unrecognized = {
+            area: list(statuses)
+            for area, statuses in snap.unrecognized_by_area.items()
+            if statuses
+        }
         return {
             "provider": snap.provider_label,
             "using_sample_fallback": snap.using_fallback,
             "error_message": snap.error_message,
             "possibly_truncated": bool(truncated),
             "truncated_areas": truncated,
+            "unrecognized_statuses": unrecognized,
         }
 
     def tile_summary(self) -> dict[str, Any]:
@@ -177,16 +204,16 @@ class ReportingApiWarehouseProvider:
                 "href": f"/whdashboard/{area}",
                 "possibly_truncated": area in snap.truncated_areas,
             })
-        tiles.append({
-            "key": "waves", "title": "Waves", "total": None,
-            "by_status": {}, "coming_soon": True, "href": None,
-            "possibly_truncated": False,
-        })
-        tiles.append({
-            "key": "due_dates", "title": "Due dates", "total": None,
-            "by_status": {}, "coming_soon": True, "href": None,
-            "possibly_truncated": False,
-        })
+        for key in PLACEHOLDER_AREAS:
+            tiles.append({
+                "key": key,
+                "title": AREA_TITLES[key],
+                "total": None,
+                "by_status": {},
+                "coming_soon": True,
+                "href": None,
+                "possibly_truncated": False,
+            })
         meta = self.view_meta()
         return {
             "data_as_of": self.data_as_of(),
@@ -218,22 +245,27 @@ class ReportingApiWarehouseProvider:
                 "loads": self._fallback.get_open_loads(),
                 "work": self._fallback.get_open_work(),
                 "clusters": self._fallback.get_open_clusters(),
+                "waves": self._fallback.get_open_waves(),
             },
             truncated_areas=frozenset(),
             fetched_at=now,
             using_fallback=True,
             error_message=error,
             provider_label="sample",
+            unrecognized_by_area={},
         )
 
     def _fetch_live(self, now: float) -> _Snapshot:
         rows_by_area: dict[str, list[dict]] = {}
         truncated: set[str] = set()
+        unrecognized_by_area: dict[str, tuple[str, ...]] = {}
         for area in AREAS:
             bundle = self._fetch_area(area)
             rows_by_area[area] = bundle.rows
             if bundle.truncated:
                 truncated.add(area)
+            if bundle.unrecognized_statuses:
+                unrecognized_by_area[area] = bundle.unrecognized_statuses
         return _Snapshot(
             rows_by_area=rows_by_area,
             truncated_areas=frozenset(truncated),
@@ -241,6 +273,7 @@ class ReportingApiWarehouseProvider:
             using_fallback=False,
             error_message=None,
             provider_label="reporting_api",
+            unrecognized_by_area=unrecognized_by_area,
         )
 
     def _fetch_area(self, area: str) -> _AreaBundle:
@@ -259,9 +292,27 @@ class ReportingApiWarehouseProvider:
                 truncated = True
             merged.extend(rows)
 
+        # Safety net: unfiltered MaxRows so open statuses not in OPEN_STATUS_FETCH
+        # still appear (then client open-filter drops Shipped/etc.).
+        if area in BROAD_FETCH_AREAS:
+            result = self._client.run_report(report_id, {"MaxRows": _MAX_ROWS})
+            rows = _result_rows(result)
+            if _result_row_count(result, rows) >= _MAX_ROWS_CAP:
+                truncated = True
+            merged.extend(rows)
+
         merged = _dedupe_rows(area, merged)
         # Always re-filter: status filters may be ignored by the API; company
         # filters were not verified on the wire.
         open_rows = filter_open_rows(area, merged)
         achm_rows = [r for r in open_rows if row_is_achm(r)]
-        return _AreaBundle(rows=achm_rows, truncated=truncated)
+        if area == "waves":
+            achm_rows = [r for r in achm_rows if row_is_not_deleted(r)]
+            unrecognized = _unrecognized_wave_statuses(achm_rows)
+        else:
+            unrecognized = ()
+        return _AreaBundle(
+            rows=achm_rows,
+            truncated=truncated,
+            unrecognized_statuses=unrecognized,
+        )

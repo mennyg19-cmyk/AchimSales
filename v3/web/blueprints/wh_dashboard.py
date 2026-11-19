@@ -49,13 +49,16 @@ def _provider():
 def _view_meta(prov) -> dict:
     getter = getattr(prov, "view_meta", None)
     if callable(getter):
-        return getter()
+        meta = getter()
+        meta.setdefault("unrecognized_statuses", {})
+        return meta
     return {
         "provider": "sample",
         "using_sample_fallback": False,
         "error_message": None,
         "possibly_truncated": False,
         "truncated_areas": [],
+        "unrecognized_statuses": {},
     }
 
 
@@ -69,6 +72,8 @@ def _rows_for(area: str) -> list[dict]:
         return prov.get_open_work()
     if area == "clusters":
         return prov.get_open_clusters()
+    if area == "waves":
+        return prov.get_open_waves()
     abort(404)
 
 
@@ -94,6 +99,7 @@ def wh_dashboard():
         error_message=summary.get("error_message"),
         possibly_truncated=bool(summary.get("possibly_truncated")),
         truncated_areas=summary.get("truncated_areas") or [],
+        unrecognized_statuses=summary.get("unrecognized_statuses") or {},
     )
 
 
@@ -138,4 +144,5 @@ def wh_list(area: str):
         error_message=meta.get("error_message"),
         possibly_truncated=area in truncated_areas,
         truncated_areas=truncated_areas,
+        unrecognized_statuses=(meta.get("unrecognized_statuses") or {}).get(area) or [],
     )

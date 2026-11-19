@@ -1,3 +1,10 @@
+## 2026-11-19 Warehouse Waves tile goes live
+**What I had to decide:** Which WaveStatus values to fetch, and how to avoid silently dropping unknown open statuses.
+**Options I considered:** Hardcode only Created/Released from an earlier note; fetch Created/Released/Held from Gateway preview only; broad MaxRows-only pull with client filter.
+**What I chose:** Open = not Shipped. Fetch Created/Released/Held (seen in Gateway preview 2026-11-19) plus one unfiltered MaxRows=10000 merge; client re-filter not Shipped + achm + IsDeleted=0; flag any open status outside KNOWN_WAVE_STATUSES={Created,Released,Held,Shipped}. Due dates stay coming soon.
+**Why:** Baruch asked for live Waves now; preview showed Held as a real open status; safety pull + unrecognized warning matches “don’t hardcode guesses that drop a status.”
+**Status:** DECIDED
+
 ## 2026-11-16 Warehouse reporting_api provider wired (draft only)
 **What I had to decide:** How to call verified `whs_*` reports without silent truncation or unverified API filters.
 **Options I considered:** One unfiltered MaxRows call per area; server-only status filters; send Company=achm / InventLocationId=MAIN on the wire; no cache.

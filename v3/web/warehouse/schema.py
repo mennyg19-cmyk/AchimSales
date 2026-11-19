@@ -1,12 +1,13 @@
 """Column schemas and default-visible sets for warehouse dashboard tables.
 
-Column lists match the Nov 11 2026 gateway snapshot attached to the build brief.
+Shipment/load/work/cluster columns match the Nov 11 2026 gateway snapshot.
+Wave columns match Gateway whs_wave_table preview (2026-11-19).
 """
 
 from __future__ import annotations
 
-AREAS = ("shipments", "loads", "work", "clusters")
-PLACEHOLDER_AREAS = ("waves", "due_dates")
+AREAS = ("shipments", "loads", "work", "clusters", "waves")
+PLACEHOLDER_AREAS = ("due_dates",)
 
 STATUS_COLUMNS = {
     "shipments": "ShipmentStatus",
@@ -16,14 +17,24 @@ STATUS_COLUMNS = {
     "waves": "WaveStatus",
 }
 
-# Known open statuses for per-status Reporting API fetches (Baruch production probe).
-# Open rules in filters.py may accept additional statuses; client always re-filters.
+# Known open statuses for per-status Reporting API fetches.
+# Waves: non-Shipped statuses seen in Gateway preview 2026-11-19 (Created,
+# Released, Held). Waves also do a broad MaxRows pull so unknown open statuses
+# are not silently dropped (see BROAD_FETCH_AREAS / KNOWN_WAVE_STATUSES).
 OPEN_STATUS_FETCH = {
     "shipments": ("Open", "Waved", "InProcess", "Loaded"),
     "loads": ("Open", "Waved", "InProcess", "Loaded"),
     "work": ("Open", "InProcess"),
     "clusters": ("Open", "Passed", "InProcess"),
+    "waves": ("Created", "Released", "Held"),
 }
+
+# WaveStatus values observed in Gateway preview (company=achm, MaxRows=100).
+# Any other status that survives the open filter is flagged as unrecognized.
+KNOWN_WAVE_STATUSES = frozenset({"Created", "Released", "Held", "Shipped"})
+
+# Areas that also request MaxRows with no status filter (safety net).
+BROAD_FETCH_AREAS = frozenset({"waves"})
 
 AREA_TITLES = {
     "shipments": "Shipments",
@@ -89,6 +100,15 @@ COLUMNS = {
         "LoadBatchId", "SourceFileName", "SourceSheetName", "SourceRowNumber",
         "InsertedUtc", "UpdatedUtc", "LastSeenUtc", "IsDeleted",
     ],
+    "waves": [
+        "createdBy", "createdDateTime", "dataAreaId", "DemandWaveId",
+        "Description", "displayCompletedDateTime", "ExecutingUTCDateTime",
+        "InventLocationId", "InventSiteId", "numWorkCreated", "RecId",
+        "ReleasedUTCDateTime", "TableId", "WaveAttributeCode", "WaveId",
+        "WaveStatus", "WaveTemplateName", "WorkBuildId", "RecordHash",
+        "SourceFileName", "SourceSheetName", "LoadBatchId", "InsertedUtc",
+        "UpdatedUtc", "LastSeenUtc", "IsDeleted",
+    ],
 }
 
 # Sensible defaults for the Tabulator grid; other columns stay toggleable.
@@ -112,9 +132,14 @@ DEFAULT_VISIBLE = {
         "ClusterId", "WorkClusterStatus", "ClusterProfileId", "ClusterType",
         "LockedUser", "createdDateTime", "modifiedDateTime", "UpdatedUtc",
     ],
+    "waves": [
+        "WaveId", "WaveStatus", "WaveTemplateName", "InventLocationId",
+        "InventSiteId", "numWorkCreated", "DemandWaveId", "createdDateTime",
+        "UpdatedUtc", "LastSeenUtc",
+    ],
 }
 
-# Gateway / expected Reporting API report ids (not present in this repo's catalog).
+# Gateway / expected Reporting API report ids.
 REPORT_IDS = {
     "shipments": "whs_shipment_table",
     "loads": "whs_load_table",

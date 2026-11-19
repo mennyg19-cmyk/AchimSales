@@ -35,6 +35,16 @@
 </div>
 {% endif %}
 
+{% if unrecognized_statuses %}
+<div class="alert alert-warn" role="status">
+    <strong>Unrecognized status values.</strong>
+    Included because the open rule still matches
+    {% for area, statuses in unrecognized_statuses.items() %}
+    {{ area }}: {{ statuses|join(', ') }}{% if not loop.last %}; {% endif %}
+    {% endfor %}.
+</div>
+{% endif %}
+
 <div class="stat-grid wh-tiles">
     {% for tile in tiles %}
     {% if tile.coming_soon %}

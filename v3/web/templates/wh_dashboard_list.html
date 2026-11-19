@@ -42,6 +42,14 @@
 </div>
 {% endif %}
 
+{% if unrecognized_statuses %}
+<div class="alert alert-warn" role="status">
+    <strong>Unrecognized status values.</strong>
+    Included because open = not Shipped:
+    {{ unrecognized_statuses|join(', ') }}.
+</div>
+{% endif %}
+
 <div class="wh-list-controls filter-bar filter-bar-row">
     <label class="filter-field">
         <span>Search</span>
