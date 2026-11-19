@@ -81,9 +81,11 @@ dynamic urllib, SHA1 cache fingerprints).
 (shipments, loads, work, clusters, waves; due dates coming soon). Default
 allowlist `WH_DASHBOARD_ALLOWED_EMAILS=bgrossman@achimonline.com` (not
 role-based). Defaults to synthetic sample data (`WH_DASHBOARD_PROVIDER=sample`).
-Live provider behind `WH_DASHBOARD_PROVIDER=reporting_api` (per-status fetches,
-waves broad safety pull, client re-filter + achm, 5‑min cache, truncated /
-unrecognized-status warnings, sample fallback). See `v3/docs/WH-DASHBOARD.md`.
+Live provider behind `WH_DASHBOARD_PROVIDER=reporting_api` (per-status
+MaxRows=10000 fetches including waves Created/Released/Held, client re-filter
++ achm, 5‑min cache, truncated / unrecognized-status warnings; per-area
+isolation on failure; global sample fallback only when every area fails or the
+provider is unconfigured). See `v3/docs/WH-DASHBOARD.md`.
 
 **Home rebuild (`app/`):** FastAPI copy of the home site look. Do **not** merge
 it to `main` or zip-deploy `achim-sales-reports` until Menny signs off. New

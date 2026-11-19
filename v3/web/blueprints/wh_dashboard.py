@@ -51,6 +51,7 @@ def _view_meta(prov) -> dict:
     if callable(getter):
         meta = getter()
         meta.setdefault("unrecognized_statuses", {})
+        meta.setdefault("area_errors", {})
         return meta
     return {
         "provider": "sample",
@@ -59,6 +60,7 @@ def _view_meta(prov) -> dict:
         "possibly_truncated": False,
         "truncated_areas": [],
         "unrecognized_statuses": {},
+        "area_errors": {},
     }
 
 
@@ -115,8 +117,10 @@ def wh_list(area: str):
         abort(404)
 
     prov = _provider()
-    rows = _rows_for(area)
     meta = _view_meta(prov)
+    area_errors = meta.get("area_errors") or {}
+    area_error = area_errors.get(area)
+    rows = [] if area_error else _rows_for(area)
     status_col = STATUS_COLUMNS[area]
     columns = COLUMNS[area]
     visible = DEFAULT_VISIBLE[area]
@@ -142,6 +146,7 @@ def wh_list(area: str):
         provider_name=meta.get("provider", "sample"),
         using_sample_fallback=bool(meta.get("using_sample_fallback")),
         error_message=meta.get("error_message"),
+        area_error=area_error,
         possibly_truncated=area in truncated_areas,
         truncated_areas=truncated_areas,
         unrecognized_statuses=(meta.get("unrecognized_statuses") or {}).get(area) or [],

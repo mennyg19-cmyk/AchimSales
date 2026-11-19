@@ -34,6 +34,13 @@
 </div>
 {% endif %}
 
+{% if area_error %}
+<div class="alert alert-error" role="alert">
+    <strong>Unavailable.</strong>
+    Live fetch for this list failed: {{ area_error }}
+</div>
+{% endif %}
+
 {% if possibly_truncated %}
 <div class="alert alert-warn" role="status">
     <strong>Possibly truncated.</strong>

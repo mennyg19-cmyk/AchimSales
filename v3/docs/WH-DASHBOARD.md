@@ -72,28 +72,31 @@ with `X-API-Key`. Response shape:
 | Loads | `whs_load_table` | `LoadStatus` (by analogy) | Open, Waved, InProcess, Loaded |
 | Work | `whs_work_table` | `WorkStatus` (by analogy) | Open, InProcess |
 | Clusters | `whs_work_cluster_table` | `WorkClusterStatus` (by analogy) | Open, Passed, InProcess |
-| Waves | `whs_wave_table` | `WaveStatus` (by analogy) | Created, Released, Held (+ broad MaxRows safety pull) |
+| Waves | `whs_wave_table` | `WaveStatus` (by analogy) | Created, Released, Held |
 
 Wave statuses **seen** in Gateway preview 2026-11-19 (`company=achm`, MaxRows=100):
 `Created`, `Released`, `Held`, `Shipped`. Known set is recorded in
-`KNOWN_WAVE_STATUSES`. Waves also request one unfiltered `MaxRows=10000` page
-and merge it so an open status missing from the fetch list is not dropped.
-Any open status not in `KNOWN_WAVE_STATUSES` is shown as an
-**Unrecognized status values** warning.
+`KNOWN_WAVE_STATUSES`. There is **no** unfiltered MaxRows pull for waves
+(that call 500'd in prod). Each known open status is fetched with
+`MaxRows=10000` like the other areas. Client re-filter still keeps any open
+(≠ Shipped) row the API returns under those status keys; any open status not
+in `KNOWN_WAVE_STATUSES` is shown as an **Unrecognized status values** warning.
 
 Per tile the provider:
 
 1. Calls each known open status separately with `MaxRows=10000` (string).
-2. Waves: also one broad `MaxRows` call with no status filter.
-3. Merges and dedupes.
-4. Always re-filters client-side with the open-status rules below.
-5. Keeps only `Company` / `dataAreaId` = `achm` client-side.
-6. Waves: also keep `IsDeleted=0` (blank/`false` treated as active).
-7. If any single call returns `row_count >= 10000`, shows a visible
+2. Merges and dedupes.
+3. Always re-filters client-side with the open-status rules below.
+4. Keeps only `Company` / `dataAreaId` = `achm` client-side.
+5. Waves: also keep `IsDeleted=0` (blank/`false` treated as active).
+6. If any single call returns `row_count >= 10000`, shows a visible
    **Possibly truncated** warning.
-8. Caches the snapshot for ~5 minutes.
-9. On any API error: shows the error, falls back to sample rows, and a clear
-   **SAMPLE DATA** banner.
+7. Caches the snapshot for ~5 minutes.
+8. **Per-area isolation:** if one area's fetches fail, that tile (and its
+   drill-down) shows **Unavailable** with the error message. Other areas keep
+   live data. No silent sample rows in a failed live tile.
+9. **Global sample fallback** (SAMPLE DATA banner) only when every area fails,
+   or when the provider is not configured at boot.
 
 Due dates stay “coming soon”.
 
@@ -113,8 +116,8 @@ Due dates stay “coming soon”.
   display as-is (even when a source labels them GMT).
 - Refresh stamps (`UpdatedUtc`, `LastSeenUtc`, `LastImportedUTC`): true GMT/UTC
   (often RFC 822 like `Thu, 05 Nov 2026 09:34:36 GMT`) → America/New_York for
-  “Data as of”, labeled `ET`. Newest stamp across shipments, loads, work,
-  clusters, and waves.
+  “Data as of”, labeled `ET`. Newest stamp across successful live areas
+  (failed areas are skipped for the stamp).
 
 ## Code map
 
