@@ -99,16 +99,25 @@ def _drive_base_url() -> str:
 
 
 def list_children(cloud_path: str) -> list[dict]:
-    """List children of a SharePoint folder."""
+    """List children of a SharePoint folder, following Graph pages.
+
+    The Daily folders hold more than one page. A single page is the oldest
+    names, which hides the file from this morning.
+    """
     token = _get_token()
     p = cloud_path.replace("\\", "/").strip("/")
     base = _drive_base_url()
     url = f"{base}/root:/{p}:/children" if p else f"{base}/root/children"
-    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
-    if r.status_code == 404:
-        return []
-    r.raise_for_status()
-    return r.json().get("value", [])
+    items: list[dict] = []
+    while url:
+        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT)
+        if r.status_code == 404:
+            return items
+        r.raise_for_status()
+        data = r.json()
+        items.extend(data.get("value") or [])
+        url = data.get("@odata.nextLink")
+    return items
 
 
 def download_file_content(item_id: str) -> bytes:

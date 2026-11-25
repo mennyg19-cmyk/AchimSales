@@ -7,6 +7,7 @@ explicit path templates, and sends a bundled email.
 """
 
 import logging
+import re
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -186,15 +187,49 @@ REPORT_FILE_PREFIXES = {
 }
 
 
-def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tuple[str, bytes] | None:
-    """Fallback: list the SharePoint folder and find the most recent file
-    whose name starts with *prefix* and whose date range includes *yesterday*.
+_RANGE_STEM = re.compile(r"^(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})$")
+_DAY_STEM = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-    Handles both normal files (``Ordered_Report_2026-03-22.xlsx``) and
-    catch-up files (``Ordered_Report_2026-03-20_to_2026-03-22.xlsx``).
+
+def choose_report_item(items: list[dict], prefix: str, yesterday: date) -> dict | None:
+    """Pick the workbook to email for *yesterday*.
+
+    A catch-up file ending on yesterday (``Ordered_Report_2026-11-20_to_2026-11-21.xlsx``)
+    wins over the single-day file. The nightly job writes the single-day file
+    second, and the path template names that file, so newest-file and exact-path
+    both drop the skipped day. A suffixed salesman file does not match.
+    """
+    y_str = yesterday.isoformat()
+    catchup: list[dict] = []
+    single: list[dict] = []
+    covering: list[dict] = []
+    for item in items:
+        name = item.get("name") or ""
+        if not name.startswith(prefix) or not name.endswith(".xlsx"):
+            continue
+        stem = name[len(prefix):-5]
+        range_match = _RANGE_STEM.fullmatch(stem)
+        if range_match:
+            start, end = range_match.group(1), range_match.group(2)
+            if end == y_str and start < y_str:
+                catchup.append(item)
+            elif start <= y_str <= end:
+                covering.append(item)
+        elif _DAY_STEM.fullmatch(stem) and stem == y_str:
+            single.append(item)
+    pool = catchup or single or covering
+    if not pool:
+        return None
+    pool.sort(key=lambda c: c.get("lastModifiedDateTime") or "", reverse=True)
+    return pool[0]
+
+
+def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tuple[str, bytes] | None:
+    """List the SharePoint folder and pick the workbook for *yesterday*.
+
+    Prefers a catch-up range that ends on yesterday over the single-day file.
     """
     from webapp.services.sharepoint import list_children, download_file_content
-    import re
 
     log.info("Listing folder for fallback: %r", folder_path)
     items = list_children(folder_path)
@@ -203,36 +238,13 @@ def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tu
         return None
 
     log.info("Folder %r has %d items", folder_path, len(items))
-
-    y_str = yesterday.isoformat()
-    candidates: list[dict] = []
-
-    for item in items:
-        name = item.get("name", "")
-        if not name.startswith(prefix) or not name.endswith(".xlsx"):
-            continue
-
-        stem = name[len(prefix):-5]  # strip prefix and .xlsx
-
-        range_match = re.match(r"(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})", stem)
-        if range_match:
-            from_d, to_d = range_match.group(1), range_match.group(2)
-            if from_d <= y_str <= to_d:
-                candidates.append(item)
-                continue
-        elif re.match(r"\d{4}-\d{2}-\d{2}$", stem):
-            if stem == y_str:
-                candidates.append(item)
-                continue
-
-    if not candidates:
-        names = [it.get("name", "") for it in items if it.get("name", "").startswith(prefix)]
+    best = choose_report_item(items, prefix, yesterday)
+    if best is None:
+        names = [it.get("name", "") for it in items if (it.get("name") or "").startswith(prefix)]
         log.info("No matching files for %s on %s in %r. Files with prefix: %s",
-                 prefix, y_str, folder_path, names[:10])
+                 prefix, yesterday.isoformat(), folder_path, names[:10])
         return None
 
-    candidates.sort(key=lambda c: c.get("lastModifiedDateTime", ""), reverse=True)
-    best = candidates[0]
     fname = best["name"]
     item_id = best["id"]
     log.info("Fallback: found '%s' in folder listing (id=%s)", fname, item_id)
@@ -273,8 +285,9 @@ def _download_report_files(
     and errors is list of human-readable error strings per failed file.
 
     Resolution strategy per report:
-      1. Try the exact resolved path.
-      2. Fall back to listing the parent folder and matching by prefix + date.
+      1. List the parent folder. A catch-up range that ends on yesterday
+         wins over the single-day file the path template names.
+      2. If the folder has no match, try the exact resolved path.
       3. If the path contained a month-folder variable, try alternate month
          folders (yesterday's month, today's month, last month for edge dates).
       4. Final fallback: scan recent xlsx anywhere under the report's root
@@ -300,27 +313,25 @@ def _download_report_files(
         resolved = _resolve_path_template(template, today)
         filename = resolved.rsplit("/", 1)[-1] if "/" in resolved else resolved
         prefix = REPORT_FILE_PREFIXES.get(report_key, "")
-
-        # --- attempt 1: exact resolved path ---
-        try:
-            content = download_file_by_path(resolved)
-            attachments.append((filename, content))
-            log.info("[%s] Downloaded by exact path: %s (%d bytes)",
-                     report_key, filename, len(content))
-            continue
-        except Exception as e:
-            log.info("[%s] Exact path failed (%r): %s", report_key, resolved, e)
-
-        # --- attempt 2: list the resolved parent folder ---
         folder_path = resolved.rsplit("/", 1)[0] if "/" in resolved else ""
         found: tuple[str, bytes] | None = None
 
+        # Folder listing first so a catch-up range beats the single-day path.
         if folder_path and prefix:
             try:
                 found = _find_latest_in_folder(folder_path, prefix, yesterday)
             except Exception as e2:
-                log.warning("[%s] Folder fallback failed for %r: %s",
+                log.warning("[%s] Folder lookup failed for %r: %s",
                             report_key, folder_path, e2)
+
+        if found is None:
+            try:
+                content = download_file_by_path(resolved)
+                found = (filename, content)
+                log.info("[%s] Downloaded by exact path: %s (%d bytes)",
+                         report_key, filename, len(content))
+            except Exception as e:
+                log.info("[%s] Exact path failed (%r): %s", report_key, resolved, e)
 
         # --- attempt 3: alternate month folders ---
         if not found and prefix and "{month_folder}" in template:
@@ -358,7 +369,7 @@ def _download_report_files(
 
         if found:
             attachments.append(found)
-            log.info("[%s] Fallback succeeded: %s (%d bytes)",
+            log.info("[%s] Attached %s (%d bytes)",
                      report_key, found[0], len(found[1]))
             continue
 
